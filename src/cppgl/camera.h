@@ -42,7 +42,7 @@ public:
 
     // default camera keyboard/mouse handler for basic movement
     static float default_camera_movement_speed;
-    static void default_input_handler(double dt_ms);
+    static bool default_input_handler(double dt_ms);
 };
 
 // variadic alias for std::make_shared<>(...)

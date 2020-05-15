@@ -50,8 +50,7 @@ void Framebuffer::resize(uint32_t w, uint32_t h) {
 }
 
 void Framebuffer::attach_depthbuffer(std::shared_ptr<Texture2D> tex) {
-    if (!tex)
-        tex = make_texture(name + "_depth", w, h, GL_DEPTH_COMPONENT32F, GL_DEPTH_COMPONENT, GL_FLOAT);
+    if (!tex) tex = make_texture2D(name + "_depth", w, h, GL_DEPTH_COMPONENT32F, GL_DEPTH_COMPONENT, GL_FLOAT);
     glBindFramebuffer(GL_FRAMEBUFFER, id);
     depth_texture = tex;
     glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, *tex, 0);

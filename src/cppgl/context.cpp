@@ -289,35 +289,33 @@ void Context::set_resize_callback(void (*fn)(int w, int h)) { user_resize_callba
 
 static void display_camera(Camera* cam) {
     ImGui::Indent();
-    ImGui::DragFloat3("pos", &cam->pos.x, 0.001f);
-    ImGui::DragFloat3("dir", &cam->dir.x, 0.001f);
-    ImGui::DragFloat3("up", &cam->up.x, 0.001f);
-    ImGui::Checkbox("fix_up_vector", &cam->fix_up_vector);
-    ImGui::Checkbox("perspective", &cam->perspective);
+    ImGui::DragFloat3(("pos##" + cam->name).c_str(), &cam->pos.x, 0.001f);
+    ImGui::DragFloat3(("dir##" + cam->name).c_str(), &cam->dir.x, 0.001f);
+    ImGui::DragFloat3(("up##" + cam->name).c_str(), &cam->up.x, 0.001f);
+    ImGui::Checkbox(("fix_up_vector##" + cam->name).c_str(), &cam->fix_up_vector);
+    ImGui::Checkbox(("perspective##" + cam->name).c_str(), &cam->perspective);
     if (cam->perspective) {
-        ImGui::DragFloat("fov", &cam->fov_degree, 0.01f);
-        ImGui::DragFloat("near", &cam->near, 0.001f);
-        ImGui::DragFloat("far", &cam->far, 0.001f);
+        ImGui::DragFloat(("fov##" + cam->name).c_str(), &cam->fov_degree, 0.01f);
+        ImGui::DragFloat(("near##" + cam->name).c_str(), &cam->near, 0.001f);
+        ImGui::DragFloat(("far##" + cam->name).c_str(), &cam->far, 0.001f);
     } else {
-        ImGui::DragFloat("left", &cam->left, 0.001f);
-        ImGui::DragFloat("right", &cam->right, 0.001f);
-        ImGui::DragFloat("top", &cam->top, 0.001f);
-        ImGui::DragFloat("bottom", &cam->bottom, 0.001f);
+        ImGui::DragFloat(("left##" + cam->name).c_str(), &cam->left, 0.001f);
+        ImGui::DragFloat(("right##" + cam->name).c_str(), &cam->right, 0.001f);
+        ImGui::DragFloat(("top##" + cam->name).c_str(), &cam->top, 0.001f);
+        ImGui::DragFloat(("bottom##" + cam->name).c_str(), &cam->bottom, 0.001f);
     }
-    if (ImGui::Button("Make current")) cam->make_current();
+    if (ImGui::Button(("Make current##" + cam->name).c_str())) cam->make_current();
     ImGui::Unindent();
 }
 
 static void display_texture(const Texture2D* tex, ImVec2 size = ImVec2(300, 300)) {
     ImGui::Indent();
     ImGui::Text("ID: %u, size: %ux%u", tex->id, tex->w, tex->h);
-    ImGui::Text("internal_format: %u", tex->internal_format);
-    ImGui::Text("format: %u", tex->format);
-    ImGui::Text("type: %u", tex->type);
+    ImGui::Text("internal_format: %u, format %u, type: %u", tex->internal_format, tex->format, tex->type);
     ImGui::Image((ImTextureID)tex->id, size, ImVec2(0, 1), ImVec2(1, 0), ImVec4(1, 1, 1, 1), ImVec4(1, 1, 1, 0.5));
-    if (ImGui::Button("Save PNG")) tex->save_png(fs::path(tex->name).replace_extension(".png"));
+    if (ImGui::Button(("Save PNG##" + tex->name).c_str())) tex->save_png(fs::path(tex->name).replace_extension(".png"));
     ImGui::SameLine();
-    if (ImGui::Button("Save JPEG")) tex->save_jpg(fs::path(tex->name).replace_extension(".jpg"));
+    if (ImGui::Button(("Save JPEG##" + tex->name).c_str())) tex->save_jpg(fs::path(tex->name).replace_extension(".jpg"));
     ImGui::Unindent();
 }
 
@@ -360,7 +358,7 @@ static void display_timer_buffer(RingBuffer<float>* buf, const char* label="") {
     const float lower = buf->min();
     const float upper = buf->max();
     ImGui::Text("avg: %.1fms, min: %.1fms, max: %.1fms", avg, lower, upper);
-    ImGui::PlotLines(label, buf->data.data(), buf->data.size(), buf->curr, 0, std::min(buf->min(), avg - 0.5f), std::max(buf->max(), avg + 0.5f), ImVec2(0, 25));
+    ImGui::PlotHistogram(label, buf->data.data(), buf->data.size(), buf->curr, 0, 0.f, std::max(buf->max(), 17.f), ImVec2(0, 30));
 }
 
 static void draw_gui() {
@@ -370,7 +368,7 @@ static void draw_gui() {
     ImGui::SetNextWindowPos(ImVec2(10, 20));
     ImGui::SetNextWindowSize(ImVec2(350, 500));
     if (ImGui::Begin("CPU/GPU Timer", 0, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoInputs | ImGuiWindowFlags_NoBackground)) {
-        ImGui::PushStyleVar(ImGuiStyleVar_Alpha, .75f);
+        ImGui::PushStyleVar(ImGuiStyleVar_Alpha, .9f);
         for (auto& entry : TimerQuery::map) {
             ImGui::Separator();
             display_timer_buffer(&entry.second->buf, entry.second->name.c_str());
@@ -428,7 +426,7 @@ static void draw_gui() {
             for (auto& entry : Shader::map)
                 if (ImGui::CollapsingHeader(entry.first.c_str()))
                     display_shader(entry.second);
-            if (ImGui::Button("Reload modified")) Shader::reload();
+            if (ImGui::Button("Reload modified")) Shader::reload_modified();
         }
         ImGui::End();
     }

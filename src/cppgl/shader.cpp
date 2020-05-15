@@ -55,6 +55,51 @@ static GLuint compile_shader(GLenum type, bool throw_error, std::map<GLenum, fs:
         return 0;
     }
 
+    // handle single level of #include TODO FIXME
+    std::string::size_type inc_at;
+    while ((inc_at = source.find("#include")) != std::string::npos) {
+        auto inc_to = source.find("\n", inc_at);
+        std::string inc_str = source.substr(inc_at, inc_to - inc_at);
+        std::string inc_file;
+        if (inc_str.find("\"") != std::string::npos) {
+            // uses ""
+            auto first = inc_str.find("\"") + 1;
+            auto second = inc_str.find("\"", first);
+            inc_file = inc_str.substr(first, second - first);
+        } else if (inc_str.find("<") != std::string::npos) {
+            // uses <>
+            auto first = inc_str.find("<") + 1;
+            auto second = inc_str.find(">", first);
+            inc_file = inc_str.substr(first, second - first);
+        } else {
+            const std::string error_msg = "ERROR: Failed to parse #include string: " + inc_str;
+            if (throw_error)
+                throw std::runtime_error(error_msg);
+            else
+                std::cerr << error_msg << std::endl;
+            return 0;
+        }
+
+        // read #include-file
+        fs::path p = source_files[type];
+        p = p.remove_filename() / inc_file;
+        std::ifstream f(p.c_str(), std::ios::in);
+        if (f.is_open()) {
+            std::string inc_src, line;
+            while (getline(f, line))
+                inc_src += line + "\n";
+            // replace #include with file
+            source.replace(inc_at, inc_to - inc_at, inc_src);
+        } else {
+            const std::string error_msg = "ERROR: Failed to open #include file: " + inc_str;
+            if (throw_error)
+                throw std::runtime_error(error_msg);
+            else
+                std::cerr << error_msg << std::endl;
+            return 0;
+        }
+    }
+
     GLuint shader = glCreateShader(type);
     const char *src = source.c_str();
     glShaderSource(shader, 1, &src, NULL);
@@ -333,6 +378,20 @@ void Shader::uniform(const std::string &name, const std::shared_ptr<Texture2D>& 
     uniform(name, *tex, unit);
 }
 
+void Shader::uniform(const std::string& name, const Texture3D& tex, uint32_t unit) const {
+    int loc = glGetUniformLocation(id, name.c_str());
+    tex.bind(unit);
+    glUniform1i(loc, unit);
+}
+
+void Shader::uniform(const std::string& name, const Texture3D* tex, uint32_t unit) const {
+    uniform(name, *tex, unit);
+}
+
+void Shader::uniform(const std::string &name, const std::shared_ptr<Texture3D>& tex, uint32_t unit) const {
+    uniform(name, *tex, unit);
+}
+
 void Shader::reload_if_modified() {
     for (const auto& entry : source_files) {
         if (fs::last_write_time(entry.second) != timestamps[entry.first]) {
@@ -342,7 +401,7 @@ void Shader::reload_if_modified() {
     }
 }
 
-void Shader::reload() {
+void Shader::reload_modified() {
     for (auto it = begin(); it != end(); ++it)
         it->second->reload_if_modified();
 }

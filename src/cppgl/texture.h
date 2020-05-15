@@ -8,6 +8,9 @@ namespace fs = std::filesystem;
 
 #include "named_map.h"
 
+// ----------------------------------------------------
+// Texture2D
+
 class Texture2D : public NamedMap<Texture2D> {
 public:
     // construct from image on disk
@@ -45,6 +48,46 @@ public:
 };
 
 // variadic alias for std::make_shared<>(...)
-template <class... Args> std::shared_ptr<Texture2D> make_texture(Args&&... args) {
+template <class... Args> std::shared_ptr<Texture2D> make_texture2D(Args&&... args) {
     return std::make_shared<Texture2D>(args...);
+}
+
+// ----------------------------------------------------
+// Texture3D
+
+class Texture3D : public NamedMap<Texture3D> {
+public:
+    // TODO construct from data on disk
+    Texture3D(const std::string& name, const fs::path& path, bool mipmap = true);
+    // construct empty texture or from raw data
+    Texture3D(const std::string& name, uint32_t w, uint32_t h, uint32_t d, GLint internal_format, GLenum format, GLenum type, void *data = 0, bool mipmap = false);
+    virtual ~Texture3D();
+
+    // prevent copies and moves, since GL buffers aren't reference counted
+    Texture3D(const Texture3D&) = delete;
+    Texture3D& operator=(const Texture3D&) = delete;
+    Texture3D& operator=(const Texture3D&&) = delete;
+
+    explicit inline operator bool() const  { return glIsTexture(id); }
+    inline operator GLuint() const { return id; }
+
+    // resize (discards all data!)
+    void resize(uint32_t w, uint32_t h, uint32_t d);
+
+    // bind/unbind to/from OpenGL
+    void bind(uint32_t uint) const;
+    void unbind() const;
+    void bind_image(uint32_t unit, GLenum access, GLenum format) const;
+    void unbind_image(uint32_t unit) const;
+
+    // data
+    GLuint id;
+    int w, h, d;
+    GLint internal_format;
+    GLenum format, type;
+};
+
+// variadic alias for std::make_shared<>(...)
+template <class... Args> std::shared_ptr<Texture3D> make_texture3D(Args&&... args) {
+    return std::make_shared<Texture3D>(args...);
 }

@@ -60,25 +60,42 @@ float Camera::aspect_ratio() {
     return xywh[2] / (float)xywh[3];
 }
 
-void Camera::default_input_handler(double dt_ms) {
+bool Camera::default_input_handler(double dt_ms) {
+    bool moved = false;
     if (not ImGui::GetIO().WantCaptureKeyboard) {
         // keyboard
-        if (Context::key_pressed(GLFW_KEY_W))
+        if (Context::key_pressed(GLFW_KEY_W)) {
             current()->forward(dt_ms * default_camera_movement_speed);
-        if (Context::key_pressed(GLFW_KEY_S))
+            moved = true;
+        }
+        if (Context::key_pressed(GLFW_KEY_S)) {
             current()->backward(dt_ms * default_camera_movement_speed);
-        if (Context::key_pressed(GLFW_KEY_A))
+            moved = true;
+        }
+        if (Context::key_pressed(GLFW_KEY_A)) {
             current()->leftward(dt_ms * default_camera_movement_speed);
-        if (Context::key_pressed(GLFW_KEY_D))
+            moved = true;
+        }
+        if (Context::key_pressed(GLFW_KEY_D)) {
             current()->rightward(dt_ms * default_camera_movement_speed);
-        if (Context::key_pressed(GLFW_KEY_R))
+            moved = true;
+        }
+        if (Context::key_pressed(GLFW_KEY_R)) {
             current()->upward(dt_ms * default_camera_movement_speed);
-        if (Context::key_pressed(GLFW_KEY_F))
+            moved = true;
+        }
+        if (Context::key_pressed(GLFW_KEY_F)) {
             current()->downward(dt_ms * default_camera_movement_speed);
-        if (Context::key_pressed(GLFW_KEY_Q))
+            moved = true;
+        }
+        if (Context::key_pressed(GLFW_KEY_Q)) {
             Camera::current()->roll(dt_ms * -0.1);
-        if (Context::key_pressed(GLFW_KEY_E))
+            moved = true;
+        }
+        if (Context::key_pressed(GLFW_KEY_E)) {
             Camera::current()->roll(dt_ms * 0.1);
+            moved = true;
+        }
     }
     // mouse
     static float rot_speed = 0.003;
@@ -89,6 +106,8 @@ void Camera::default_input_handler(double dt_ms) {
     if (not ImGui::GetIO().WantCaptureMouse && Context::mouse_button_pressed(GLFW_MOUSE_BUTTON_LEFT)) {
         current()->pitch(dt_ms * diff.y * rot_speed);
         current()->yaw(dt_ms * diff.x * rot_speed);
+        moved = true;
     }
     last_pos = curr_pos;
+    return moved;
 }

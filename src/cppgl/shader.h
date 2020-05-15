@@ -67,11 +67,14 @@ public:
     void uniform(const std::string& name, const Texture2D& tex, uint32_t unit) const;
     void uniform(const std::string& name, const Texture2D* tex, uint32_t unit) const;
     void uniform(const std::string& name, const std::shared_ptr<Texture2D>& tex, uint32_t unit) const;
+    void uniform(const std::string& name, const Texture3D& tex, uint32_t unit) const;
+    void uniform(const std::string& name, const Texture3D* tex, uint32_t unit) const;
+    void uniform(const std::string& name, const std::shared_ptr<Texture3D>& tex, uint32_t unit) const;
 
     // management/reload
     void clear();
     void reload_if_modified();
-    static void reload();
+    static void reload_modified();
 
     // data
     GLuint id;
