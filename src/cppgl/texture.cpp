@@ -135,8 +135,7 @@ Texture3D::Texture3D(const std::string& name, uint32_t w, uint32_t h, uint32_t d
     // init GL texture
     glGenTextures(1, &id);
     glBindTexture(GL_TEXTURE_3D, id);
-    float border_color[4] = { 0, 0, 0, 0 };
-    glTexParameterfv(GL_TEXTURE_3D, GL_TEXTURE_BORDER_COLOR, (GLfloat*)&border_color);
+    // default border color is (0, 0, 0, 0)
     glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_BORDER);
     glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_BORDER);
     glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_R, GL_CLAMP_TO_BORDER);
