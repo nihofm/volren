@@ -12,7 +12,7 @@
 static Camera* current_camera = 0;
 float Camera::default_camera_movement_speed = 0.005;
 
-Camera::Camera(const std::string& name) : NamedMap(name), pos(0, 1, 0), dir(1, 0, 0), up(0, 1, 0),
+Camera::Camera(const std::string& name) : NamedMap(name), pos(0, 0, 0), dir(1, 0, 0), up(0, 1, 0),
     fov_degree(70), near(0.01), far(1000), left(-100), right(100), bottom(-100), top(100),
     perspective(true), fix_up_vector(true) {
     update();
@@ -98,15 +98,17 @@ bool Camera::default_input_handler(double dt_ms) {
         }
     }
     // mouse
-    static float rot_speed = 0.003;
+    static float rot_speed = 0.05;
     static glm::vec2 last_pos(-1);
     const glm::vec2 curr_pos = Context::mouse_pos();
     if (last_pos == glm::vec2(-1)) last_pos = curr_pos;
     const glm::vec2 diff = last_pos - curr_pos;
     if (not ImGui::GetIO().WantCaptureMouse && Context::mouse_button_pressed(GLFW_MOUSE_BUTTON_LEFT)) {
-        current()->pitch(dt_ms * diff.y * rot_speed);
-        current()->yaw(dt_ms * diff.x * rot_speed);
-        moved = true;
+        if (glm::length(diff) > 0.01) {
+            current()->pitch(diff.y * rot_speed);
+            current()->yaw(diff.x * rot_speed);
+            moved = true;
+        }
     }
     last_pos = curr_pos;
     return moved;

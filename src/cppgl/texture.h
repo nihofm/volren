@@ -16,7 +16,7 @@ public:
     // construct from image on disk
     Texture2D(const std::string& name, const fs::path& path, bool mipmap = true);
     // construct empty texture or from raw data
-    Texture2D(const std::string& name, uint32_t w, uint32_t h, GLint internal_format, GLenum format, GLenum type, void *data = 0, bool mipmap = false);
+    Texture2D(const std::string& name, uint32_t w, uint32_t h, GLint internal_format, GLenum format, GLenum type, const void *data = 0, bool mipmap = false);
     virtual ~Texture2D();
 
     // prevent copies and moves, since GL buffers aren't reference counted
@@ -57,10 +57,8 @@ template <class... Args> std::shared_ptr<Texture2D> make_texture2D(Args&&... arg
 
 class Texture3D : public NamedMap<Texture3D> {
 public:
-    // TODO construct from data on disk
-    Texture3D(const std::string& name, const fs::path& path, bool mipmap = true);
     // construct empty texture or from raw data
-    Texture3D(const std::string& name, uint32_t w, uint32_t h, uint32_t d, GLint internal_format, GLenum format, GLenum type, void *data = 0, bool mipmap = false);
+    Texture3D(const std::string& name, uint32_t w, uint32_t h, uint32_t d, GLint internal_format, GLenum format, GLenum type, const void *data = 0, bool mipmap = false);
     virtual ~Texture3D();
 
     // prevent copies and moves, since GL buffers aren't reference counted
@@ -68,7 +66,7 @@ public:
     Texture3D& operator=(const Texture3D&) = delete;
     Texture3D& operator=(const Texture3D&&) = delete;
 
-    explicit inline operator bool() const  { return glIsTexture(id); }
+    explicit inline operator bool() const  { return w > 0 && h > 0 && d > 0 && glIsTexture(id); }
     inline operator GLuint() const { return id; }
 
     // resize (discards all data!)

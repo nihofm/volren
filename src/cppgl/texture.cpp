@@ -57,7 +57,7 @@ Texture2D::Texture2D(const std::string& name, const fs::path& path, bool mipmap)
     stbi_image_free(data);
 }
 
-Texture2D::Texture2D(const std::string& name, uint32_t w, uint32_t h, GLint internal_format, GLenum format, GLenum type, void* data, bool mipmap)
+Texture2D::Texture2D(const std::string& name, uint32_t w, uint32_t h, GLint internal_format, GLenum format, GLenum type, const void* data, bool mipmap)
     : NamedMap(name), id(0), w(w), h(h), internal_format(internal_format), format(format), type(type) {
     // init GL texture
     glGenTextures(1, &id);
@@ -123,14 +123,9 @@ void Texture2D::save_jpg(const fs::path& path, int quality, bool flip) const {
 }
 
 // ----------------------------------------------------
-// Texture3D TODO test
+// Texture3D
 
-Texture3D::Texture3D(const std::string& name, const fs::path& path, bool mipmap) : NamedMap(name), id(0) {
-    // TODO
-    throw std::runtime_error("not implemented!");
-}
-
-Texture3D::Texture3D(const std::string& name, uint32_t w, uint32_t h, uint32_t d, GLint internal_format, GLenum format, GLenum type, void* data, bool mipmap)
+Texture3D::Texture3D(const std::string& name, uint32_t w, uint32_t h, uint32_t d, GLint internal_format, GLenum format, GLenum type, const void* data, bool mipmap)
     : NamedMap(name), id(0), w(w), h(h), d(d), internal_format(internal_format), format(format), type(type) {
     // init GL texture
     glGenTextures(1, &id);
