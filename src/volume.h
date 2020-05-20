@@ -25,6 +25,7 @@ public:
     float absorbtion_coefficient;
     float scattering_coefficient;
     // TODO emission?
+    float density_scale;
     float max_density;
     std::shared_ptr<Texture3D> texture;
 };

@@ -17,10 +17,10 @@
 
 static int sample = 0;
 static int sppx = 1000;
-static int bounces = 1;
-static bool show_environment = true;
-static bool tonemapping = true;
+static int bounces = 10;
+static bool tonemapping = false;
 static float exposure = 3.f;
+static bool show_environment = false;
 static std::shared_ptr<Volume> volume;
 static std::shared_ptr<Shader> trace_shader;
 static std::shared_ptr<Texture2D> environment_tex;
@@ -92,18 +92,20 @@ int main(int argc, char** argv) {
     // setup trace shader and environment map (i.e. light source)
     trace_shader = make_shader("trace", "shader/trace.glsl");
     //environment_tex = make_texture2D("env_sky", "data/images/envmaps/day_clear.png"); // TODO args
-    environment_tex = make_texture2D("env_sky", "data/gi/envmaps/clearsky.hdr"); // TODO args
-    //environment_tex = make_texture2D("env_woods", "data/images/envmaps/woods.hdr"); // TODO args
+    //environment_tex = make_texture2D("env_sky", "data/gi/envmaps/clearsky.hdr"); // TODO args
+    environment_tex = make_texture2D("env_woods", "data/images/envmaps/woods.hdr"); // TODO args
 
     // setup volume
-    std::ifstream bunny_raw("data/volumetric/bunny_512x512x361_uint16.raw", std::ios::binary);
-    if (false && bunny_raw.is_open()) {
+    //std::ifstream raw("data/volumetric/bunny_512x512x361_uint16.raw", std::ios::binary);
+    std::ifstream raw("data/volumetric/bonsai_256x256x256_uint8.raw", std::ios::binary);
+    if (raw.is_open()) {
         // TODO bunny (https://klacansky.com/open-scivis-datasets/)
-        std::vector<uint16_t> raw(std::istreambuf_iterator<char>(bunny_raw), {});
-        volume = make_volume("bunny", 512, 512, 361, raw.data());
-        volume->model[0][0] = 1.f / 0.337891;
-        volume->model[1][1] = 1.f / 0.337891;
-        volume->model[2][2] = 1.f / 0.5;
+        std::vector<uint8_t> data(std::istreambuf_iterator<char>(raw), {});
+        //volume = make_volume("bunny", 512, 512, 361, data.data());
+        volume = make_volume("bonsai", 256, 256, 256, data.data());
+        //volume->model[0][0] = 1.f / 0.337891;
+        //volume->model[1][1] = 1.f / 0.337891;
+        //volume->model[2][2] = 1.f / 0.5;
     } else {
         // simple cube
         uint32_t N = 128;
@@ -144,10 +146,13 @@ int main(int argc, char** argv) {
             // uniforms
             trace_shader->uniform("current_sample", ++sample);
             trace_shader->uniform("bounces", bounces);
-            trace_shader->uniform("show_environment", show_environment ? 1 : 0);
+            trace_shader->uniform("show_environment", show_environment ? 0 : 1);
             trace_shader->uniform("model", volume->model);
             trace_shader->uniform("inv_model", glm::inverse(volume->model));
             trace_shader->uniform("volume_tex", volume->texture, 0);
+            trace_shader->uniform("density_scale", volume->density_scale);
+            trace_shader->uniform("inv_density_scale", 1.f / volume->density_scale);
+            trace_shader->uniform("max_density", volume->max_density);
             trace_shader->uniform("inv_max_density", 1.f / volume->max_density);
             trace_shader->uniform("absorbtion_coefficient", volume->absorbtion_coefficient);
             trace_shader->uniform("scattering_coefficient", volume->scattering_coefficient);
@@ -186,10 +191,11 @@ int main(int argc, char** argv) {
             ImGui::Text("Sample: %i/%i", sample, sppx);
             if (ImGui::InputInt("Sppx", &sppx)) sample = 0;
             if (ImGui::SliderInt("Bounces", &bounces, 1, 100)) sample = 0;
-            if (ImGui::Checkbox("Show environment", &show_environment)) sample = 0;
             if (ImGui::SliderFloat("Absorb", &volume->absorbtion_coefficient, 0.001f, 1.f)) sample = 0;
             if (ImGui::SliderFloat("Scatter", &volume->scattering_coefficient, 0.001f, 1.f)) sample = 0;
+            if (ImGui::SliderFloat("Density scale", &volume->density_scale, 1.f, 500.f)) sample = 0;
             //if (ImGui::ColorEdit3("Emission", &emission.x)) sample = 0;
+            if (ImGui::Checkbox("Show environment", &show_environment)) sample = 0;
             ImGui::Separator();
             ImGui::Checkbox("Tonemapping", &tonemapping);
             ImGui::SliderFloat("Exposure", &exposure, 0.1f, 25.f);

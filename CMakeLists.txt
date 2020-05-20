@@ -9,6 +9,22 @@ set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${CMAKE_SOURCE_DIR}")
 set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}")
 set(CMAKE_LIBRARY_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}")
 
+# directory for externals
+set(EXTERNAL_DIR ${CMAKE_SOURCE_DIR}/external)
+include_directories(${EXTERNAL_DIR}/include)
+link_directories(${EXTERNAL_DIR}/lib)
+
+# ---------------------------------------------------------------------
+# external projects
+
+include(ExternalProject)
+ExternalProject_Add(cppgl-ext
+    GIT_REPOSITORY  git@git9.cs.fau.de:renderingframeworks/cppgl.git
+    GIT_TAG         v0.1
+    INSTALL_DIR     ${EXTERNAL_DIR}
+    CMAKE_ARGS      -DCMAKE_INSTALL_PREFIX:PATH=<INSTALL_DIR>
+)
+
 # ---------------------------------------------------------------------
 # options
 
@@ -31,9 +47,9 @@ add_compile_options(-pthread -fopenmp -march=native)
 add_compile_options(-Wall -Wno-unused-parameter -Wno-unused-variable -Wno-int-to-pointer-cast)
 
 # ---------------------------------------------------------------------
-# install
+# install shaders
 
-install(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/shader DESTINATION .)# FILES_MATCHING PATTERN "*.bin")
+install(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/shader DESTINATION bin)
 
 # ---------------------------------------------------------------------
 # traverse source tree

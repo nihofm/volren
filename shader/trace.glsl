@@ -81,18 +81,21 @@ vec3 sample_phase_isotropic(const vec2 phase_sample) {
 uniform mat4 model;
 uniform mat4 inv_model;
 uniform sampler3D volume_tex;
+//uniform float density_scale;
 uniform float inv_max_density;
 uniform float absorbtion_coefficient;
 uniform float scattering_coefficient;
 //uniform vec3 emission;
 
-float density(const vec3 tc) { return texture(volume_tex, tc).r; }
+const float density_scale = 100.f;
+const float inv_density_scale = 1.f / density_scale;
+const ivec3 voxels = textureSize(volume_tex, 0);
+const float stepsize = max(1e-4f, stride / max(1e-4f, min(voxels.x, min(voxels.y, voxels.z))));
 
 float sigma_t() { return scattering_coefficient + absorbtion_coefficient; }
 float sigma_a() { return scattering_coefficient / sigma_t(); }
 
-const ivec3 voxels = textureSize(volume_tex, 0);
-const float stepsize = max(1e-4f, stride / max(1e-4f, min(voxels.x, min(voxels.y, voxels.z))));
+float density(const vec3 tc) { return density_scale * texture(volume_tex, tc).r; }
 
 float transmittance(const vec3 pos, const vec3 dir, inout uint seed) {
     // clip volume
@@ -102,8 +105,8 @@ float transmittance(const vec3 pos, const vec3 dir, inout uint seed) {
     float t = near_far.x, Tr = 1.f;
     int i = 0;
     while (t < near_far.y) {
-        t -= log(1 - rng(seed)) * inv_max_density / sigma_t();
-        Tr *= 1 - max(0.f, density(pos + t * dir) * inv_max_density);
+        t -= log(1 - rng(seed)) * inv_max_density * inv_density_scale / sigma_t();
+        Tr *= 1 - max(0.f, density(pos + t * dir) * inv_max_density * inv_density_scale);
     }
     return Tr;
 }
@@ -117,8 +120,8 @@ bool sample_volume(const vec3 pos, const vec3 dir, inout uint seed, out float t)
     float Tr = 1.f;
     int i = 0;
     while (t < near_far.y) {
-        t -= log(1 - rng(seed)) * inv_max_density / sigma_t();
-        if (density(pos + t * dir) * inv_max_density > rng(seed))
+        t -= log(1 - rng(seed)) * inv_max_density * inv_density_scale / sigma_t();
+        if (density(pos + t * dir) * inv_max_density * inv_density_scale > rng(seed))
             return true;
     }
     return false;
@@ -144,19 +147,11 @@ void main() {
     while (n_scatter++ < bounces && sample_volume(pos, dir, seed, t)) {
         // advance ray and adjust throughput
         pos = pos + t * dir;
-        throughput *= sigma_a();
+        throughput *= max(0.f, sigma_a());
 
         // sample light source (environment)
         vec3 w_i;
         const vec4 Li_pdf = sample_environment(rng2(seed), w_i);
-
-        // hacky (model space) point light
-        //const vec3 w_pos = vec3(0, 1, 0);
-        //w_i = w_pos - vec3(model * vec4(pos, 1));
-        //const float r = length(w_i);
-        //w_i = normalize(w_i);
-        //const vec4 Li_pdf = vec4(vec3(10) / (r*r), 1);
-
         const vec3 to_light = normalize(mat3(inv_model) * w_i);
         radiance += throughput * transmittance(pos, to_light, seed) * phase_isotropic() * Li_pdf.rgb / Li_pdf.w;
 
@@ -164,7 +159,7 @@ void main() {
         dir = normalize(mat3(inv_model) * sample_phase_isotropic(rng2(seed)));
     }
     // free path
-    if (n_scatter > (show_environment > 0 ? 0 : 1))
+    if (n_scatter > show_environment && n_scatter <= bounces)
         radiance += throughput * environment(normalize(mat3(model) * dir));
 
     // write output

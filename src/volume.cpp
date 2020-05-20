@@ -1,7 +1,7 @@
 #include "volume.h"
 #include <vector>
 
-Volume::Volume() : model(1), absorbtion_coefficient(0.01), scattering_coefficient(0.05), max_density(0) {}
+Volume::Volume() : model(1), absorbtion_coefficient(0.01), scattering_coefficient(0.05), density_scale(100), max_density(0) {}
 
 Volume::Volume(const std::string& name, size_t w, size_t h, size_t d, float density) : Volume() {
     std::vector<float> data(w * h * d, density);
