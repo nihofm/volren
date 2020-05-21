@@ -21,6 +21,7 @@ static int bounces = 10;
 static bool tonemapping = false;
 static float exposure = 3.f;
 static bool show_environment = false;
+static bool show_gui = false;
 static std::shared_ptr<Volume> volume;
 static std::shared_ptr<Shader> trace_shader;
 static std::shared_ptr<Texture2D> environment_tex;
@@ -53,6 +54,8 @@ void resize_callback(int w, int h) {
 
 void keyboard_callback(int key, int scancode, int action, int mods) {
     if (ImGui::GetIO().WantCaptureKeyboard) return;
+    if (key == GLFW_KEY_F1 && action == GLFW_PRESS)
+        show_gui = !show_gui;
     if (key == GLFW_KEY_SPACE && action == GLFW_PRESS)
         sample = 0;
     if (key == GLFW_KEY_ENTER && action == GLFW_PRESS)
@@ -97,15 +100,15 @@ int main(int argc, char** argv) {
 
     // setup volume
     //std::ifstream raw("data/volumetric/bunny_512x512x361_uint16.raw", std::ios::binary);
-    std::ifstream raw("data/volumetric/bonsai_256x256x256_uint8.raw", std::ios::binary);
+    //std::ifstream raw("data/volumetric/bonsai_256x256x256_uint8.raw", std::ios::binary);
+    std::ifstream raw("data/volumetric/skull_256x256x256_uint8.raw", std::ios::binary);
     if (raw.is_open()) {
         // TODO bunny (https://klacansky.com/open-scivis-datasets/)
         std::vector<uint8_t> data(std::istreambuf_iterator<char>(raw), {});
         //volume = make_volume("bunny", 512, 512, 361, data.data());
-        volume = make_volume("bonsai", 256, 256, 256, data.data());
-        //volume->model[0][0] = 1.f / 0.337891;
-        //volume->model[1][1] = 1.f / 0.337891;
-        //volume->model[2][2] = 1.f / 0.5;
+        volume = make_volume("skull", 256, 256, 256, data.data());
+        volume->model = glm::rotate(volume->model, float(1.5 * M_PI), glm::vec3(1, 0, 0));
+        //volume->model = glm::scale(volume->model, glm::vec3(1.f / 0.337891, 1.f / 0.337891f, 1.f / 0.5));
     } else {
         // simple cube
         uint32_t N = 128;
@@ -156,6 +159,7 @@ int main(int argc, char** argv) {
             trace_shader->uniform("inv_max_density", 1.f / volume->max_density);
             trace_shader->uniform("absorbtion_coefficient", volume->absorbtion_coefficient);
             trace_shader->uniform("scattering_coefficient", volume->scattering_coefficient);
+            trace_shader->uniform("emission", volume->emission);
             //trace_shader->uniform("emission", emission);
             trace_shader->uniform("cam_pos", Camera::current()->pos);
             trace_shader->uniform("cam_fov", Camera::current()->fov_degree);
@@ -183,36 +187,39 @@ int main(int argc, char** argv) {
             blit(fbo->color_textures[0]);
 
         // draw GUI
-        const glm::ivec2 size = Context::resolution();
-        ImGui::SetNextWindowPos(ImVec2(size.x-260, 20));
-        ImGui::SetNextWindowSize(ImVec2(250, 300));
-        if (ImGui::Begin("Stuff", 0, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoBackground)) {
-            ImGui::PushStyleVar(ImGuiStyleVar_Alpha, .9f);
-            ImGui::Text("Sample: %i/%i", sample, sppx);
-            if (ImGui::InputInt("Sppx", &sppx)) sample = 0;
-            if (ImGui::SliderInt("Bounces", &bounces, 1, 100)) sample = 0;
-            if (ImGui::SliderFloat("Absorb", &volume->absorbtion_coefficient, 0.001f, 1.f)) sample = 0;
-            if (ImGui::SliderFloat("Scatter", &volume->scattering_coefficient, 0.001f, 1.f)) sample = 0;
-            if (ImGui::SliderFloat("Density scale", &volume->density_scale, 1.f, 500.f)) sample = 0;
-            //if (ImGui::ColorEdit3("Emission", &emission.x)) sample = 0;
-            if (ImGui::Checkbox("Show environment", &show_environment)) sample = 0;
-            ImGui::Separator();
-            ImGui::Checkbox("Tonemapping", &tonemapping);
-            ImGui::SliderFloat("Exposure", &exposure, 0.1f, 25.f);
-            ImGui::Separator();
-            ImGui::Text("Model:");
-            glm::mat4 row_maj = glm::transpose(volume->model);
-            bool modified = false;
-            if (ImGui::InputFloat4("row0", &row_maj[0][0], "%.1f")) modified = true;
-            if (ImGui::InputFloat4("row1", &row_maj[1][0], "%.1f")) modified = true;
-            if (ImGui::InputFloat4("row2", &row_maj[2][0], "%.1f")) modified = true;
-            if (ImGui::InputFloat4("row3", &row_maj[3][0], "%.1f")) modified = true;
-            if (modified) {
-                volume->model = glm::transpose(row_maj);
-                sample = 0;
+        if (show_gui) {
+            const glm::ivec2 size = Context::resolution();
+            ImGui::SetNextWindowPos(ImVec2(size.x-260, 20));
+            ImGui::SetNextWindowSize(ImVec2(250, 300));
+            if (ImGui::Begin("Stuff", 0, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoBackground)) {
+                ImGui::PushStyleVar(ImGuiStyleVar_Alpha, .9f);
+                ImGui::Text("Sample: %i/%i", sample, sppx);
+                if (ImGui::InputInt("Sppx", &sppx)) sample = 0;
+                if (ImGui::SliderInt("Bounces", &bounces, 1, 100)) sample = 0;
+                ImGui::Separator();
+                if (ImGui::SliderFloat("Absorb", &volume->absorbtion_coefficient, 0.001f, 1.f)) sample = 0;
+                if (ImGui::SliderFloat("Scatter", &volume->scattering_coefficient, 0.001f, 1.f)) sample = 0;
+                if (ImGui::SliderFloat("Density scale", &volume->density_scale, 1.f, 500.f)) sample = 0;
+                if (ImGui::ColorEdit3("Emission", &volume->emission.x)) sample = 0;
+                if (ImGui::Checkbox("Show environment", &show_environment)) sample = 0;
+                ImGui::Separator();
+                ImGui::Checkbox("Tonemapping", &tonemapping);
+                ImGui::SliderFloat("Exposure", &exposure, 0.1f, 25.f);
+                ImGui::Separator();
+                ImGui::Text("Model:");
+                glm::mat4 row_maj = glm::transpose(volume->model);
+                bool modified = false;
+                if (ImGui::InputFloat4("row0", &row_maj[0][0], "%.1f")) modified = true;
+                if (ImGui::InputFloat4("row1", &row_maj[1][0], "%.1f")) modified = true;
+                if (ImGui::InputFloat4("row2", &row_maj[2][0], "%.1f")) modified = true;
+                if (ImGui::InputFloat4("row3", &row_maj[3][0], "%.1f")) modified = true;
+                if (modified) {
+                    volume->model = glm::transpose(row_maj);
+                    sample = 0;
+                }
+                ImGui::PopStyleVar();
+                ImGui::End();
             }
-            ImGui::PopStyleVar();
-            ImGui::End();
         }
 
         // finish frame

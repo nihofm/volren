@@ -36,6 +36,7 @@ vec3 view_dir(const ivec2 xy, const ivec2 wh, const vec2 pixel_sample) {
 uniform sampler2D environment_tex;
 
 vec3 environment(const vec3 dir) {
+    return vec3(.5); // XXX test uniform env
     const float u = atan(dir.z, dir.x) / (2 * PI);
     const float v = -acos(dir.y) / PI;
     return texture(environment_tex, vec2(u, v)).rgb;
@@ -85,15 +86,13 @@ uniform sampler3D volume_tex;
 uniform float inv_max_density;
 uniform float absorbtion_coefficient;
 uniform float scattering_coefficient;
-//uniform vec3 emission;
+uniform vec3 emission;
 
+// TODO uniform?
 const float density_scale = 100.f;
 const float inv_density_scale = 1.f / density_scale;
 const ivec3 voxels = textureSize(volume_tex, 0);
 const float stepsize = max(1e-4f, stride / max(1e-4f, min(voxels.x, min(voxels.y, voxels.z))));
-
-float sigma_t() { return scattering_coefficient + absorbtion_coefficient; }
-float sigma_a() { return scattering_coefficient / sigma_t(); }
 
 float density(const vec3 tc) { return density_scale * texture(volume_tex, tc).r; }
 
@@ -103,28 +102,63 @@ float transmittance(const vec3 pos, const vec3 dir, inout uint seed) {
     if (!intersect_box(pos, dir, vec3(0), vec3(1), near_far)) return 1.f;
     // ratio tracking
     float t = near_far.x, Tr = 1.f;
-    int i = 0;
-    while (t < near_far.y) {
-        t -= log(1 - rng(seed)) * inv_max_density * inv_density_scale / sigma_t();
+    const float sigma_t = absorbtion_coefficient + scattering_coefficient;
+    while (t < near_far.y && Tr > 0.f) {
+        t -= log(1 - rng(seed)) * inv_max_density * inv_density_scale / sigma_t;
         Tr *= 1 - max(0.f, density(pos + t * dir) * inv_max_density * inv_density_scale);
+        // russian roulette
+        const float rr_threshold = .1f;
+        if (Tr < rr_threshold) {
+            const float q = max(.05f, 1 - Tr);
+            if (rng(seed) < q) return 0;
+            Tr /= 1 - q;
+        }
     }
     return Tr;
+    /*
+    // ray marching
+    float t = near_far.x + tr_sample * stepsize, tau = 0.f;
+    const float sigma_t = absorbtion_coefficient + scattering_coefficient;
+    int i = 0;
+    while (t < near_far.y && tau < 50.f && i++ < 1000) {
+        tau += sigma_t * density(pos + t * dir) * stepsize;
+        t += stepsize;
+    }
+    return exp(-tau);
+    */
 }
 
-bool sample_volume(const vec3 pos, const vec3 dir, inout uint seed, out float t) {
+bool sample_volume(const vec3 pos, const vec3 dir, inout uint seed, out float t, inout vec3 throughput) {
     // clip volume
     vec2 near_far;
     if (!intersect_box(pos, dir, vec3(0), vec3(1), near_far)) return false;
     // delta tracking
     t = near_far.x;
     float Tr = 1.f;
-    int i = 0;
-    while (t < near_far.y) {
-        t -= log(1 - rng(seed)) * inv_max_density * inv_density_scale / sigma_t();
-        if (density(pos + t * dir) * inv_max_density * inv_density_scale > rng(seed))
+    const float sigma_t = absorbtion_coefficient + scattering_coefficient;
+     while (t < near_far.y) {
+        t -= log(1 - rng(seed)) * inv_max_density * inv_density_scale / sigma_t;
+        if (density(pos + t * dir) * inv_max_density * inv_density_scale > rng(seed)) {
+            throughput *= scattering_coefficient / sigma_t;
             return true;
+        }
+     }
+     return false;
+    /*
+    // ray marching
+    t = near_far.x + vol_sample.x * stepsize;
+    float tau = 0.f;
+    const float sigma_t = absorbtion_coefficient + scattering_coefficient;
+    while (t < near_far.y) {
+        tau += sigma_t * density(pos + t * dir) * stepsize;
+        if (tau > vol_sample.y) {
+            throughput *= scattering_coefficient / sigma_t;
+            return true;
+        }
+        t += stepsize;
     }
     return false;
+    */
 }
 
 // --------------------------------------------------------------
@@ -138,32 +172,45 @@ void main() {
     // setup view ray (in model space!)
     uint seed = tea(pixel.y * size.x + pixel.x, current_sample, 8);
     vec3 pos = vec3(inv_model * vec4(cam_pos, 1));
-    vec3 dir = normalize(vec3(inv_model * vec4(view_dir(pixel, size, rng2(seed)), 0)));
+    vec3 dir = normalize(mat3(inv_model) * view_dir(pixel, size, rng2(seed)));
 
     // trace path
     vec3 radiance = vec3(0), throughput = vec3(1);
-    int n_scatter = 0;
-    float t, Tr; // t: end of ray segment, Tr: transmittance along ray segment
-    while (n_scatter++ < bounces && sample_volume(pos, dir, seed, t)) {
-        // advance ray and adjust throughput
+    int n_paths = 0;
+    float t; // t: end of ray segment (i.e. sampled position or out of volume)
+    while (all(greaterThan(throughput, vec3(0))) && sample_volume(pos, dir, seed, t, throughput)) {
+        // advance ray and evaluate medium
         pos = pos + t * dir;
-        throughput *= max(0.f, sigma_a());
+        const float d = density(pos);
+        const float mu_a = absorbtion_coefficient * d;
+        const float mu_s = scattering_coefficient * d;
 
         // sample light source (environment)
         vec3 w_i;
         const vec4 Li_pdf = sample_environment(rng2(seed), w_i);
         const vec3 to_light = normalize(mat3(inv_model) * w_i);
-        radiance += throughput * transmittance(pos, to_light, seed) * phase_isotropic() * Li_pdf.rgb / Li_pdf.w;
+        radiance += throughput * (mu_a * emission + mu_s * phase_isotropic() * transmittance(pos, to_light, seed) * Li_pdf.rgb / Li_pdf.w);
+        if (++n_paths >= bounces) break;
 
-        // sample phase function for scattered direction
+        // scatter ray
         dir = normalize(mat3(inv_model) * sample_phase_isotropic(rng2(seed)));
+
+        // russian roulette
+        const float rr_threshold = .1f;
+        const float tr_val = dot(throughput, vec3(0.212671f, 0.715160f, 0.072169f));
+        if (tr_val < rr_threshold) {
+            const float q = max(.05f, 1 - tr_val);
+            if (rng(seed) < q) break;
+            throughput /= 1 - q;
+        }
     }
-    // free path
-    if (n_scatter > show_environment && n_scatter <= bounces)
+
+    // free path?
+    if (n_paths < bounces && n_paths >= show_environment)
         radiance += throughput * environment(normalize(mat3(model) * dir));
 
     // write output
     if (any(isnan(radiance)) || any(isinf(radiance))) return;
-    const vec3 old = imageLoad(color, pixel).rgb;
-    imageStore(color, pixel, vec4(mix(old, radiance, 1.f / current_sample), 1));
+    const vec3 prev = imageLoad(color, pixel).rgb;
+    imageStore(color, pixel, vec4(mix(prev, radiance, 1.f / current_sample), 1));
 }
