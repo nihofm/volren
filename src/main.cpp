@@ -18,7 +18,7 @@
 static int sample = 0;
 static int sppx = 1000;
 static int bounces = 10;
-static bool tonemapping = false;
+static bool tonemapping = true;
 static float exposure = 3.f;
 static bool show_environment = false;
 static bool show_gui = false;
@@ -54,7 +54,7 @@ void resize_callback(int w, int h) {
 
 void keyboard_callback(int key, int scancode, int action, int mods) {
     if (ImGui::GetIO().WantCaptureKeyboard) return;
-    if (key == GLFW_KEY_F1 && action == GLFW_PRESS)
+    if (key == GLFW_KEY_F2 && action == GLFW_PRESS)
         show_gui = !show_gui;
     if (key == GLFW_KEY_SPACE && action == GLFW_PRESS)
         sample = 0;
@@ -72,6 +72,8 @@ void mouse_button_callback(int button, int action, int mods) {
 int main(int argc, char** argv) {
     // setup GL
     ContextParameters params;
+    params.width = 1024;
+    params.height = 1024;
     params.title = "VolGL";
     params.floating = GLFW_TRUE;
     params.resizable = GLFW_FALSE;
@@ -95,8 +97,8 @@ int main(int argc, char** argv) {
     // setup trace shader and environment map (i.e. light source)
     trace_shader = make_shader("trace", "shader/trace.glsl");
     //environment_tex = make_texture2D("env_sky", "data/images/envmaps/day_clear.png"); // TODO args
-    //environment_tex = make_texture2D("env_sky", "data/gi/envmaps/clearsky.hdr"); // TODO args
-    environment_tex = make_texture2D("env_woods", "data/images/envmaps/woods.hdr"); // TODO args
+    environment_tex = make_texture2D("env_sky", "data/gi/envmaps/clearsky.hdr"); // TODO args
+    //environment_tex = make_texture2D("env_woods", "data/images/envmaps/woods.hdr"); // TODO args
 
     // setup volume
     //std::ifstream raw("data/volumetric/bunny_512x512x361_uint16.raw", std::ios::binary);
@@ -126,18 +128,23 @@ int main(int argc, char** argv) {
         volume->model[3][2] = -2.5;
     }
 
+    const float shader_check_ms = 1000;
+    float shader_timer = 0;
+
     // run
     while (Context::running()) {
         // handle input
         glfwPollEvents();
         if (Camera::default_input_handler(Context::frame_time()))
             sample = 0; // restart rendering
-        static uint32_t counter = 0;
-        if (counter++ % 100 == 0)
-            Shader::reload_modified();
 
-        // update
+        // update and reload shaders
         Camera::current()->update();
+        shader_timer -= Context::frame_time();
+        if (shader_timer <= 0) {
+            Shader::reload_modified();
+            shader_timer = shader_check_ms;
+        }
 
         // render
         if (sample < sppx) {
@@ -160,7 +167,7 @@ int main(int argc, char** argv) {
             trace_shader->uniform("absorbtion_coefficient", volume->absorbtion_coefficient);
             trace_shader->uniform("scattering_coefficient", volume->scattering_coefficient);
             trace_shader->uniform("emission", volume->emission);
-            //trace_shader->uniform("emission", emission);
+            trace_shader->uniform("phase_g", volume->phase_g);
             trace_shader->uniform("cam_pos", Camera::current()->pos);
             trace_shader->uniform("cam_fov", Camera::current()->fov_degree);
             const glm::vec3 right = glm::normalize(cross(Camera::current()->dir, glm::vec3(1e-4f, 1, 0)));
@@ -177,7 +184,7 @@ int main(int argc, char** argv) {
                 fbo->color_textures[i]->unbind_image(i);
             trace_shader->unbind();
         } else
-            glfwWaitEvents();
+            glfwWaitEventsTimeout(1);
 
         // draw
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
@@ -190,21 +197,22 @@ int main(int argc, char** argv) {
         if (show_gui) {
             const glm::ivec2 size = Context::resolution();
             ImGui::SetNextWindowPos(ImVec2(size.x-260, 20));
-            ImGui::SetNextWindowSize(ImVec2(250, 300));
-            if (ImGui::Begin("Stuff", 0, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoBackground)) {
+            ImGui::SetNextWindowSize(ImVec2(250, -1));
+            if (ImGui::Begin("Stuff", 0, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoBackground | ImGuiWindowFlags_NoFocusOnAppearing)) {
                 ImGui::PushStyleVar(ImGuiStyleVar_Alpha, .9f);
                 ImGui::Text("Sample: %i/%i", sample, sppx);
                 if (ImGui::InputInt("Sppx", &sppx)) sample = 0;
                 if (ImGui::SliderInt("Bounces", &bounces, 1, 100)) sample = 0;
                 ImGui::Separator();
-                if (ImGui::SliderFloat("Absorb", &volume->absorbtion_coefficient, 0.001f, 1.f)) sample = 0;
-                if (ImGui::SliderFloat("Scatter", &volume->scattering_coefficient, 0.001f, 1.f)) sample = 0;
-                if (ImGui::SliderFloat("Density scale", &volume->density_scale, 1.f, 500.f)) sample = 0;
-                if (ImGui::ColorEdit3("Emission", &volume->emission.x)) sample = 0;
-                if (ImGui::Checkbox("Show environment", &show_environment)) sample = 0;
-                ImGui::Separator();
+                if (ImGui::Checkbox("Environment", &show_environment)) sample = 0;
                 ImGui::Checkbox("Tonemapping", &tonemapping);
                 ImGui::SliderFloat("Exposure", &exposure, 0.1f, 25.f);
+                ImGui::Separator();
+                if (ImGui::SliderFloat("Absorb", &volume->absorbtion_coefficient, 0.001f, 1.f)) sample = 0;
+                if (ImGui::SliderFloat("Scatter", &volume->scattering_coefficient, 0.001f, 1.f)) sample = 0;
+                if (ImGui::ColorEdit3("Emission", &volume->emission.x)) sample = 0;
+                if (ImGui::SliderFloat("Phase g", &volume->phase_g, -.9f, .9f)) sample = 0;
+                if (ImGui::SliderFloat("Density scale", &volume->density_scale, 1.f, 500.f)) sample = 0;
                 ImGui::Separator();
                 ImGui::Text("Model:");
                 glm::mat4 row_maj = glm::transpose(volume->model);
