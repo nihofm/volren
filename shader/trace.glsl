@@ -264,8 +264,8 @@ void main() {
     }
 
     // free path? -> add envmap contribution TODO MIS
-    if (n_paths < bounces && n_paths >= show_environment)
-        radiance += throughput * environment(vol_to_world(dir));
+    //if (n_paths < bounces && n_paths >= show_environment)
+        //radiance += throughput * environment(vol_to_world(dir));
 
     // write output
     if (any(isnan(radiance)) || any(isinf(radiance))) return;

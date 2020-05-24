@@ -33,7 +33,7 @@ static std::shared_ptr<Framebuffer> fbo;
 // helper funcs and callbacks
 
 void blit(const std::shared_ptr<Texture2D>& tex) {
-    static std::shared_ptr<Shader> blit_shader = make_shader("blit", "shader/blit.vs", "shader/blit.fs");
+    static std::shared_ptr<Shader> blit_shader = make_shader("blit", "shader/quad.vs", "shader/blit.fs");
     blit_shader->bind();
     blit_shader->uniform("tex", tex, 0);
     Quad::draw();
@@ -41,7 +41,7 @@ void blit(const std::shared_ptr<Texture2D>& tex) {
 }
 
 void tonemap(const std::shared_ptr<Texture2D>& tex) {
-    static std::shared_ptr<Shader> tonemap_shader = make_shader("tonemap", "shader/blit.vs", "shader/tonemap.fs");
+    static std::shared_ptr<Shader> tonemap_shader = make_shader("tonemap", "shader/quad.vs", "shader/tonemap.fs");
     tonemap_shader->bind();
     tonemap_shader->uniform("tex", tex, 0);
     tonemap_shader->uniform("exposure", exposure);
@@ -50,7 +50,7 @@ void tonemap(const std::shared_ptr<Texture2D>& tex) {
 }
 
 void convergence(const std::shared_ptr<Texture2D>& color, const std::shared_ptr<Texture2D>& even) {
-    static std::shared_ptr<Shader> tonemap_shader = make_shader("convergence", "shader/blit.vs", "shader/convergence.fs");
+    static std::shared_ptr<Shader> tonemap_shader = make_shader("convergence", "shader/quad.vs", "shader/convergence.fs");
     tonemap_shader->bind();
     tonemap_shader->uniform("color", color, 0);
     tonemap_shader->uniform("even", even, 1);
@@ -117,14 +117,14 @@ int main(int argc, char** argv) {
 
     // setup volume
     //std::ifstream raw("data/volumetric/bunny_512x512x361_uint16.raw", std::ios::binary);
-    std::ifstream raw("data/volumetric/bonsai_256x256x256_uint8.raw", std::ios::binary);
-    //std::ifstream raw("data/volumetric/skull_256x256x256_uint8.raw", std::ios::binary);
+    //std::ifstream raw("data/volumetric/bonsai_256x256x256_uint8.raw", std::ios::binary);
+    std::ifstream raw("data/volumetric/skull_256x256x256_uint8.raw", std::ios::binary);
     if (raw.is_open()) {
         // TODO bunny (https://klacansky.com/open-scivis-datasets/)
         std::vector<uint8_t> data(std::istreambuf_iterator<char>(raw), {});
         //volume = make_volume("bunny", 512, 512, 361, data.data());
         volume = make_volume("skull", 256, 256, 256, data.data());
-        //volume->model = glm::rotate(volume->model, float(1.5 * M_PI), glm::vec3(1, 0, 0));
+        volume->model = glm::rotate(volume->model, float(1.5 * M_PI), glm::vec3(1, 0, 0));
         //volume->model = glm::scale(volume->model, glm::vec3(1.f / 0.337891, 1.f / 0.337891f, 1.f / 0.5));
     } else {
         // simple cube
@@ -209,7 +209,7 @@ int main(int argc, char** argv) {
                 fbo->color_textures[i]->unbind_image(i);
             trace_shader->unbind();
         } else
-            glfwWaitEventsTimeout(1);
+            glfwWaitEventsTimeout(1.f / 10); // 10fps idle
 
         // draw
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
