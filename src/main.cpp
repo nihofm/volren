@@ -11,6 +11,7 @@
 #include <fstream>
 
 #include "volume.h"
+#include "environment.h"
 
 // ------------------------------------------
 // state / variables / settings
@@ -20,11 +21,12 @@ static int sppx = 1000;
 static int bounces = 10;
 static bool tonemapping = true;
 static float exposure = 3.f;
+static bool show_convergence = false;
 static bool show_environment = false;
 static bool show_gui = false;
 static std::shared_ptr<Volume> volume;
+static std::shared_ptr<Environment> environment;
 static std::shared_ptr<Shader> trace_shader;
-static std::shared_ptr<Texture2D> environment_tex;
 static std::shared_ptr<Framebuffer> fbo;
 
 // ------------------------------------------
@@ -43,6 +45,15 @@ void tonemap(const std::shared_ptr<Texture2D>& tex) {
     tonemap_shader->bind();
     tonemap_shader->uniform("tex", tex, 0);
     tonemap_shader->uniform("exposure", exposure);
+    Quad::draw();
+    tonemap_shader->unbind();
+}
+
+void convergence(const std::shared_ptr<Texture2D>& color, const std::shared_ptr<Texture2D>& even) {
+    static std::shared_ptr<Shader> tonemap_shader = make_shader("convergence", "shader/blit.vs", "shader/convergence.fs");
+    tonemap_shader->bind();
+    tonemap_shader->uniform("color", color, 0);
+    tonemap_shader->uniform("even", even, 1);
     Quad::draw();
     tonemap_shader->unbind();
 }
@@ -70,6 +81,8 @@ void mouse_button_callback(int button, int action, int mods) {
 // main
 
 int main(int argc, char** argv) {
+    // TODO cmd line args
+
     // setup GL
     ContextParameters params;
     params.width = 1024;
@@ -92,24 +105,26 @@ int main(int argc, char** argv) {
     fbo->attach_colorbuffer(make_texture2D("fbo/f_norm", res.x, res.y, GL_RGBA32F, GL_RGBA, GL_FLOAT));
     fbo->attach_colorbuffer(make_texture2D("fbo/f_alb", res.x, res.y, GL_RGBA32F, GL_RGBA, GL_FLOAT));
     fbo->attach_colorbuffer(make_texture2D("fbo/f_vol", res.x, res.y, GL_RGBA32F, GL_RGBA, GL_FLOAT));
+    fbo->attach_colorbuffer(make_texture2D("fbo/even", res.x, res.y, GL_RGBA32F, GL_RGBA, GL_FLOAT));
     fbo->check();
 
-    // setup trace shader and environment map (i.e. light source)
+    // setup trace shader
     trace_shader = make_shader("trace", "shader/trace.glsl");
-    //environment_tex = make_texture2D("env_sky", "data/images/envmaps/day_clear.png"); // TODO args
-    environment_tex = make_texture2D("env_sky", "data/gi/envmaps/clearsky.hdr"); // TODO args
-    //environment_tex = make_texture2D("env_woods", "data/images/envmaps/woods.hdr"); // TODO args
+
+    // setup environment (i.e. light source)
+    environment = make_environment("environment", make_texture2D("environment", "data/gi/envmaps/clearsky.hdr"));
+    //environment = make_environment("environment", make_texture2D("environment", "data/images/envmaps/woods.hdr"));
 
     // setup volume
     //std::ifstream raw("data/volumetric/bunny_512x512x361_uint16.raw", std::ios::binary);
-    //std::ifstream raw("data/volumetric/bonsai_256x256x256_uint8.raw", std::ios::binary);
-    std::ifstream raw("data/volumetric/skull_256x256x256_uint8.raw", std::ios::binary);
+    std::ifstream raw("data/volumetric/bonsai_256x256x256_uint8.raw", std::ios::binary);
+    //std::ifstream raw("data/volumetric/skull_256x256x256_uint8.raw", std::ios::binary);
     if (raw.is_open()) {
         // TODO bunny (https://klacansky.com/open-scivis-datasets/)
         std::vector<uint8_t> data(std::istreambuf_iterator<char>(raw), {});
         //volume = make_volume("bunny", 512, 512, 361, data.data());
         volume = make_volume("skull", 256, 256, 256, data.data());
-        volume->model = glm::rotate(volume->model, float(1.5 * M_PI), glm::vec3(1, 0, 0));
+        //volume->model = glm::rotate(volume->model, float(1.5 * M_PI), glm::vec3(1, 0, 0));
         //volume->model = glm::scale(volume->model, glm::vec3(1.f / 0.337891, 1.f / 0.337891f, 1.f / 0.5));
     } else {
         // simple cube
@@ -152,34 +167,44 @@ int main(int argc, char** argv) {
             trace_shader->bind();
             for (uint32_t i = 0; i < fbo->color_textures.size(); ++i)
                 fbo->color_textures[i]->bind_image(i, GL_READ_WRITE, GL_RGBA32F);
+            environment->cdf_U->bind(0);
+            environment->cdf_V->bind(1);
 
             // uniforms
             trace_shader->uniform("current_sample", ++sample);
             trace_shader->uniform("bounces", bounces);
             trace_shader->uniform("show_environment", show_environment ? 0 : 1);
-            trace_shader->uniform("model", volume->model);
-            trace_shader->uniform("inv_model", glm::inverse(volume->model));
-            trace_shader->uniform("volume_tex", volume->texture, 0);
-            trace_shader->uniform("density_scale", volume->density_scale);
-            trace_shader->uniform("inv_density_scale", 1.f / volume->density_scale);
-            trace_shader->uniform("max_density", volume->max_density);
-            trace_shader->uniform("inv_max_density", 1.f / volume->max_density);
-            trace_shader->uniform("absorbtion_coefficient", volume->absorbtion_coefficient);
-            trace_shader->uniform("scattering_coefficient", volume->scattering_coefficient);
-            trace_shader->uniform("emission", volume->emission);
-            trace_shader->uniform("phase_g", volume->phase_g);
+            // volume
+            trace_shader->uniform("vol_model", volume->model);
+            trace_shader->uniform("vol_inv_model", glm::inverse(volume->model));
+            trace_shader->uniform("vol_tex", volume->texture, 0);
+            trace_shader->uniform("vol_density_scale", volume->density_scale);
+            trace_shader->uniform("vol_inv_density_scale", 1.f / volume->density_scale);
+            trace_shader->uniform("vol_max_density", volume->max_density);
+            trace_shader->uniform("vol_inv_max_density", 1.f / volume->max_density);
+            trace_shader->uniform("vol_absorb", volume->absorbtion_coefficient);
+            trace_shader->uniform("vol_scatter", volume->scattering_coefficient);
+            trace_shader->uniform("vol_emission", volume->emission);
+            trace_shader->uniform("vol_phase_g", volume->phase_g);
+            // camera
             trace_shader->uniform("cam_pos", Camera::current()->pos);
             trace_shader->uniform("cam_fov", Camera::current()->fov_degree);
             const glm::vec3 right = glm::normalize(cross(Camera::current()->dir, glm::vec3(1e-4f, 1, 0)));
             const glm::vec3 up = glm::normalize(cross(right, Camera::current()->dir));
             trace_shader->uniform("cam_transform", glm::mat3(right, up, -Camera::current()->dir));
-            trace_shader->uniform("environment_tex", environment_tex, 1);
+            // environment
+            trace_shader->uniform("env_model", environment->model);
+            trace_shader->uniform("env_inv_model", glm::inverse(environment->model));
+            trace_shader->uniform("env_texture", environment->texture, 1);
+            trace_shader->uniform("env_integral", environment->integral);
 
             // trace
             const glm::ivec2 size = Context::resolution();
             trace_shader->dispatch_compute(size.x, size.y);
 
             // unbind
+            environment->cdf_U->unbind(0);
+            environment->cdf_V->unbind(1);
             for (uint32_t i = 0; i < fbo->color_textures.size(); ++i)
                 fbo->color_textures[i]->unbind_image(i);
             trace_shader->unbind();
@@ -188,10 +213,14 @@ int main(int argc, char** argv) {
 
         // draw
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-        if (tonemapping)
-            tonemap(fbo->color_textures[0]);
-        else
-            blit(fbo->color_textures[0]);
+        if (show_convergence)
+            convergence(fbo->color_textures[0], fbo->color_textures[fbo->color_textures.size() - 1]);
+        else {
+            if (tonemapping)
+                tonemap(fbo->color_textures[0]);
+            else
+                blit(fbo->color_textures[0]);
+        }
 
         // draw GUI
         if (show_gui) {
@@ -207,12 +236,13 @@ int main(int argc, char** argv) {
                 if (ImGui::Checkbox("Environment", &show_environment)) sample = 0;
                 ImGui::Checkbox("Tonemapping", &tonemapping);
                 ImGui::SliderFloat("Exposure", &exposure, 0.1f, 25.f);
+                ImGui::Checkbox("Show convergence", &show_convergence);
                 ImGui::Separator();
+                if (ImGui::SliderFloat("Density scale", &volume->density_scale, 1.f, 500.f)) sample = 0;
                 if (ImGui::SliderFloat("Absorb", &volume->absorbtion_coefficient, 0.001f, 1.f)) sample = 0;
                 if (ImGui::SliderFloat("Scatter", &volume->scattering_coefficient, 0.001f, 1.f)) sample = 0;
                 if (ImGui::ColorEdit3("Emission", &volume->emission.x)) sample = 0;
                 if (ImGui::SliderFloat("Phase g", &volume->phase_g, -.9f, .9f)) sample = 0;
-                if (ImGui::SliderFloat("Density scale", &volume->density_scale, 1.f, 500.f)) sample = 0;
                 ImGui::Separator();
                 ImGui::Text("Model:");
                 glm::mat4 row_maj = glm::transpose(volume->model);

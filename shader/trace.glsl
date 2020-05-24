@@ -9,10 +9,10 @@ layout (binding = 1, rgba32f) uniform image2D f_pos;
 layout (binding = 2, rgba32f) uniform image2D f_norm;
 layout (binding = 3, rgba32f) uniform image2D f_alb;
 layout (binding = 4, rgba32f) uniform image2D f_vol;
+layout (binding = 5, rgba32f) uniform image2D even;
 
 uniform int current_sample;
 uniform int bounces;
-uniform float stride;
 uniform int show_environment;
 
 // --------------------------------------------------------------
@@ -22,6 +22,8 @@ uniform int show_environment;
 #define inv_4PI 1.f / PI
 
 float sqr(float x) { return x * x; }
+
+float luma(const vec3 col) { return dot(col, vec3(0.212671f, 0.715160f, 0.072169f)); }
 
 vec3 align(const vec3 axis, const vec3 v) {
     const float s = sign(axis.z);
@@ -47,22 +49,72 @@ vec3 view_dir(const ivec2 xy, const ivec2 wh, const vec2 pixel_sample) {
 // --------------------------------------------------------------
 // environment helper (vectors all in world space!)
 
-uniform sampler2D environment_tex;
+uniform mat4 env_model;
+uniform mat4 env_inv_model;
+uniform sampler2D env_texture;
+uniform float env_integral;
+
+layout(std430, binding = 0) buffer env_cdf_U {
+    float cdf_U[];
+};
+layout(std430, binding = 1) buffer env_cdf_V {
+    float cdf_V[];
+};
+
+vec3 world_to_env(const vec4 world) { return vec3(env_inv_model * world); } // position
+vec3 world_to_env(const vec3 world) { return normalize(mat3(env_inv_model) * world); } // direction
+vec3 env_to_world(const vec4 model) { return vec3(env_model * model); } // position
+vec3 env_to_world(const vec3 model) { return normalize(mat3(env_model) * model); } // direction
 
 vec3 environment(const vec3 dir) {
     const float u = atan(dir.z, dir.x) / (2 * PI);
     const float v = -acos(dir.y) / PI;
-    return texture(environment_tex, vec2(u, v)).rgb;
+    return texture(env_texture, vec2(u, v)).rgb;
 }
 
 vec4 sample_environment(const vec2 env_sample, out vec3 w_i) {
-    // TODO envmap importance sampling (CDFs)
-    const float z = 1.f - 2.f * env_sample.x;
-    const float r = sqrt(max(0.f, 1.f - z * z));
-    const float phi = 2.f * PI * env_sample.y;
-    w_i = vec3(r * cos(phi), r * sin(phi), z);
-    const float pdf = inv_4PI;
-    return vec4(environment(w_i), pdf);
+    const ivec2 size = textureSize(env_texture, 0);
+    ivec2 index;
+    // sample V coordinate index (row) using binary search
+    int ilo = 0, ihi = size.y;
+    while (ilo != ihi - 1) {
+        const int i = (ilo + ihi) >> 1;
+        const float cdf = cdf_V[i];
+        if (env_sample.y < cdf)
+            ihi = i;
+        else
+            ilo = i;
+    }
+    index.y = ilo;
+    // sample U coordinate index (column) using binary search
+    ilo = 0, ihi = size.x;
+    while (ilo != ihi - 1) {
+        const int i = (ilo + ihi) >> 1;
+        const float cdf = cdf_U[index.y * (size.x + 1) + i];
+        if (env_sample.y < cdf)
+            ihi = i;
+        else
+            ilo = i;
+    }
+    index.x = ilo;
+    // continuous sampling of texture coordinates
+    const float cdf_U_lo = cdf_U[index.y * (size.x + 1) + index.x];
+    const float cdf_U_hi = cdf_U[index.y * (size.x + 1) + index.x + 1];
+    const float du = (env_sample.x - cdf_U_lo) / (cdf_U_hi - cdf_U_lo);
+    const float cdf_V_lo = cdf_V[index.y];
+    const float cdf_V_hi = cdf_V[index.y + 1];
+    const float dv = (env_sample.x - cdf_V_lo) / (cdf_V_hi - cdf_V_lo);
+    const float u = (index.x + du) / size.x;
+    const float v = (index.y + dv) / size.y;
+    // convert to direction
+    const float theta = v * PI;
+    const float phi   = u * 2.f * PI;
+    const float sin_t = sin(theta);
+    w_i = vec3(sin_t * cos(phi), sin_t * sin(phi), cos(theta));
+    // compute emission and pdf
+    const vec3 emission = environment(w_i);
+    const float pdf = (luma(emission) / env_integral) / (2.f * PI * PI * sin_t);
+    return vec4(emission, pdf);
 }
 
 // --------------------------------------------------------------
@@ -99,36 +151,41 @@ vec3 sample_phase_henyey_greenstein(const vec3 dir, const float g, const vec2 ph
         (1 + sqr(g) - sqr((1 - sqr(g)) / (1 - g + 2 * g * phase_sample.x))) / (2 * g);
     const float sin_t = sqrt(max(0.f, 1.f - sqr(cos_t)));
     const float phi = 2.f * PI * phase_sample.y;
-    return align(dir, vec3(sin_t * cos(phi), sin_t * sin(phi), cos_t));
+    return align(dir, vec3(sin_t * cos(phi), sin_t * sin(phi), cos_t)); // TODO check if align() works for spheres
 }
 
 // --------------------------------------------------------------
 // volume sampling helpers (vectors all in model space!)
 
-uniform mat4 model;
-uniform mat4 inv_model;
-uniform sampler3D volume_tex;
-uniform float density_scale;
-uniform float inv_density_scale;
-uniform float max_density;
-uniform float inv_max_density;
-uniform float absorbtion_coefficient;
-uniform float scattering_coefficient;
-uniform vec3 emission;
-uniform float phase_g;
+uniform mat4 vol_model;
+uniform mat4 vol_inv_model;
+uniform sampler3D vol_texture;
+uniform float vol_density_scale;
+uniform float vol_inv_density_scale;
+uniform float vol_max_density;
+uniform float vol_inv_max_density;
+uniform float vol_absorb;
+uniform float vol_scatter;
+uniform vec3 vol_emission;
+uniform float vol_phase_g;
 
-float density(const vec3 tc) { return density_scale * texture(volume_tex, tc).r; }
+float density(const vec3 tc) { return vol_density_scale * texture(vol_texture, tc).r; }
+vec3 world_to_vol(const vec4 world) { return vec3(vol_inv_model * world); } // position
+vec3 world_to_vol(const vec3 world) { return normalize(mat3(vol_inv_model) * world); } // direction
+vec3 vol_to_world(const vec4 model) { return vec3(vol_model * model); } // position
+vec3 vol_to_world(const vec3 model) { return normalize(mat3(vol_model) * model); } // direction
 
+// pos and dir in model (volume) space
 float transmittance(const vec3 pos, const vec3 dir, inout uint seed) {
     // clip volume
     vec2 near_far;
     if (!intersect_box(pos, dir, vec3(0), vec3(1), near_far)) return 1.f;
     // ratio tracking
     float t = near_far.x, Tr = 1.f;
-    const float sigma_t = absorbtion_coefficient + scattering_coefficient;
+    const float sigma_t = vol_absorb + vol_scatter;
     while (t < near_far.y) {
-        t -= log(1 - rng(seed)) * inv_max_density * inv_density_scale / sigma_t;
-        Tr *= 1 - max(0.f, density(pos + t * dir) * inv_max_density * inv_density_scale);
+        t -= log(1 - rng(seed)) * vol_inv_max_density * vol_inv_density_scale / sigma_t;
+        Tr *= 1 - max(0.f, density(pos + t * dir) * vol_inv_max_density * vol_inv_density_scale);
         // russian roulette
         const float rr_threshold = .1f;
         if (Tr < rr_threshold) {
@@ -140,6 +197,7 @@ float transmittance(const vec3 pos, const vec3 dir, inout uint seed) {
     return Tr;
 }
 
+// pos and dir in model (volume) space
 bool sample_volume(const vec3 pos, const vec3 dir, inout uint seed, out float t, inout vec3 throughput) {
     // clip volume
     vec2 near_far;
@@ -147,11 +205,11 @@ bool sample_volume(const vec3 pos, const vec3 dir, inout uint seed, out float t,
     // delta tracking
     t = near_far.x;
     float Tr = 1.f;
-    const float sigma_t = absorbtion_coefficient + scattering_coefficient;
+    const float sigma_t = vol_absorb + vol_scatter;
      while (t < near_far.y) {
-        t -= log(1 - rng(seed)) * inv_max_density * inv_density_scale / sigma_t;
-        if (density(pos + t * dir) * inv_max_density * inv_density_scale > rng(seed)) {
-            throughput *= scattering_coefficient / sigma_t;
+        t -= log(1 - rng(seed)) * vol_inv_max_density * vol_inv_density_scale / sigma_t;
+        if (density(pos + t * dir) * vol_inv_max_density * vol_inv_density_scale > rng(seed)) {
+            throughput *= vol_scatter / sigma_t;
             return true;
         }
      }
@@ -168,8 +226,8 @@ void main() {
 
     // setup view ray (in model space!)
     uint seed = tea(pixel.y * size.x + pixel.x, current_sample, 8);
-    vec3 pos = vec3(inv_model * vec4(cam_pos, 1));
-    vec3 dir = normalize(mat3(inv_model) * view_dir(pixel, size, rng2(seed)));
+    vec3 pos = world_to_vol(vec4(cam_pos, 1));
+    vec3 dir = world_to_vol(view_dir(pixel, size, rng2(seed)));
 
     // trace path
     vec3 radiance = vec3(0), throughput = vec3(1);
@@ -179,36 +237,39 @@ void main() {
         // advance ray and evaluate medium
         pos = pos + t * dir;
         const float d = density(pos);
-        const float mu_a = absorbtion_coefficient * d;
-        const float mu_s = scattering_coefficient * d;
+        const float mu_a = vol_absorb * d;
+        const float mu_s = vol_scatter * d;
 
-        // sample light source (environment)
+        // sample light source (environment) TODO MIS
         vec3 w_i;
         const vec4 Li_pdf = sample_environment(rng2(seed), w_i);
-        const vec3 to_light = normalize(mat3(inv_model) * w_i);
-        const float f_p = phase_henyey_greenstein(dot(-dir, to_light), phase_g);
-        radiance += throughput * (mu_a * emission + mu_s * f_p * transmittance(pos, to_light, seed) * Li_pdf.rgb / Li_pdf.w);
+        if (Li_pdf.w > 0) {
+            const vec3 to_light = world_to_vol(w_i);
+            const float f_p = phase_henyey_greenstein(dot(-dir, to_light), vol_phase_g);
+            radiance += throughput * (mu_a * vol_emission + mu_s * f_p * transmittance(pos, to_light, seed) * Li_pdf.rgb / Li_pdf.w);
+        }
         if (++n_paths >= bounces) break;
 
         // scatter ray
-        dir = normalize(mat3(inv_model) * sample_phase_henyey_greenstein(dir, phase_g, rng2(seed)));
+        dir = sample_phase_henyey_greenstein(dir, vol_phase_g, rng2(seed));
 
         // russian roulette
         const float rr_threshold = .1f;
-        const float tr_val = dot(throughput, vec3(0.212671f, 0.715160f, 0.072169f));
-        if (tr_val < rr_threshold) {
-            const float q = max(.05f, 1 - tr_val);
+        const float rr_val = luma(throughput);
+        if (rr_val < rr_threshold) {
+            const float q = max(.05f, 1 - rr_val);
             if (rng(seed) < q) break;
             throughput /= 1 - q;
         }
     }
 
-    // free path?
+    // free path? -> add envmap contribution TODO MIS
     if (n_paths < bounces && n_paths >= show_environment)
-        radiance += throughput * environment(normalize(mat3(model) * dir));
+        radiance += throughput * environment(vol_to_world(dir));
 
     // write output
     if (any(isnan(radiance)) || any(isinf(radiance))) return;
-    const vec3 prev = imageLoad(color, pixel).rgb;
-    imageStore(color, pixel, vec4(mix(prev, radiance, 1.f / current_sample), 1));
+    imageStore(color, pixel, vec4(mix(imageLoad(color, pixel).rgb, radiance, 1.f / current_sample), 1));
+    if (current_sample % 2 == 1)
+        imageStore(even, pixel, vec4(mix(imageLoad(even, pixel).rgb, radiance, 1.f / ((current_sample+ 1) / 2)), 1));
 }

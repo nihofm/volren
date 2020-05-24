@@ -14,7 +14,7 @@ uint tea(const uint val0, const uint val1, const uint N) {
 // Return a random sample in the range [0, 1) with a simple Linear Congruential Generator
 float rng(inout uint previous) {
     previous = previous * 1664525u + 1013904223u;
-    return float(previous & 0X00FFFFFF) / float(0x01000000u);
+    return float(previous & 0x00FFFFFF) / float(0x01000000u);
 }
 vec2 rng2(inout uint previous) {
     return vec2(rng(previous), rng(previous));
