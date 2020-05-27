@@ -28,6 +28,7 @@ static std::shared_ptr<Volume> volume;
 static std::shared_ptr<Environment> environment;
 static std::shared_ptr<Shader> trace_shader;
 static std::shared_ptr<Framebuffer> fbo;
+static float shader_check_delay_ms = 1000;
 
 // ------------------------------------------
 // helper funcs and callbacks
@@ -91,7 +92,14 @@ int main(int argc, char** argv) {
     params.floating = GLFW_TRUE;
     params.resizable = GLFW_FALSE;
     params.swap_interval = 0;
+    try {
     Context::init(params);
+    } catch (std::runtime_error& e) {
+        std::cerr << "Failed to create context: " << e.what() << std::endl;
+        std::cerr << "Retrying for offline rendering..." << std::endl;
+        params.visible = GLFW_FALSE;
+        Context::init(params);
+    }
     Context::set_resize_callback(resize_callback);
     Context::set_keyboard_callback(keyboard_callback);
     Context::set_mouse_button_callback(mouse_button_callback);
@@ -112,41 +120,23 @@ int main(int argc, char** argv) {
     trace_shader = make_shader("trace", "shader/trace.glsl");
 
     // setup environment (i.e. light source)
-    environment = make_environment("environment", make_texture2D("environment", "data/gi/envmaps/clearsky.hdr"));
-    //environment = make_environment("environment", make_texture2D("environment", "data/images/envmaps/woods.hdr"));
+    environment = make_environment("clearsky", make_texture2D("clearsky", "data/gi/envmaps/clearsky.hdr"));
+    //environment = make_environment("woods", make_texture2D("woods", "data/images/envmaps/woods.hdr"));
 
     // setup volume
-    //std::ifstream raw("data/volumetric/bunny_512x512x361_uint16.raw", std::ios::binary);
-    //std::ifstream raw("data/volumetric/bonsai_256x256x256_uint8.raw", std::ios::binary);
-    std::ifstream raw("data/volumetric/skull_256x256x256_uint8.raw", std::ios::binary);
-    if (raw.is_open()) {
-        // TODO bunny (https://klacansky.com/open-scivis-datasets/)
-        std::vector<uint8_t> data(std::istreambuf_iterator<char>(raw), {});
-        //volume = make_volume("bunny", 512, 512, 361, data.data());
-        volume = make_volume("skull", 256, 256, 256, data.data());
-        volume->model = glm::rotate(volume->model, float(1.5 * M_PI), glm::vec3(1, 0, 0));
-        //volume->model = glm::scale(volume->model, glm::vec3(1.f / 0.337891, 1.f / 0.337891f, 1.f / 0.5));
-    } else {
-        // simple cube
-        uint32_t N = 128;
-        std::vector<float> density(N * N * N);
-        for (uint32_t d = 0; d < N; ++d)
-            for (uint32_t y = 0; y < N; ++y)
-                for (uint32_t x = 0; x < N; ++x)
-                    //density[d * N * N + y * N + x] = y / float(N);
-                    density[d * N * N + y * N + x] = glm::clamp(sqrtf(100.f / glm::distance(glm::vec3(x, y, d), glm::vec3(N * .5 + 1e-3))), 0.f, 100.f);
-        volume = make_volume("volume", N, N, N, density.data());
-        volume->model = glm::rotate(volume->model, float(M_PI / 3), glm::vec3(1, 0, 1));
-        volume->model = glm::scale(volume->model, glm::vec3(5));
-        volume->model[3][0] = 10;
-        volume->model[3][1] = 2.5;
-        volume->model[3][2] = -2.5;
-    }
+    volume = make_volume("data/volumetric/smoke.vdb");
+    //volume = make_volume("data/volumetric/skull_256x256x256_uint8.raw");
 
-    const float shader_check_ms = 1000;
-    float shader_timer = 0;
+    // test setup
+    Camera::current()->pos = glm::vec3(-.75, .5, -.5);
+    //volume->model = glm::rotate(volume->model, float(1.5 * M_PI), glm::vec3(1, 0, 0));
+    volume->model = glm::rotate(volume->model, float(M_PI), glm::vec3(1, 0, 0));
+    volume->scattering_coefficient = 0.3;
+    volume->absorbtion_coefficient = 0.1;
+    volume->phase_g = -0.2;
 
     // run
+    float shader_timer = 0;
     while (Context::running()) {
         // handle input
         glfwPollEvents();
@@ -158,11 +148,11 @@ int main(int argc, char** argv) {
         shader_timer -= Context::frame_time();
         if (shader_timer <= 0) {
             Shader::reload_modified();
-            shader_timer = shader_check_ms;
+            shader_timer = shader_check_delay_ms;
         }
 
         // render
-        if (sample < sppx) {
+        if (++sample < sppx) {
             // bind
             trace_shader->bind();
             for (uint32_t i = 0; i < fbo->color_textures.size(); ++i)
@@ -171,20 +161,15 @@ int main(int argc, char** argv) {
             environment->cdf_V->bind(1);
 
             // uniforms
-            trace_shader->uniform("current_sample", ++sample);
+            trace_shader->uniform("current_sample", sample);
             trace_shader->uniform("bounces", bounces);
             trace_shader->uniform("show_environment", show_environment ? 0 : 1);
             // volume
             trace_shader->uniform("vol_model", volume->model);
             trace_shader->uniform("vol_inv_model", glm::inverse(volume->model));
             trace_shader->uniform("vol_tex", volume->texture, 0);
-            trace_shader->uniform("vol_density_scale", volume->density_scale);
-            trace_shader->uniform("vol_inv_density_scale", 1.f / volume->density_scale);
-            trace_shader->uniform("vol_max_density", volume->max_density);
-            trace_shader->uniform("vol_inv_max_density", 1.f / volume->max_density);
             trace_shader->uniform("vol_absorb", volume->absorbtion_coefficient);
             trace_shader->uniform("vol_scatter", volume->scattering_coefficient);
-            trace_shader->uniform("vol_emission", volume->emission);
             trace_shader->uniform("vol_phase_g", volume->phase_g);
             // camera
             trace_shader->uniform("cam_pos", Camera::current()->pos);
@@ -208,7 +193,9 @@ int main(int argc, char** argv) {
             for (uint32_t i = 0; i < fbo->color_textures.size(); ++i)
                 fbo->color_textures[i]->unbind_image(i);
             trace_shader->unbind();
-        } else
+        } else if (sample == sppx)
+            Context::screenshot("output.png");
+        else
             glfwWaitEventsTimeout(1.f / 10); // 10fps idle
 
         // draw
@@ -229,7 +216,7 @@ int main(int argc, char** argv) {
             ImGui::SetNextWindowSize(ImVec2(250, -1));
             if (ImGui::Begin("Stuff", 0, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoBackground | ImGuiWindowFlags_NoFocusOnAppearing)) {
                 ImGui::PushStyleVar(ImGuiStyleVar_Alpha, .9f);
-                ImGui::Text("Sample: %i/%i", sample, sppx);
+                ImGui::Text("Sample: %i/%i", std::min(sample, sppx), sppx);
                 if (ImGui::InputInt("Sppx", &sppx)) sample = 0;
                 if (ImGui::SliderInt("Bounces", &bounces, 1, 100)) sample = 0;
                 ImGui::Separator();
@@ -238,10 +225,8 @@ int main(int argc, char** argv) {
                 ImGui::SliderFloat("Exposure", &exposure, 0.1f, 25.f);
                 ImGui::Checkbox("Show convergence", &show_convergence);
                 ImGui::Separator();
-                if (ImGui::SliderFloat("Density scale", &volume->density_scale, 1.f, 500.f)) sample = 0;
-                if (ImGui::SliderFloat("Absorb", &volume->absorbtion_coefficient, 0.001f, 1.f)) sample = 0;
-                if (ImGui::SliderFloat("Scatter", &volume->scattering_coefficient, 0.001f, 1.f)) sample = 0;
-                if (ImGui::ColorEdit3("Emission", &volume->emission.x)) sample = 0;
+                if (ImGui::SliderFloat("Absorb", &volume->absorbtion_coefficient, 0.001f, 100.f)) sample = 0;
+                if (ImGui::SliderFloat("Scatter", &volume->scattering_coefficient, 0.001f, 100.f)) sample = 0;
                 if (ImGui::SliderFloat("Phase g", &volume->phase_g, -.9f, .9f)) sample = 0;
                 ImGui::Separator();
                 ImGui::Text("Model:");

@@ -35,7 +35,7 @@ float Environment::build_cdf_1D(const float* f, uint32_t N, std::vector<float>& 
     // ensure density
     for (uint32_t i = 1; i < N + 1; ++i)
         cdf[i] = integral != 0.f ? cdf[i] / integral : float(i) / float(N);
-    return integral / N; // TODO unit or discrete integral?
+    return integral / N; // unit integral
 }
 
 float Environment::build_cdf_2D(const std::shared_ptr<Texture2D>& tex, std::vector<std::vector<float>>& conditional, std::vector<float>& marginal) {

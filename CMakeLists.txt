@@ -10,6 +10,27 @@ set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}")
 set(CMAKE_LIBRARY_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}")
 
 # ---------------------------------------------------------------------
+# options
+
+# pytorch (set CMAKE_PREFIX_PATH=/path/to/libtorch)
+option(WITH_TORCH "Enable PyTorch." OFF)
+
+if (WITH_TORCH)
+    add_definitions(-DWITH_TORCH)
+else()
+    add_definitions(-UWITH_TORCH)
+endif()
+
+# OpenVDB
+option(WITH_OPENVDB "Enable OpenVDB." OFF)
+
+if (WITH_OPENVDB)
+    add_definitions(-DWITH_OPENVDB)
+else()
+    add_definitions(-UWITH_OPENVDB)
+endif()
+
+# ---------------------------------------------------------------------
 # external projects
 
 include(ExternalProject)
@@ -27,25 +48,23 @@ ExternalProject_Add(cppgl-ext
     CMAKE_ARGS      -DCMAKE_INSTALL_PREFIX:PATH=<INSTALL_DIR> -Wno-dev
 )
 
+# OpenVDB
+if (WITH_OPENVDB)
+    ExternalProject_Add(openvdb-ext
+        GIT_REPOSITORY  https://github.com/AcademySoftwareFoundation/openvdb
+        GIT_TAG         v7.0.0
+        INSTALL_DIR     ${EXTERNAL_DIR}
+        CMAKE_ARGS      -DCMAKE_INSTALL_PREFIX:PATH=<INSTALL_DIR> -Wno-dev
+    )
+endif()
+
 # install rules for external projects
 #install(DIRECTORY ${EXTERNAL_DIR}/include DESTINATION ${CMAKE_INSTALL_PREFIX})
 install(DIRECTORY ${EXTERNAL_DIR}/lib DESTINATION ${CMAKE_INSTALL_PREFIX})
 list(APPEND CMAKE_INSTALL_RPATH $ORIGIN $ORIGIN/.. $ORIGIN/../lib)
 
 # ---------------------------------------------------------------------
-# options
-
-# pytorch (set CMAKE_PREFIX_PATH=/path/to/libtorch)
-option(WITH_TORCH "Enable PyTorch." OFF)
-
-if (WITH_TORCH)
-    add_definitions(-DWITH_TORCH)
-else()
-    add_definitions(-UWITH_TORCH)
-endif()
-
-# ---------------------------------------------------------------------
-# compiler options
+# compiler flags
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)

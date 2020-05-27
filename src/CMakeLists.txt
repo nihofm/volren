@@ -49,5 +49,12 @@ if (WITH_TORCH)
     target_link_libraries(${TARGET} ${TORCH_LIBRARIES})
 endif()
 
+# openvdb (optional)
+if (WITH_OPENVDB)
+    add_dependencies(${TARGET} openvdb-ext)
+    target_link_libraries(${TARGET} openvdb Half) # y u no Half?
+ENDIF()
+
 # external libs
+add_dependencies(${TARGET} cppgl-ext)
 target_link_libraries(${TARGET} cppgl)

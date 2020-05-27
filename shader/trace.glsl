@@ -33,6 +33,8 @@ vec3 align(const vec3 axis, const vec3 v) {
     return k * h - w;
 }
 
+float power_heuristic(const float a, const float b) { return sqr(a) / (sqr(a) + sqr(b)); }
+
 // --------------------------------------------------------------
 // camera helper
 
@@ -117,6 +119,11 @@ vec4 sample_environment(const vec2 env_sample, out vec3 w_i) {
     return vec4(emission, pdf);
 }
 
+float pdf_environment(const vec3 emission, const vec3 dir) {
+    const float theta = acos(dir.y);
+    return (luma(emission) / env_integral) / (2.f * PI * PI * sin(theta));
+}
+
 // --------------------------------------------------------------
 // box intersect helper
 
@@ -151,7 +158,7 @@ vec3 sample_phase_henyey_greenstein(const vec3 dir, const float g, const vec2 ph
         (1 + sqr(g) - sqr((1 - sqr(g)) / (1 - g + 2 * g * phase_sample.x))) / (2 * g);
     const float sin_t = sqrt(max(0.f, 1.f - sqr(cos_t)));
     const float phi = 2.f * PI * phase_sample.y;
-    return align(dir, vec3(sin_t * cos(phi), sin_t * sin(phi), cos_t)); // TODO check if align() works for spheres
+    return align(dir, vec3(sin_t * cos(phi), sin_t * sin(phi), cos_t)); // TODO double check if align() works for spheres
 }
 
 // --------------------------------------------------------------
@@ -160,16 +167,11 @@ vec3 sample_phase_henyey_greenstein(const vec3 dir, const float g, const vec2 ph
 uniform mat4 vol_model;
 uniform mat4 vol_inv_model;
 uniform sampler3D vol_texture;
-uniform float vol_density_scale;
-uniform float vol_inv_density_scale;
-uniform float vol_max_density;
-uniform float vol_inv_max_density;
 uniform float vol_absorb;
 uniform float vol_scatter;
-uniform vec3 vol_emission;
 uniform float vol_phase_g;
 
-float density(const vec3 tc) { return vol_density_scale * texture(vol_texture, tc).r; }
+float density(const vec3 tc) { return texture(vol_texture, tc).r; }
 vec3 world_to_vol(const vec4 world) { return vec3(vol_inv_model * world); } // position
 vec3 world_to_vol(const vec3 world) { return normalize(mat3(vol_inv_model) * world); } // direction
 vec3 vol_to_world(const vec4 model) { return vec3(vol_model * model); } // position
@@ -184,8 +186,8 @@ float transmittance(const vec3 pos, const vec3 dir, inout uint seed) {
     float t = near_far.x, Tr = 1.f;
     const float sigma_t = vol_absorb + vol_scatter;
     while (t < near_far.y) {
-        t -= log(1 - rng(seed)) * vol_inv_max_density * vol_inv_density_scale / sigma_t;
-        Tr *= 1 - max(0.f, density(pos + t * dir) * vol_inv_max_density * vol_inv_density_scale);
+        t -= log(1 - rng(seed)) / sigma_t;
+        Tr *= 1 - max(0.f, density(pos + t * dir));
         // russian roulette
         const float rr_threshold = .1f;
         if (Tr < rr_threshold) {
@@ -207,8 +209,8 @@ bool sample_volume(const vec3 pos, const vec3 dir, inout uint seed, out float t,
     float Tr = 1.f;
     const float sigma_t = vol_absorb + vol_scatter;
      while (t < near_far.y) {
-        t -= log(1 - rng(seed)) * vol_inv_max_density * vol_inv_density_scale / sigma_t;
-        if (density(pos + t * dir) * vol_inv_max_density * vol_inv_density_scale > rng(seed)) {
+        t -= log(1 - rng(seed)) / sigma_t;
+        if (density(pos + t * dir) > rng(seed)) {
             throughput *= vol_scatter / sigma_t;
             return true;
         }
@@ -232,7 +234,7 @@ void main() {
     // trace path
     vec3 radiance = vec3(0), throughput = vec3(1);
     int n_paths = 0;
-    float t; // t: end of ray segment (i.e. sampled position or out of volume)
+    float t, f_p = 1.f; // t: end of ray segment (i.e. sampled position or out of volume), f_p: phase function of last bounce
     while (all(greaterThan(throughput, vec3(0))) && sample_volume(pos, dir, seed, t, throughput)) {
         // advance ray and evaluate medium
         pos = pos + t * dir;
@@ -240,13 +242,14 @@ void main() {
         const float mu_a = vol_absorb * d;
         const float mu_s = vol_scatter * d;
 
-        // sample light source (environment) TODO MIS
+        // sample light source (environment)
         vec3 w_i;
         const vec4 Li_pdf = sample_environment(rng2(seed), w_i);
         if (Li_pdf.w > 0) {
             const vec3 to_light = world_to_vol(w_i);
-            const float f_p = phase_henyey_greenstein(dot(-dir, to_light), vol_phase_g);
-            radiance += throughput * (mu_a * vol_emission + mu_s * f_p * transmittance(pos, to_light, seed) * Li_pdf.rgb / Li_pdf.w);
+            f_p = phase_henyey_greenstein(dot(-dir, to_light), vol_phase_g);
+            const float weight = 1.f;//power_heuristic(Li_pdf.w, f_p); // TODO validate MIS and shading
+            radiance += throughput * weight * f_p * transmittance(pos, to_light, seed) * Li_pdf.rgb / Li_pdf.w;
         }
         if (++n_paths >= bounces) break;
 
@@ -263,9 +266,12 @@ void main() {
         }
     }
 
-    // free path? -> add envmap contribution TODO MIS
-    //if (n_paths < bounces && n_paths >= show_environment)
-        //radiance += throughput * environment(vol_to_world(dir));
+    // free path? -> add envmap contribution
+    if (n_paths < bounces && n_paths >= show_environment) {
+        const vec3 Li = environment(vol_to_world(dir));
+        const float weight = n_paths > 0 ? power_heuristic(f_p, pdf_environment(Li, dir)) : 1.f;
+        radiance += throughput * weight * Li;
+    }
 
     // write output
     if (any(isnan(radiance)) || any(isinf(radiance))) return;
