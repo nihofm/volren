@@ -248,7 +248,7 @@ void main() {
         if (Li_pdf.w > 0) {
             const vec3 to_light = world_to_vol(w_i);
             f_p = phase_henyey_greenstein(dot(-dir, to_light), vol_phase_g);
-            const float weight = 1.f;//power_heuristic(Li_pdf.w, f_p); // TODO validate MIS and shading
+            const float weight = 1.f;//power_heuristic(Li_pdf.w, f_p); // TODO validate MIS
             radiance += throughput * weight * f_p * transmittance(pos, to_light, seed) * Li_pdf.rgb / Li_pdf.w;
         }
         if (++n_paths >= bounces) break;
