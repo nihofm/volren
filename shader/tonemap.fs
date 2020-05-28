@@ -2,6 +2,7 @@
 in vec2 tc;
 uniform sampler2D tex;
 uniform float exposure;
+uniform float gamma;
 out vec4 out_col;
 
 vec3 hable(in vec3 rgb) {
@@ -20,5 +21,5 @@ vec3 hable_tonemap(in vec3 rgb, in float exposure) {
 
 void main() {
     out_col = texture(tex, tc);
-    out_col.rgb = hable_tonemap(out_col.rgb, exposure);
+    out_col.rgb = pow(hable_tonemap(out_col.rgb, exposure), vec3(gamma));
 }

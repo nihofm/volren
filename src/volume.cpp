@@ -1,28 +1,29 @@
 #include "volume.h"
 #include <vector>
+#include <iostream>
 #include <fstream>
 
 #if defined(WITH_OPENVDB)
 #include <openvdb/openvdb.h>
 #endif
 
-Volume::Volume() : model(1), absorbtion_coefficient(0.01), scattering_coefficient(0.05), phase_g(0) {}
+Volume::Volume() : model(1), absorbtion_coefficient(0.1), scattering_coefficient(0.5), phase_g(0) {}
 
 Volume::Volume(const std::string& name, size_t w, size_t h, size_t d, float density) : Volume() {
     std::vector<float> data(w * h * d, density);
-    texture = make_texture3D(name, w, h, d, GL_R32F, GL_RED, GL_FLOAT, data.data(), false);
+    texture = make_texture3D(name, w, h, d, GL_R32F, GL_RED, GL_FLOAT, data.data(), true);
 }
 
 Volume::Volume(const std::string& name, size_t w, size_t h, size_t d, const uint8_t* data) : Volume() {
-    texture = make_texture3D(name, w, h, d, GL_R8, GL_RED, GL_UNSIGNED_BYTE, data, false);
+    texture = make_texture3D(name, w, h, d, GL_R8, GL_RED, GL_UNSIGNED_BYTE, data, true);
 }
 
 Volume::Volume(const std::string& name, size_t w, size_t h, size_t d, const uint16_t* data) : Volume() {
-    texture = make_texture3D(name, w, h, d, GL_R16, GL_RED, GL_UNSIGNED_SHORT, data, false);
+    texture = make_texture3D(name, w, h, d, GL_R16, GL_RED, GL_UNSIGNED_SHORT, data, true);
 }
 
 Volume::Volume(const std::string& name, size_t w, size_t h, size_t d, const float* data) : Volume() {
-    texture = make_texture3D(name, w, h, d, GL_R32F, GL_RED, GL_FLOAT, data, false);
+    texture = make_texture3D(name, w, h, d, GL_R32F, GL_RED, GL_FLOAT, data, true);
 }
 
 Volume::Volume(const fs::path& path) : Volume() {
@@ -60,14 +61,14 @@ Volume::Volume(const fs::path& path) : Volume() {
             // parse data type and setup volume texture
             std::vector<uint8_t> data(std::istreambuf_iterator<char>(raw), {});
             if (filename.find("uint8"))
-                texture = make_texture3D(name, w, h, d, GL_R8, GL_RED, GL_UNSIGNED_BYTE, data.data(), false);
+                texture = make_texture3D(name, w, h, d, GL_R8, GL_RED, GL_UNSIGNED_BYTE, data.data(), true);
             else if (filename.find("uint16"))
-                texture = make_texture3D(name, w, h, d, GL_R16, GL_RED, GL_UNSIGNED_SHORT, (uint16_t*)data.data(), false);
+                texture = make_texture3D(name, w, h, d, GL_R16, GL_RED, GL_UNSIGNED_SHORT, (uint16_t*)data.data(), true);
             else if (filename.find("float"))
-                texture = make_texture3D(name, w, h, d, GL_R32F, GL_RED, GL_FLOAT, (float*)data.data(), false);
+                texture = make_texture3D(name, w, h, d, GL_R32F, GL_RED, GL_FLOAT, (float*)data.data(), true);
             else {
                 std::cerr << "WARN: Unable to parse data type from raw file name: " << path << " -> falling back to uint8_t." << std::endl;
-                texture = make_texture3D(name, w, h, d, GL_R8, GL_RED, GL_UNSIGNED_BYTE, data.data(), false);
+                texture = make_texture3D(name, w, h, d, GL_R8, GL_RED, GL_UNSIGNED_BYTE, data.data(), true);
             }
         } else
             throw std::runtime_error("Volume: Unable to read file: " + path.string());
@@ -103,7 +104,7 @@ Volume::Volume(const fs::path& path) : Volume() {
             }
         }
         // load into GL texture
-        texture = make_texture3D(path.stem(), dim.x(), dim.y(), dim.z(), GL_R8, GL_RED, GL_UNSIGNED_BYTE, data.data(), false);
+        texture = make_texture3D(path.stem(), dim.x(), dim.y(), dim.z(), GL_R8, GL_RED, GL_UNSIGNED_BYTE, data.data(), true);
     }
 #endif
     else

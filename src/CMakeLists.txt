@@ -52,7 +52,7 @@ endif()
 # openvdb (optional)
 if (WITH_OPENVDB)
     add_dependencies(${TARGET} openvdb-ext)
-    target_link_libraries(${TARGET} openvdb Half) # y u no Half?
+    target_link_libraries(${TARGET} openvdb Half tbb)
 ENDIF()
 
 # external libs
