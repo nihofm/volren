@@ -74,7 +74,7 @@ Volume::Volume(const fs::path& path) : Volume() {
             throw std::runtime_error("Volume: Unable to read file: " + path.string());
     }
 #if defined(WITH_OPENVDB)
-    else if (extension == ".vdb") { // handle .vdb
+    else if (extension == ".vdb") { // handle .vdb TODO FIXME some .vdb crash in Texture3D GL upload
         // open file
         openvdb::initialize();
         openvdb::io::File vdb_file(path.string());

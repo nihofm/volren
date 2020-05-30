@@ -1,9 +1,4 @@
-#include <cppgl/context.h>
-#include <cppgl/quad.h>
-#include <cppgl/camera.h>
-#include <cppgl/shader.h>
-#include <cppgl/framebuffer.h>
-#include <cppgl/imgui/imgui.h>
+#include <cppgl/cppgl.h>
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 
@@ -28,6 +23,8 @@ static std::shared_ptr<Volume> volume;
 static std::shared_ptr<Environment> environment;
 static std::shared_ptr<Shader> trace_shader;
 static std::shared_ptr<Framebuffer> fbo;
+static std::shared_ptr<Animation> animation;
+static float animation_frames_per_node = 100;
 static float shader_check_delay_ms = 1000;
 
 // ------------------------------------------
@@ -67,11 +64,12 @@ void resize_callback(int w, int h) {
 
 void keyboard_callback(int key, int scancode, int action, int mods) {
     if (ImGui::GetIO().WantCaptureKeyboard) return;
-    if (key == GLFW_KEY_E && action == GLFW_PRESS)
+
+    if (mods == GLFW_MOD_SHIFT && key == GLFW_KEY_E && action == GLFW_PRESS)
         show_environment = !show_environment;
-    if (key == GLFW_KEY_C && action == GLFW_PRESS)
+    if (mods == GLFW_MOD_SHIFT && key == GLFW_KEY_C && action == GLFW_PRESS)
         show_convergence = !show_convergence;
-    if (key == GLFW_KEY_T && action == GLFW_PRESS)
+    if (mods == GLFW_MOD_SHIFT && key == GLFW_KEY_T && action == GLFW_PRESS)
         tonemapping = !tonemapping;
     if (mods == GLFW_MOD_SHIFT && key == GLFW_KEY_R && action == GLFW_PRESS)
         Shader::reload_modified();
@@ -79,6 +77,22 @@ void keyboard_callback(int key, int scancode, int action, int mods) {
         sample = 0;
     if (key == GLFW_KEY_ENTER && action == GLFW_PRESS)
         Context::screenshot("screenshot.png");
+
+    if (key == GLFW_KEY_O && action == GLFW_PRESS) {
+        glm::vec3 pos; glm::quat rot;
+        Camera::current()->store(pos, rot);
+        const size_t i = animation->push_node(pos, rot);
+        animation->put_data("absorbtion_coefficient", i, volume->absorbtion_coefficient);
+        animation->put_data("scattering_coefficient", i, volume->scattering_coefficient);
+        animation->put_data("phase_g", i, volume->phase_g);
+        std::cout << "curr anim length: " << i + 1 << std::endl;
+    }
+    if (key == GLFW_KEY_L && action == GLFW_PRESS)
+        animation->clear();
+    if (key == GLFW_KEY_P && action == GLFW_PRESS) {
+        animation->play();
+        sample = sppx;
+    }
 }
 
 void mouse_button_callback(int button, int action, int mods) {
@@ -116,6 +130,10 @@ void gui_callback(void) {
             volume->model = glm::transpose(row_maj);
             sample = 0;
         }
+        ImGui::Separator();
+        ImGui::Text("Animation time %.3f / %lu", animation->time, animation->camera_path.size());
+        ImGui::Checkbox("Animation running", &animation->running);
+        ImGui::InputFloat("Animation frames per node", &animation_frames_per_node);
         ImGui::PopStyleVar();
         ImGui::End();
     }
@@ -192,6 +210,9 @@ int main(int argc, char** argv) {
     // setup trace shader
     trace_shader = make_shader("trace", "shader/trace.glsl");
 
+    // setup animation
+    animation = make_animation("animation");
+
     // load default envmap?
     if (!environment)
         environment = make_environment("clearsky", make_texture2D("clearsky", "data/gi/envmaps/clearsky.hdr"));
@@ -220,6 +241,13 @@ int main(int argc, char** argv) {
 
         // update and reload shaders
         Camera::current()->update();
+        if (animation->running && sample >= sppx) {
+            animation->update(animation->ms_between_nodes / animation_frames_per_node);
+            sample = 0;
+            volume->scattering_coefficient = animation->eval_float("scattering_coefficient");
+            volume->absorbtion_coefficient = animation->eval_float("absorbtion_coefficient");
+            volume->phase_g = animation->eval_float("phase_g");
+        }
         shader_timer -= Context::frame_time();
         if (shader_timer <= 0) {
             Shader::reload_modified();
@@ -249,9 +277,7 @@ int main(int argc, char** argv) {
             // camera
             trace_shader->uniform("cam_pos", Camera::current()->pos);
             trace_shader->uniform("cam_fov", Camera::current()->fov_degree);
-            const glm::vec3 right = glm::normalize(cross(Camera::current()->dir, glm::vec3(1e-4f, 1, 0)));
-            const glm::vec3 up = glm::normalize(cross(right, Camera::current()->dir));
-            trace_shader->uniform("cam_transform", glm::mat3(right, up, -Camera::current()->dir));
+            trace_shader->uniform("cam_transform", glm::inverse(glm::mat3(Camera::current()->view)));
             // environment
             trace_shader->uniform("env_model", environment->model);
             trace_shader->uniform("env_inv_model", glm::inverse(environment->model));
