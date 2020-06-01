@@ -19,6 +19,6 @@ vec3 heatmap(const float val) {
 void main() {
     vec3 col = texture(color, tc).rgb;
     vec3 eve = texture(even, tc).rgb;
-    out_col = vec4(10*abs(col - eve) / max(1e-4, sqrt(luma(col))), 1);
+    out_col = vec4(abs(col - eve) / max(1e-4, luma(col)), 1);
     out_col.rgb = heatmap(luma(out_col.rgb));
 }
