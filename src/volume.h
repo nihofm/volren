@@ -14,14 +14,14 @@ public:
     virtual ~Volume();
 
     explicit inline operator bool() const  { return texture->operator bool(); }
-    inline operator GLuint() const { return texture->operator GLuint(); }
+    //inline operator GLuint() const { return texture->operator GLuint(); }
 
     // data
     glm::mat4 model;
     float absorbtion_coefficient;
     float scattering_coefficient;
     float phase_g;
-    std::shared_ptr<Texture3D> texture;
+    Texture3D texture;
 };
 
 // variadic alias for std::make_shared<>(...)

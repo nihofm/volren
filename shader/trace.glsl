@@ -192,7 +192,7 @@ float transmittance(const vec3 pos, const vec3 dir, inout uint seed) {
         const float rr_threshold = .1f;
         if (Tr < rr_threshold) {
             const float q = max(.05f, 1 - Tr);
-            if (rng(seed) < q) return 0;
+            if (rng(seed) < q) return 0.f;
             Tr /= 1 - q;
         }
     }
@@ -226,7 +226,7 @@ void main() {
     const ivec2 size = imageSize(color);
 	if (any(greaterThanEqual(pixel, size))) return;
 
-    // setup view ray (in model space!)
+    // setup random seed and view ray (in model space!)
     uint seed = tea(pixel.y * size.x + pixel.x, current_sample, 8);
     vec3 pos = world_to_vol(vec4(cam_pos, 1));
     vec3 dir = world_to_vol(view_dir(pixel, size, rng2(seed)));
@@ -235,7 +235,7 @@ void main() {
     vec3 radiance = vec3(0), throughput = vec3(1);
     int n_paths = 0;
     float t, f_p = 1.f; // t: end of ray segment (i.e. sampled position or out of volume), f_p: phase function of last bounce
-    while (all(greaterThan(throughput, vec3(0))) && sample_volume(pos, dir, seed, t, throughput)) {
+    while (sample_volume(pos, dir, seed, t, throughput)) {
         // advance ray and evaluate medium
         pos = pos + t * dir;
         const float d = density(pos);
@@ -248,7 +248,7 @@ void main() {
         if (Li_pdf.w > 0) {
             const vec3 to_light = world_to_vol(w_i);
             f_p = phase_henyey_greenstein(dot(-dir, to_light), vol_phase_g);
-            const float weight = 1.f;//power_heuristic(Li_pdf.w, f_p); // TODO validate MIS
+            const float weight = 1.f;//power_heuristic(Li_pdf.w, f_p); // TODO check MIS
             radiance += throughput * weight * f_p * transmittance(pos, to_light, seed) * Li_pdf.rgb / Li_pdf.w;
         }
         if (++n_paths >= bounces) break;

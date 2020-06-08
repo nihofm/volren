@@ -21,25 +21,25 @@ static bool show_convergence = false;
 static bool show_environment = false;
 static std::shared_ptr<Volume> volume;
 static std::shared_ptr<Environment> environment;
-static std::shared_ptr<Shader> trace_shader;
-static std::shared_ptr<Framebuffer> fbo;
-static std::shared_ptr<Animation> animation;
+static Shader trace_shader;
+static Framebuffer fbo;
+static Animation animation;
 static float animation_frames_per_node = 100;
 static float shader_check_delay_ms = 1000;
 
 // ------------------------------------------
 // helper funcs and callbacks
 
-void blit(const std::shared_ptr<Texture2D>& tex) {
-    static std::shared_ptr<Shader> blit_shader = make_shader("blit", "shader/quad.vs", "shader/blit.fs");
+void blit(const Texture2D& tex) {
+    static Shader blit_shader = Shader("blit", "shader/quad.vs", "shader/blit.fs");
     blit_shader->bind();
     blit_shader->uniform("tex", tex, 0);
     Quad::draw();
     blit_shader->unbind();
 }
 
-void tonemap(const std::shared_ptr<Texture2D>& tex) {
-    static std::shared_ptr<Shader> tonemap_shader = make_shader("tonemap", "shader/quad.vs", "shader/tonemap.fs");
+void tonemap(const Texture2D& tex) {
+    static Shader tonemap_shader = Shader("tonemap", "shader/quad.vs", "shader/tonemap.fs");
     tonemap_shader->bind();
     tonemap_shader->uniform("tex", tex, 0);
     tonemap_shader->uniform("exposure", tonemap_exposure);
@@ -48,8 +48,8 @@ void tonemap(const std::shared_ptr<Texture2D>& tex) {
     tonemap_shader->unbind();
 }
 
-void convergence(const std::shared_ptr<Texture2D>& color, const std::shared_ptr<Texture2D>& even) {
-    static std::shared_ptr<Shader> tonemap_shader = make_shader("convergence", "shader/quad.vs", "shader/convergence.fs");
+void convergence(const Texture2D& color, const Texture2D& even) {
+    static Shader tonemap_shader = Shader("convergence", "shader/quad.vs", "shader/convergence.fs");
     tonemap_shader->bind();
     tonemap_shader->uniform("color", color, 0);
     tonemap_shader->uniform("even", even, 1);
@@ -72,7 +72,7 @@ void keyboard_callback(int key, int scancode, int action, int mods) {
     if (mods == GLFW_MOD_SHIFT && key == GLFW_KEY_T && action == GLFW_PRESS)
         tonemapping = !tonemapping;
     if (mods == GLFW_MOD_SHIFT && key == GLFW_KEY_R && action == GLFW_PRESS)
-        Shader::reload_modified();
+        reload_modified_shaders();
     if (key == GLFW_KEY_SPACE && action == GLFW_PRESS)
         sample = 0;
     if (key == GLFW_KEY_ENTER && action == GLFW_PRESS)
@@ -80,7 +80,7 @@ void keyboard_callback(int key, int scancode, int action, int mods) {
 
     if (key == GLFW_KEY_O && action == GLFW_PRESS) {
         glm::vec3 pos; glm::quat rot;
-        Camera::current()->store(pos, rot);
+        current_camera()->store(pos, rot);
         const size_t i = animation->push_node(pos, rot);
         animation->put_data("absorbtion_coefficient", i, volume->absorbtion_coefficient);
         animation->put_data("scattering_coefficient", i, volume->scattering_coefficient);
@@ -105,7 +105,9 @@ void gui_callback(void) {
     ImGui::SetNextWindowSize(ImVec2(250, -1));
     if (ImGui::Begin("Stuff", 0, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoBackground | ImGuiWindowFlags_NoFocusOnAppearing)) {
         ImGui::PushStyleVar(ImGuiStyleVar_Alpha, .9f);
-        ImGui::Text("Sample: %i/%i (est: %.0fs)", sample, sppx, Context::frame_time() * (sppx - sample) / 1000.f);
+        static float est_ravg = 0.f;
+        est_ravg = glm::mix(est_ravg, float(Context::frame_time() * (sppx - sample) / 1000.f), 0.1f);
+        ImGui::Text("Sample: %i/%i (est: %um, %us)", sample, sppx, uint32_t(est_ravg) / 60, uint32_t(est_ravg) % 60);
         if (ImGui::InputInt("Sppx", &sppx)) sample = 0;
         if (ImGui::InputInt("Bounces", &bounces)) sample = 0;
         ImGui::Separator();
@@ -148,8 +150,8 @@ int main(int argc, char** argv) {
     params.width = 1024;
     params.height = 1024;
     params.title = "VolGL";
-    params.floating = GLFW_TRUE;
-    params.resizable = GLFW_FALSE;
+    //params.floating = GLFW_TRUE;
+    //params.resizable = GLFW_FALSE;
     params.swap_interval = 0;
     try  {
         Context::init(params);
@@ -176,17 +178,17 @@ int main(int argc, char** argv) {
         else if (arg == "-d")
             bounces = std::stoi(argv[++i]);
         else if (arg == "-env")
-            environment = make_environment("environment", make_texture2D("environment", argv[++i]));
+            environment = make_environment("environment", Texture2D("environment", argv[++i]));
         else if (arg == "-pos") {
-            Camera::current()->pos.x = std::stof(argv[++i]);
-            Camera::current()->pos.y = std::stof(argv[++i]);
-            Camera::current()->pos.z = std::stof(argv[++i]);
+            current_camera()->pos.x = std::stof(argv[++i]);
+            current_camera()->pos.y = std::stof(argv[++i]);
+            current_camera()->pos.z = std::stof(argv[++i]);
         } else if (arg == "-dir") {
-            Camera::current()->dir.x = std::stof(argv[++i]);
-            Camera::current()->dir.y = std::stof(argv[++i]);
-            Camera::current()->dir.z = std::stof(argv[++i]);
+            current_camera()->dir.x = std::stof(argv[++i]);
+            current_camera()->dir.y = std::stof(argv[++i]);
+            current_camera()->dir.z = std::stof(argv[++i]);
         } else if (arg == "-fov")
-            Camera::current()->fov_degree = std::stof(argv[++i]);
+            current_camera()->fov_degree = std::stof(argv[++i]);
         else if (arg == "-exp")
             tonemap_exposure = std::stof(argv[++i]);
         else if (arg == "-gamma")
@@ -197,26 +199,27 @@ int main(int argc, char** argv) {
 
     // setup fbo
     const glm::ivec2 res = Context::resolution();
-    fbo = make_framebuffer("fbo", res.x, res.y);
-    fbo->attach_depthbuffer(make_texture2D("fbo/depth", res.x, res.y, GL_DEPTH_COMPONENT, GL_DEPTH_COMPONENT, GL_UNSIGNED_INT));
-    fbo->attach_colorbuffer(make_texture2D("fbo/col", res.x, res.y, GL_RGBA32F, GL_RGBA, GL_FLOAT));
-    fbo->attach_colorbuffer(make_texture2D("fbo/f_pos", res.x, res.y, GL_RGBA32F, GL_RGBA, GL_FLOAT));
-    fbo->attach_colorbuffer(make_texture2D("fbo/f_norm", res.x, res.y, GL_RGBA32F, GL_RGBA, GL_FLOAT));
-    fbo->attach_colorbuffer(make_texture2D("fbo/f_alb", res.x, res.y, GL_RGBA32F, GL_RGBA, GL_FLOAT));
-    fbo->attach_colorbuffer(make_texture2D("fbo/f_vol", res.x, res.y, GL_RGBA32F, GL_RGBA, GL_FLOAT));
-    fbo->attach_colorbuffer(make_texture2D("fbo/even", res.x, res.y, GL_RGBA32F, GL_RGBA, GL_FLOAT));
+    fbo = Framebuffer("fbo", res.x, res.y);
+    fbo->attach_depthbuffer(Texture2D("fbo/depth", res.x, res.y, GL_DEPTH_COMPONENT, GL_DEPTH_COMPONENT, GL_UNSIGNED_INT));
+    fbo->attach_colorbuffer(Texture2D("fbo/col", res.x, res.y, GL_RGBA32F, GL_RGBA, GL_FLOAT));
+    fbo->attach_colorbuffer(Texture2D("fbo/f_pos", res.x, res.y, GL_RGBA32F, GL_RGBA, GL_FLOAT));
+    fbo->attach_colorbuffer(Texture2D("fbo/f_norm", res.x, res.y, GL_RGBA32F, GL_RGBA, GL_FLOAT));
+    fbo->attach_colorbuffer(Texture2D("fbo/f_alb", res.x, res.y, GL_RGBA32F, GL_RGBA, GL_FLOAT));
+    fbo->attach_colorbuffer(Texture2D("fbo/f_vol", res.x, res.y, GL_RGBA32F, GL_RGBA, GL_FLOAT));
+    fbo->attach_colorbuffer(Texture2D("fbo/even", res.x, res.y, GL_RGBA32F, GL_RGBA, GL_FLOAT));
     fbo->check();
 
     // setup trace shader
-    trace_shader = make_shader("trace", "shader/trace.glsl");
+    trace_shader = Shader("trace", "shader/trace.glsl");
 
     // setup animation
-    animation = make_animation("animation");
+    animation = Animation("animation");
 
     // load default envmap?
     if (!environment)
-        environment = make_environment("clearsky", make_texture2D("clearsky", "data/gi/envmaps/clearsky.hdr"));
-        //environment = make_environment("woods", make_texture2D("woods", "data/images/envmaps/woods.hdr"));
+        environment = make_environment("clearsky", Texture2D("clearsky", "data/gi/envmaps/clearsky.hdr"));
+        //environment = make_environment("sunset", Texture2D("sunset", "data/gi/envmaps/sunset.hdr"));
+        //environment = make_environment("woods", Texture2D("woods", "data/images/envmaps/woods.hdr"));
 
     // load default volume?
     if (!volume)
@@ -224,7 +227,7 @@ int main(int argc, char** argv) {
         //volume = make_volume("data/volumetric/skull_256x256x256_uint8.raw");
 
     // XXX test setup
-    Camera::current()->pos = glm::vec3(-.75, .5, -.5);
+    current_camera()->pos = glm::vec3(-.75, .5, -.5);
     //volume->model = glm::rotate(volume->model, float(1.5 * M_PI), glm::vec3(1, 0, 0));
     volume->model = glm::rotate(volume->model, float(M_PI), glm::vec3(1, 0, 0));
     volume->scattering_coefficient = 0.3;
@@ -236,11 +239,11 @@ int main(int argc, char** argv) {
     while (Context::running()) {
         // handle input
         glfwPollEvents();
-        if (Camera::default_input_handler(Context::frame_time()))
+        if (CameraImpl::default_input_handler(Context::frame_time()))
             sample = 0; // restart rendering
 
         // update and reload shaders
-        Camera::current()->update();
+        current_camera()->update();
         if (animation->running && sample >= sppx) {
             animation->update(animation->ms_between_nodes / animation_frames_per_node);
             sample = 0;
@@ -250,7 +253,7 @@ int main(int argc, char** argv) {
         }
         shader_timer -= Context::frame_time();
         if (shader_timer <= 0) {
-            Shader::reload_modified();
+            reload_modified_shaders();
             shader_timer = shader_check_delay_ms;
         }
 
@@ -260,8 +263,8 @@ int main(int argc, char** argv) {
             trace_shader->bind();
             for (uint32_t i = 0; i < fbo->color_textures.size(); ++i)
                 fbo->color_textures[i]->bind_image(i, GL_READ_WRITE, GL_RGBA32F);
-            environment->cdf_U->bind(0);
-            environment->cdf_V->bind(1);
+            environment->cdf_U->bind_base(0);
+            environment->cdf_V->bind_base(1);
 
             // uniforms
             trace_shader->uniform("current_sample", ++sample);
@@ -275,9 +278,9 @@ int main(int argc, char** argv) {
             trace_shader->uniform("vol_scatter", volume->scattering_coefficient);
             trace_shader->uniform("vol_phase_g", volume->phase_g);
             // camera
-            trace_shader->uniform("cam_pos", Camera::current()->pos);
-            trace_shader->uniform("cam_fov", Camera::current()->fov_degree);
-            trace_shader->uniform("cam_transform", glm::inverse(glm::mat3(Camera::current()->view)));
+            trace_shader->uniform("cam_pos", current_camera()->pos);
+            trace_shader->uniform("cam_fov", current_camera()->fov_degree);
+            trace_shader->uniform("cam_transform", glm::inverse(glm::mat3(current_camera()->view)));
             // environment
             trace_shader->uniform("env_model", environment->model);
             trace_shader->uniform("env_inv_model", glm::inverse(environment->model));
@@ -289,8 +292,8 @@ int main(int argc, char** argv) {
             trace_shader->dispatch_compute(size.x, size.y);
 
             // unbind
-            environment->cdf_U->unbind(0);
-            environment->cdf_V->unbind(1);
+            environment->cdf_U->unbind_base(0);
+            environment->cdf_V->unbind_base(1);
             for (uint32_t i = 0; i < fbo->color_textures.size(); ++i)
                 fbo->color_textures[i]->unbind_image(i);
             trace_shader->unbind();
