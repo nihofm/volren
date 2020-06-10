@@ -30,6 +30,14 @@ else()
     add_definitions(-UWITH_OPENVDB)
 endif()
 
+option(WITH_DCMTK "Enable DICOM toolkit." ON)
+
+if (WITH_DCMTK)
+    add_definitions(-DWITH_DCMTK)
+else()
+    add_definitions(-UWITH_DCMTK)
+endif()
+
 # ---------------------------------------------------------------------
 # external projects
 
@@ -56,7 +64,17 @@ if (WITH_OPENVDB)
         GIT_REPOSITORY  https://github.com/AcademySoftwareFoundation/openvdb
         GIT_TAG         v7.0.0
         INSTALL_DIR     ${EXTERNAL_DIR}
-        CMAKE_ARGS      -DCMAKE_INSTALL_PREFIX:PATH=<INSTALL_DIR> -Wno-dev
+        CMAKE_ARGS      -DCMAKE_INSTALL_PREFIX:PATH=<INSTALL_DIR> -Wno-dev -DOPENVDB_BUILD_BINARIES=OFF -DOPENVDB_CORE_STATIC=OFF
+    )
+endif()
+
+# DCMTK
+if (WITH_DCMTK)
+    ExternalProject_Add(dcmtk-ext
+        GIT_REPOSITORY  https://github.com/DCMTK/dcmtk
+        GIT_TAG         DCMTK-3.6.5
+        INSTALL_DIR     ${EXTERNAL_DIR}
+        CMAKE_ARGS      -DCMAKE_INSTALL_PREFIX:PATH=<INSTALL_DIR> -Wno-dev -DBUILD_APPS=OFF -DBUILD_SHARED_LIBS=ON
     )
 endif()
 

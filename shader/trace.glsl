@@ -55,6 +55,7 @@ uniform mat4 env_model;
 uniform mat4 env_inv_model;
 uniform sampler2D env_texture;
 uniform float env_integral;
+uniform float env_strength;
 
 layout(std430, binding = 0) buffer env_cdf_U {
     float cdf_U[];
@@ -68,7 +69,7 @@ vec3 world_to_env(const vec3 world) { return normalize(mat3(env_inv_model) * wor
 vec3 env_to_world(const vec4 model) { return vec3(env_model * model); } // position
 vec3 env_to_world(const vec3 model) { return normalize(mat3(env_model) * model); } // direction
 
-vec3 environment(const vec3 dir) {
+vec3 environment_lookup(const vec3 dir) {
     const float u = atan(dir.z, dir.x) / (2 * PI);
     const float v = -acos(dir.y) / PI;
     return texture(env_texture, vec2(u, v)).rgb;
@@ -114,9 +115,9 @@ vec4 sample_environment(const vec2 env_sample, out vec3 w_i) {
     const float sin_t = sin(theta);
     w_i = vec3(sin_t * cos(phi), sin_t * sin(phi), cos(theta));
     // compute emission and pdf
-    const vec3 emission = environment(w_i);
+    const vec3 emission = environment_lookup(w_i);
     const float pdf = (luma(emission) / env_integral) / (2.f * PI * PI * sin_t);
-    return vec4(emission, pdf);
+    return vec4(env_strength * emission, pdf);
 }
 
 float pdf_environment(const vec3 emission, const vec3 dir) {
@@ -139,6 +140,17 @@ bool intersect_box(const vec3 pos, const vec3 dir, const vec3 bb_min, const vec3
 }
 
 // --------------------------------------------------------------
+// transfer function helper
+
+uniform float tf_window_center;
+uniform float tf_window_width;
+uniform sampler2D tf_lut_texture;
+
+vec4 tf_lookup(float d) {
+    return texture(tf_lut_texture, vec2((d - tf_window_center) / tf_window_width, 0));
+}
+
+// --------------------------------------------------------------
 // phase function helpers (vectors all in model space!)
 
 float phase_isotropic() { return inv_4PI; }
@@ -158,7 +170,7 @@ vec3 sample_phase_henyey_greenstein(const vec3 dir, const float g, const vec2 ph
         (1 + sqr(g) - sqr((1 - sqr(g)) / (1 - g + 2 * g * phase_sample.x))) / (2 * g);
     const float sin_t = sqrt(max(0.f, 1.f - sqr(cos_t)));
     const float phi = 2.f * PI * phase_sample.y;
-    return align(dir, vec3(sin_t * cos(phi), sin_t * sin(phi), cos_t)); // TODO double check if align() works for spheres
+    return align(dir, vec3(sin_t * cos(phi), sin_t * sin(phi), cos_t));
 }
 
 // --------------------------------------------------------------
@@ -187,7 +199,7 @@ float transmittance(const vec3 pos, const vec3 dir, inout uint seed) {
     const float sigma_t = vol_absorb + vol_scatter;
     while (t < near_far.y) {
         t -= log(1 - rng(seed)) / sigma_t;
-        Tr *= 1 - max(0.f, density(pos + t * dir));
+        Tr *= 1 - max(0.f, tf_lookup(density(pos + t * dir)).a);
         // russian roulette
         const float rr_threshold = .1f;
         if (Tr < rr_threshold) {
@@ -210,8 +222,9 @@ bool sample_volume(const vec3 pos, const vec3 dir, inout uint seed, out float t,
     const float sigma_t = vol_absorb + vol_scatter;
      while (t < near_far.y) {
         t -= log(1 - rng(seed)) / sigma_t;
-        if (density(pos + t * dir) > rng(seed)) {
-            throughput *= vol_scatter / sigma_t;
+        const vec4 rgba = tf_lookup(density(pos + t * dir));
+        if (rgba.a > rng(seed)) {
+            throughput *= rgba.rgb * vol_scatter / sigma_t;
             return true;
         }
      }
@@ -236,11 +249,8 @@ void main() {
     int n_paths = 0;
     float t, f_p = 1.f; // t: end of ray segment (i.e. sampled position or out of volume), f_p: phase function of last bounce
     while (sample_volume(pos, dir, seed, t, throughput)) {
-        // advance ray and evaluate medium
+        // advance ray
         pos = pos + t * dir;
-        const float d = density(pos);
-        const float mu_a = vol_absorb * d;
-        const float mu_s = vol_scatter * d;
 
         // sample light source (environment)
         vec3 w_i;
@@ -254,7 +264,9 @@ void main() {
         if (++n_paths >= bounces) break;
 
         // scatter ray
-        dir = sample_phase_henyey_greenstein(dir, vol_phase_g, rng2(seed));
+        const vec3 scatter_dir = sample_phase_henyey_greenstein(dir, vol_phase_g, rng2(seed));
+        f_p = phase_henyey_greenstein(dot(-dir, scatter_dir), vol_phase_g);
+        dir = scatter_dir;
 
         // russian roulette
         const float rr_threshold = .1f;
@@ -268,7 +280,7 @@ void main() {
 
     // free path? -> add envmap contribution
     if (n_paths < bounces && n_paths >= show_environment) {
-        const vec3 Li = environment(vol_to_world(dir));
+        const vec3 Li = env_strength * environment_lookup(vol_to_world(dir));
         const float weight = n_paths > 0 ? power_heuristic(f_p, pdf_environment(Li, dir)) : 1.f;
         radiance += throughput * weight * Li;
     }

@@ -1,12 +1,12 @@
 #include "environment.h"
 
-Environment::Environment(const std::string& name, const Texture2D& texture) : model(1), texture(texture) {
+EnvironmentImpl::EnvironmentImpl(const Texture2D& texture) : model(1), texture(texture), strength(1) {
     // build cdf
     std::vector<std::vector<float>> conditional;
     std::vector<float> marginal;
     integral = build_cdf_2D(texture, conditional, marginal);
     // upload conditional
-    cdf_U = SSBO(name + "_conditional");
+    cdf_U = SSBO("TODO_env_conditional");
     cdf_U->resize(conditional[0].size() * conditional.size() * sizeof(float));
     float* gpu = (float*)cdf_U->map(GL_WRITE_ONLY);
     for (size_t y = 0; y < conditional.size(); ++y)
@@ -14,7 +14,7 @@ Environment::Environment(const std::string& name, const Texture2D& texture) : mo
             gpu[y * conditional[y].size() + x] = conditional[y][x];
     cdf_U->unmap();
     // upload marginal
-    cdf_V = SSBO(name + "_marginal");
+    cdf_V = SSBO("TODO_env_marginal");
     cdf_V->resize(marginal.size() * sizeof(float));
     gpu = (float*) cdf_V->map(GL_WRITE_ONLY);
     for (size_t y = 0; y < marginal.size(); ++y)
@@ -22,9 +22,9 @@ Environment::Environment(const std::string& name, const Texture2D& texture) : mo
     cdf_V->unmap();
 }
 
-Environment::~Environment() {}
+EnvironmentImpl::~EnvironmentImpl() {}
 
-float Environment::build_cdf_1D(const float* f, uint32_t N, std::vector<float>& cdf) {
+float EnvironmentImpl::build_cdf_1D(const float* f, uint32_t N, std::vector<float>& cdf) {
     cdf.resize(N + 1);
     // build cdf and save integral
     float integral = 0;
@@ -38,7 +38,7 @@ float Environment::build_cdf_1D(const float* f, uint32_t N, std::vector<float>& 
     return integral / N; // unit integral
 }
 
-float Environment::build_cdf_2D(const Texture2D& tex, std::vector<std::vector<float>>& conditional, std::vector<float>& marginal) {
+float EnvironmentImpl::build_cdf_2D(const Texture2D& tex, std::vector<std::vector<float>>& conditional, std::vector<float>& marginal) {
     conditional.clear(); marginal.clear();
     // download texture data
     std::vector<glm::vec3> buf(tex->w * tex->h);

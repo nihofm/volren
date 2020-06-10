@@ -2,79 +2,135 @@
 #include <vector>
 #include <iostream>
 #include <fstream>
+#include <glm/gtc/matrix_transform.hpp>
 
 #if defined(WITH_OPENVDB)
 #include <openvdb/openvdb.h>
 #endif
 
-Volume::Volume() : model(1), absorbtion_coefficient(0.1), scattering_coefficient(0.5), phase_g(0) {}
+#define WITH_DCMTK // XXX vs code hack
+#if defined(WITH_DCMTK)
+#include <dcmtk/dcmdata/dctk.h>
+#include <dcmtk/dcmimgle/dcmimage.h>
+#endif
 
-Volume::Volume(const std::string& name, size_t w, size_t h, size_t d, float density) : Volume() {
+VolumeImpl::VolumeImpl() : model(1), absorbtion_coefficient(0.1), scattering_coefficient(0.5), phase_g(0), slice_thickness(1.f) {}
+
+VolumeImpl::VolumeImpl(const std::string& name, size_t w, size_t h, size_t d, float density) : VolumeImpl() {
     std::vector<float> data(w * h * d, density);
-    texture = Texture3D(name, w, h, d, GL_R32F, GL_RED, GL_FLOAT, data.data(), true);
+    texture = Texture3D(name, w, h, d, GL_R32F, GL_RED, GL_FLOAT, data.data(), false);
 }
 
-Volume::Volume(const std::string& name, size_t w, size_t h, size_t d, const uint8_t* data) : Volume() {
-    texture = Texture3D(name, w, h, d, GL_R8, GL_RED, GL_UNSIGNED_BYTE, data, true);
+VolumeImpl::VolumeImpl(const std::string& name, size_t w, size_t h, size_t d, const uint8_t* data) : VolumeImpl() {
+    texture = Texture3D(name, w, h, d, GL_R8, GL_RED, GL_UNSIGNED_BYTE, data, false);
 }
 
-Volume::Volume(const std::string& name, size_t w, size_t h, size_t d, const uint16_t* data) : Volume() {
-    texture = Texture3D(name, w, h, d, GL_R16, GL_RED, GL_UNSIGNED_SHORT, data, true);
+VolumeImpl::VolumeImpl(const std::string& name, size_t w, size_t h, size_t d, const uint16_t* data) : VolumeImpl() {
+    texture = Texture3D(name, w, h, d, GL_R16, GL_RED, GL_UNSIGNED_SHORT, data, false);
 }
 
-Volume::Volume(const std::string& name, size_t w, size_t h, size_t d, const float* data) : Volume() {
-    texture = Texture3D(name, w, h, d, GL_R32F, GL_RED, GL_FLOAT, data, true);
+VolumeImpl::VolumeImpl(const std::string& name, size_t w, size_t h, size_t d, const float* data) : VolumeImpl() {
+    texture = Texture3D(name, w, h, d, GL_R32F, GL_RED, GL_FLOAT, data, false);
 }
 
-Volume::Volume(const fs::path& path) : Volume() {
+VolumeImpl::VolumeImpl(const fs::path& path) : VolumeImpl() {
     const fs::path extension = path.extension();
     if (extension == ".dat") {
-        // TODO handle .dat
+        std::ifstream dat_file(path);
+        if (!dat_file.is_open())
+            throw std::runtime_error("Unable to read file: " + path.string());
+        // read meta data
+        fs::path raw_path;
+        glm::ivec3 dim;
+        std::string format;
+        int bits;
+        while (!dat_file.eof()) {
+            std::string key;
+            dat_file >> key;
+            if (key == "ObjectFileName:") {
+                dat_file >> raw_path;
+                printf("Scan raw file: %s\n", raw_path.c_str());
+            } else if (key == "Resolution:") {
+                dat_file >> dim.x;
+                dat_file >> dim.y;
+                dat_file >> dim.z;
+                printf("Scan resolution: %i, %i, %i\n", dim.x, dim.y, dim.z);
+            } else if (key == "SliceThickness:") {
+                dat_file >> slice_thickness.x;
+                dat_file >> slice_thickness.y;
+                dat_file >> slice_thickness.z;
+                printf("Scan slice thickness: %f, %f, %f\n", slice_thickness.x, slice_thickness.y, slice_thickness.z);
+            } else if (key == "Format:") {
+                dat_file >> format;
+                printf("Scan format: %s\n", format.c_str());
+            } else if (key == "BitsUsed:") {
+                dat_file >> bits;
+                printf("Scan bits used: %i\n", bits);
+            } else
+                std::cout << "Skipping key: " << key << "..." << std::endl;
+        }
+        // read raw data
+        raw_path = path.parent_path() / raw_path;
+        std::ifstream raw_file(raw_path, std::ios::binary);
+        if (!raw_file.is_open())
+            throw std::runtime_error("Unable to read file: " + raw_path.string());
+        // parse data type and setup volume texture
+        std::vector<uint8_t> data(std::istreambuf_iterator<char>(raw_file), {});
+        std::cout << "data size bytes: " << data.size() << " / " << dim.x*dim.y*dim.z << std::endl;
+        if (true || format.find("UCHAR"))
+            texture = Texture3D(raw_path.filename(), dim.x, dim.y, dim.z, GL_R8, GL_RED, GL_UNSIGNED_BYTE, data.data(), false);
+        else if (format.find("USHORT"))
+            texture = Texture3D(raw_path.filename(), dim.x, dim.y, dim.z, GL_R16, GL_RED, GL_UNSIGNED_SHORT, (uint16_t*)data.data(), false);
+        else if (format.find("FLOAT"))
+            texture = Texture3D(raw_path.filename(), dim.x, dim.y, dim.z, GL_R32F, GL_RED, GL_FLOAT, (float*)data.data(), false);
+        else {
+            std::cerr << "WARN: Unable to parse data type from dat file: " << path << " -> falling back to uint8_t." << std::endl;
+            texture = Texture3D(raw_path.filename(), dim.x, dim.y, dim.z, GL_R8, GL_RED, GL_UNSIGNED_BYTE, data.data(), false);
+        }
     }
     else if (extension == ".raw") { // handle .raw
         std::ifstream raw(path, std::ios::binary);
-        if (raw.is_open()) {
-            // assumes file name of structure: name_WxHxD_type.raw
-            size_t last = 0, next = 0, w = 0, h = 0, d = 0;
-            std::string name, filename = path.filename();
-            // prase name
-            if ((next = filename.find("_", last)) != std::string::npos) {
-                name = filename.substr(last, next-last);
+        if (!raw.is_open())
+            throw std::runtime_error("Unable to read file: " + path.string());
+        // assumes file name of structure: name_WxHxD_type.raw
+        size_t last = 0, next = 0, w = 0, h = 0, d = 0;
+        std::string name, filename = path.filename();
+        // prase name
+        if ((next = filename.find("_", last)) != std::string::npos) {
+            name = filename.substr(last, next-last);
+            last = next + 1;
+        }
+        // parse WxHxD
+        if ((next = filename.find("_", last)) != std::string::npos) {
+            if ((next = filename.find("x", last)) != std::string::npos) {
+                w = std::stoi(filename.substr(last, next-last));
                 last = next + 1;
             }
-            // parse WxHxD
-            if ((next = filename.find("_", last)) != std::string::npos) {
-                if ((next = filename.find("x", last)) != std::string::npos) {
-                    w = std::stoi(filename.substr(last, next-last));
-                    last = next + 1;
-                }
-                if ((next = filename.find("x", last)) != std::string::npos) {
-                    h = std::stoi(filename.substr(last, next-last));
-                    last = next + 1;
-                }
-                if ((next = filename.find("_", last)) != std::string::npos) {
-                    d = std::stoi(filename.substr(last, next-last));
-                    last = next + 1;
-                }
+            if ((next = filename.find("x", last)) != std::string::npos) {
+                h = std::stoi(filename.substr(last, next-last));
                 last = next + 1;
             }
-            // parse data type and setup volume texture
-            std::vector<uint8_t> data(std::istreambuf_iterator<char>(raw), {});
-            if (filename.find("uint8"))
-                texture = Texture3D(name, w, h, d, GL_R8, GL_RED, GL_UNSIGNED_BYTE, data.data(), true);
-            else if (filename.find("uint16"))
-                texture = Texture3D(name, w, h, d, GL_R16, GL_RED, GL_UNSIGNED_SHORT, (uint16_t*)data.data(), true);
-            else if (filename.find("float"))
-                texture = Texture3D(name, w, h, d, GL_R32F, GL_RED, GL_FLOAT, (float*)data.data(), true);
-            else {
-                std::cerr << "WARN: Unable to parse data type from raw file name: " << path << " -> falling back to uint8_t." << std::endl;
-                texture = Texture3D(name, w, h, d, GL_R8, GL_RED, GL_UNSIGNED_BYTE, data.data(), true);
+            if ((next = filename.find("_", last)) != std::string::npos) {
+                d = std::stoi(filename.substr(last, next-last));
+                last = next + 1;
             }
-        } else
-            throw std::runtime_error("Volume: Unable to read file: " + path.string());
+            last = next + 1;
+        }
+        // parse data type and setup volume texture
+        std::vector<uint8_t> data(std::istreambuf_iterator<char>(raw), {});
+        if (filename.find("uint8"))
+            texture = Texture3D(name, w, h, d, GL_R8, GL_RED, GL_UNSIGNED_BYTE, data.data(), false);
+        else if (filename.find("uint16"))
+            texture = Texture3D(name, w, h, d, GL_R16, GL_RED, GL_UNSIGNED_SHORT, (uint16_t*)data.data(), false);
+        else if (filename.find("float"))
+            texture = Texture3D(name, w, h, d, GL_R32F, GL_RED, GL_FLOAT, (float*)data.data(), false);
+        else {
+            std::cerr << "WARN: Unable to parse data type from raw file name: " << path << " -> falling back to uint8_t." << std::endl;
+            texture = Texture3D(name, w, h, d, GL_R8, GL_RED, GL_UNSIGNED_BYTE, data.data(), false);
+        }
     }
 #if defined(WITH_OPENVDB)
-    else if (extension == ".vdb") { // handle .vdb TODO FIXME some .vdb crash in Texture3D GL upload
+    else if (extension == ".vdb") { // handle .vdb TODO FIXME some .vdb are broken, possibly stride?
         // open file
         openvdb::initialize();
         openvdb::io::File vdb_file(path.string());
@@ -88,7 +144,7 @@ Volume::Volume(const fs::path& path) : Volume() {
         }
         vdb_file.close();
         // cast to FloatGrid
-        if (!baseGrid) throw std::runtime_error("Volume: No OpenVDB density grid found in " + path.string());
+        if (!baseGrid) throw std::runtime_error("No OpenVDB density grid found in " + path.string());
         const openvdb::FloatGrid::Ptr grid = openvdb::gridPtrCast<openvdb::FloatGrid>(baseGrid);
         const openvdb::CoordBBox box = grid->evalActiveVoxelBoundingBox();
         const openvdb::Coord dim = grid->evalActiveVoxelDim() + openvdb::Coord(1); // inclusive bounds
@@ -104,13 +160,46 @@ Volume::Volume(const fs::path& path) : Volume() {
             }
         }
         // load into GL texture
-        texture = Texture3D(path.stem(), dim.x(), dim.y(), dim.z(), GL_R8, GL_RED, GL_UNSIGNED_BYTE, data.data(), true);
+        texture = Texture3D(path.stem(), dim.x(), dim.y(), dim.z(), GL_R8, GL_RED, GL_UNSIGNED_BYTE, data.data(), false);
+    }
+#endif
+#if defined(WITH_DCMTK)
+    else if (extension == ".dcm") { // handle .dcm dicom files TODO
+        // TODO read data
+        DcmFileFormat fileformat;
+        OFCondition status = fileformat.loadFile(path.c_str());
+        if (!status.good())
+            throw std::runtime_error(std::string("Error: cannot read DICOM file: ") + status.text());
+        OFString patientName;
+        if (fileformat.getDataset()->findAndGetOFString(DCM_PatientName, patientName).good())
+            std::cout << "Patient's Name: " << patientName << std::endl;
+        else
+            std::cerr << "Error: cannot access Patient's Name!" << std::endl;
+
+        // TODO read image
+        DicomImage image(path.c_str());
+        if (image.getStatus() != EIS_Normal)
+            throw std::runtime_error("Unable to load DICOM image " + path.string() + ": " + DicomImage::getString(image.getStatus()));
+        if (image.isMonochrome()) {
+            image.setMinMaxWindow();
+            image.setNoVoiTransformation();
+            std::cout << "DICOM: " << image.getWidth() << "x" << image.getHeight() << "x" << image.getDepth() << ", frames: " << image.getFrameCount() << " / " << image.getNumberOfFrames() << std::endl;
+            const DiPixel* pixelData = image.getInterData();
+            if (pixelData != NULL) {
+                /* do something useful with the pixel data */
+            }
+        } else
+            throw std::runtime_error("non-monochrome DICOM image");
     }
 #endif
     else
-        throw std::runtime_error("Volume: Unable to load file extension: " + extension.string());
+        throw std::runtime_error("Unable to load file extension: " + extension.string());
+    // setup model matrix
+    std::swap(slice_thickness.y, slice_thickness.z);                    // swap y and z axis
+    model = glm::scale(model, slice_thickness);                         // scale slices
+    model = glm::rotate(model, float(1.5 * M_PI), glm::vec3(1, 0, 0));  // from z up to y up
 }
 
-Volume::~Volume() {
+VolumeImpl::~VolumeImpl() {
 
 }

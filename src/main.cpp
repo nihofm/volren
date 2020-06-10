@@ -7,6 +7,7 @@
 
 #include "volume.h"
 #include "environment.h"
+#include "transferfunc.h"
 
 // ------------------------------------------
 // state / variables / settings
@@ -19,8 +20,9 @@ static float tonemap_exposure = 10.f;
 static float tonemap_gamma = 2.2f;
 static bool show_convergence = false;
 static bool show_environment = false;
-static std::shared_ptr<Volume> volume;
-static std::shared_ptr<Environment> environment;
+static Volume volume;
+static TransferFunction transferfunc;
+static Environment environment;
 static Shader trace_shader;
 static Framebuffer fbo;
 static Animation animation;
@@ -85,6 +87,8 @@ void keyboard_callback(int key, int scancode, int action, int mods) {
         animation->put_data("absorbtion_coefficient", i, volume->absorbtion_coefficient);
         animation->put_data("scattering_coefficient", i, volume->scattering_coefficient);
         animation->put_data("phase_g", i, volume->phase_g);
+        animation->put_data("window_center", i, transferfunc->window_center);
+        animation->put_data("window_width", i, transferfunc->window_width);
         std::cout << "curr anim length: " << i + 1 << std::endl;
     }
     if (key == GLFW_KEY_L && action == GLFW_PRESS)
@@ -97,6 +101,22 @@ void keyboard_callback(int key, int scancode, int action, int mods) {
 
 void mouse_button_callback(int button, int action, int mods) {
     if (ImGui::GetIO().WantCaptureMouse) return;
+}
+
+void mouse_callback(double xpos, double ypos) {
+    if (ImGui::GetIO().WantCaptureMouse) return;
+    static double old_xpos = -1, old_ypos = -1;
+    if (old_xpos == -1 || old_ypos == -1) {
+        old_xpos = xpos;
+        old_ypos = ypos;
+    }
+    if (Context::mouse_button_pressed(GLFW_MOUSE_BUTTON_RIGHT)) {
+        transferfunc->window_center += (xpos - old_xpos) * 0.001;
+        transferfunc->window_width += (old_ypos - ypos) * 0.001;
+        sample = 0;
+    }
+    old_xpos = xpos;
+    old_ypos = ypos;
 }
 
 void gui_callback(void) {
@@ -112,14 +132,18 @@ void gui_callback(void) {
         if (ImGui::InputInt("Bounces", &bounces)) sample = 0;
         ImGui::Separator();
         if (ImGui::Checkbox("Environment", &show_environment)) sample = 0;
+        if (ImGui::SliderFloat("Env strength", &environment->strength, 0.1f, 100.f)) sample = 0;
         ImGui::Checkbox("Tonemapping", &tonemapping);
-        ImGui::SliderFloat("Exposure", &tonemap_exposure, 0.1f, 50.f);
-        ImGui::SliderFloat("Gamma", &tonemap_gamma, 0.5f, 5.f);
+        ImGui::SliderFloat("Exposure", &tonemap_exposure, 0.1f, 100.f);
+        ImGui::SliderFloat("Gamma", &tonemap_gamma, 0.25f, 5.f);
         ImGui::Checkbox("Show convergence", &show_convergence);
         ImGui::Separator();
         if (ImGui::SliderFloat("Absorb", &volume->absorbtion_coefficient, 0.001f, 100.f)) sample = 0;
         if (ImGui::SliderFloat("Scatter", &volume->scattering_coefficient, 0.001f, 100.f)) sample = 0;
         if (ImGui::SliderFloat("Phase g", &volume->phase_g, -.9f, .9f)) sample = 0;
+        ImGui::Separator();
+        if (ImGui::SliderFloat("Window center", &transferfunc->window_center, 0.f, 1.f)) sample = 0;
+        if (ImGui::SliderFloat("Window width", &transferfunc->window_width, 0.f, 5.f)) sample = 0;
         ImGui::Separator();
         ImGui::Text("Model:");
         glm::mat4 row_maj = glm::transpose(volume->model);
@@ -164,6 +188,7 @@ int main(int argc, char** argv) {
     Context::set_resize_callback(resize_callback);
     Context::set_keyboard_callback(keyboard_callback);
     Context::set_mouse_button_callback(mouse_button_callback);
+    Context::set_mouse_callback(mouse_callback);
     Context::set_gui_callback(gui_callback);
 
     // parse cmd line args
@@ -178,7 +203,7 @@ int main(int argc, char** argv) {
         else if (arg == "-d")
             bounces = std::stoi(argv[++i]);
         else if (arg == "-env")
-            environment = make_environment("environment", Texture2D("environment", argv[++i]));
+            environment = Environment("environment", Texture2D("environment", argv[++i]));
         else if (arg == "-pos") {
             current_camera()->pos.x = std::stof(argv[++i]);
             current_camera()->pos.y = std::stof(argv[++i]);
@@ -194,7 +219,7 @@ int main(int argc, char** argv) {
         else if (arg == "-gamma")
             tonemap_gamma = std::stof(argv[++i]);
         else
-            volume = make_volume(argv[i]);
+            volume = Volume(fs::path(argv[i]).filename(), argv[i]);
     }
 
     // setup fbo
@@ -209,30 +234,32 @@ int main(int argc, char** argv) {
     fbo->attach_colorbuffer(Texture2D("fbo/even", res.x, res.y, GL_RGBA32F, GL_RGBA, GL_FLOAT));
     fbo->check();
 
-    // setup trace shader
+    // setup trace shader and animation
     trace_shader = Shader("trace", "shader/trace.glsl");
-
-    // setup animation
     animation = Animation("animation");
 
     // load default envmap?
     if (!environment)
-        environment = make_environment("clearsky", Texture2D("clearsky", "data/gi/envmaps/clearsky.hdr"));
-        //environment = make_environment("sunset", Texture2D("sunset", "data/gi/envmaps/sunset.hdr"));
-        //environment = make_environment("woods", Texture2D("woods", "data/images/envmaps/woods.hdr"));
+        // environment = Environment("clearsky", Texture2D("clearsky", "data/clearsky.hdr"));
+        environment = Environment("sunset", Texture2D("sunset", "data_old/gi/envmaps/sunset.hdr"));
+        // environment = Environment("woods", Texture2D("woods", "data_old/images/envmaps/woods.hdr"));
 
     // load default volume?
     if (!volume)
-        volume = make_volume("data/volumetric/smoke.vdb");
-        //volume = make_volume("data/volumetric/skull_256x256x256_uint8.raw");
+        volume = Volume("cloud", "data/volumetric/smoke.vdb");
+        //volume = Volume("skull", "data/volumetric/skull_256x256x256_uint8.raw");
 
-    // XXX test setup
-    current_camera()->pos = glm::vec3(-.75, .5, -.5);
-    //volume->model = glm::rotate(volume->model, float(1.5 * M_PI), glm::vec3(1, 0, 0));
-    volume->model = glm::rotate(volume->model, float(M_PI), glm::vec3(1, 0, 0));
-    volume->scattering_coefficient = 0.3;
-    volume->absorbtion_coefficient = 0.1;
-    volume->phase_g = -0.2;
+    // setup transfer function (LUT)
+    if (!transferfunc)
+        transferfunc = TransferFunction("tf", "data/AbdShaded_b.txt");
+        // transferfunc = TransferFunction("tf", "data/SplineShaded.txt");
+
+    // test default setup
+    current_camera()->pos = glm::vec3(.5, .5, .5);
+    current_camera()->dir = glm::vec3(0, 0, -1);
+    volume->scattering_coefficient = 3;
+    volume->absorbtion_coefficient = 1;
+    volume->phase_g = 0.0;
 
     // run
     float shader_timer = 0;
@@ -250,6 +277,8 @@ int main(int argc, char** argv) {
             volume->scattering_coefficient = animation->eval_float("scattering_coefficient");
             volume->absorbtion_coefficient = animation->eval_float("absorbtion_coefficient");
             volume->phase_g = animation->eval_float("phase_g");
+            transferfunc->window_center = animation->eval_float("window_center");
+            transferfunc->window_width = animation->eval_float("window_width");
         }
         shader_timer -= Context::frame_time();
         if (shader_timer <= 0) {
@@ -277,6 +306,10 @@ int main(int argc, char** argv) {
             trace_shader->uniform("vol_absorb", volume->absorbtion_coefficient);
             trace_shader->uniform("vol_scatter", volume->scattering_coefficient);
             trace_shader->uniform("vol_phase_g", volume->phase_g);
+            // transfer function
+            trace_shader->uniform("tf_window_center", transferfunc->window_center);
+            trace_shader->uniform("tf_window_width", transferfunc->window_width);
+            trace_shader->uniform("tf_lut_texture", transferfunc->texture, 1);
             // camera
             trace_shader->uniform("cam_pos", current_camera()->pos);
             trace_shader->uniform("cam_fov", current_camera()->fov_degree);
@@ -284,7 +317,8 @@ int main(int argc, char** argv) {
             // environment
             trace_shader->uniform("env_model", environment->model);
             trace_shader->uniform("env_inv_model", glm::inverse(environment->model));
-            trace_shader->uniform("env_texture", environment->texture, 1);
+            trace_shader->uniform("env_strength", environment->strength);
+            trace_shader->uniform("env_texture", environment->texture, 2);
             trace_shader->uniform("env_integral", environment->integral);
 
             // trace

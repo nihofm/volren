@@ -1,14 +1,14 @@
 #pragma once
 
 #include <vector>
-#include <cppgl/texture.h>
-#include <cppgl/buffer.h>
 #include <glm/glm.hpp>
+#include <cppgl/buffer.h>
+#include <cppgl/texture.h>
 
-class Environment {
+class EnvironmentImpl {
 public:
-    Environment(const std::string& name, const Texture2D& texture);
-    virtual ~Environment();
+    EnvironmentImpl(const Texture2D& texture);
+    virtual ~EnvironmentImpl();
 
     explicit inline operator bool() const  { return texture->operator bool(); }
     inline operator GLuint() const { return texture->operator GLuint(); }
@@ -20,12 +20,10 @@ public:
     // data
     glm::mat4 model;
     Texture2D texture;
+    float strength;
     // cdf
     float integral;
     SSBO cdf_U, cdf_V;
 };
 
-// variadic alias for std::make_shared<>(...)
-template <class... Args> std::shared_ptr<Environment> make_environment(Args&&... args) {
-    return std::make_shared<Environment>(args...);
-}
+using Environment = NamedHandle<EnvironmentImpl>;

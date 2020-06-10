@@ -42,6 +42,10 @@ target_link_libraries(${TARGET} glfw)
 # std::filesystem
 target_link_libraries(${TARGET} stdc++fs)
 
+# external libs
+add_dependencies(${TARGET} cppgl-ext)
+target_link_libraries(${TARGET} cppgl)
+
 # pytorch (optional)
 if (WITH_TORCH)
     find_package(Torch REQUIRED)
@@ -55,6 +59,8 @@ if (WITH_OPENVDB)
     target_link_libraries(${TARGET} openvdb Half tbb)
 ENDIF()
 
-# external libs
-add_dependencies(${TARGET} cppgl-ext)
-target_link_libraries(${TARGET} cppgl)
+# dcmtk (optional)
+if (WITH_DCMTK)
+    add_dependencies(${TARGET} dcmtk-ext)
+    target_link_libraries(${TARGET} dcmdata dcmimage dcmimgle oflog ofstd)
+ENDIF()
