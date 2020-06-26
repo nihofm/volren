@@ -2,9 +2,9 @@
 #include <fstream>
 #include <iostream>
 
-TransferFunctionImpl::TransferFunctionImpl() : window_center(0), window_width(1) {}
+TransferFunctionImpl::TransferFunctionImpl(const std::string& name) : name(name), window_center(0), window_width(1) {}
 
-TransferFunctionImpl::TransferFunctionImpl(const fs::path& path) : TransferFunctionImpl() {
+TransferFunctionImpl::TransferFunctionImpl(const std::string& name, const fs::path& path) : TransferFunctionImpl(name) {
     // load lut from file (format: %f, %f, %f, %f)
     std::ifstream lut_file(path);
     if (!lut_file.is_open())
@@ -19,7 +19,7 @@ TransferFunctionImpl::TransferFunctionImpl(const fs::path& path) : TransferFunct
     upload_gpu();
 }
 
-TransferFunctionImpl::TransferFunctionImpl(const std::vector<glm::vec4>& lut) : TransferFunctionImpl() {
+TransferFunctionImpl::TransferFunctionImpl(const std::string& name, const std::vector<glm::vec4>& lut) : TransferFunctionImpl(name) {
     this->lut = lut;
     upload_gpu();
 }

@@ -17,7 +17,7 @@ static int sppx = 1000;
 static int bounces = 100;
 static bool tonemapping = true;
 static float tonemap_exposure = 10.f;
-static float tonemap_gamma = 2.2f;
+static float tonemap_gamma = 1.0f;
 static bool show_convergence = false;
 static bool show_environment = false;
 static Volume volume;
@@ -204,6 +204,8 @@ int main(int argc, char** argv) {
             bounces = std::stoi(argv[++i]);
         else if (arg == "-env")
             environment = Environment("environment", Texture2D("environment", argv[++i]));
+        else if (arg == "-lut")
+            transferfunc = TransferFunction("tf", argv[++i]);
         else if (arg == "-pos") {
             current_camera()->pos.x = std::stof(argv[++i]);
             current_camera()->pos.y = std::stof(argv[++i]);
@@ -239,10 +241,13 @@ int main(int argc, char** argv) {
     animation = Animation("animation");
 
     // load default envmap?
-    if (!environment)
+    if (!environment) {
+        glm::vec3 color(1);
+        environment = Environment("white_background", Texture2D("white_background", 1, 1, GL_RGB32F, GL_RGB, GL_FLOAT, &color.x));
         // environment = Environment("clearsky", Texture2D("clearsky", "data/clearsky.hdr"));
-        environment = Environment("sunset", Texture2D("sunset", "data_old/gi/envmaps/sunset.hdr"));
+        // environment = Environment("sunset", Texture2D("sunset", "data_old/gi/envmaps/sunset.hdr"));
         // environment = Environment("woods", Texture2D("woods", "data_old/images/envmaps/woods.hdr"));
+    }
 
     // load default volume?
     if (!volume)

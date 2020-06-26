@@ -7,7 +7,7 @@
 
 class EnvironmentImpl {
 public:
-    EnvironmentImpl(const Texture2D& texture);
+    EnvironmentImpl(const std::string& name, const Texture2D& texture);
     virtual ~EnvironmentImpl();
 
     explicit inline operator bool() const  { return texture->operator bool(); }
@@ -18,6 +18,7 @@ public:
     static float build_cdf_2D(const Texture2D& tex, std::vector<std::vector<float>>& conditional, std::vector<float>& marginal);
 
     // data
+    const std::string name;
     glm::mat4 model;
     Texture2D texture;
     float strength;

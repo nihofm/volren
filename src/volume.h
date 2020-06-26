@@ -5,8 +5,8 @@
 
 class VolumeImpl {
 public:
-    VolumeImpl(); // default construct as invalid volume
-    VolumeImpl(const fs::path& path); // heterogeneous from file on disk
+    VolumeImpl(const std::string& name); // default construct as invalid volume
+    VolumeImpl(const std::string& name, const fs::path& path); // heterogeneous from file on disk
     // TODO remove name arg?
     VolumeImpl(const std::string& name, size_t w, size_t h, size_t d, float density); // homogeneous (very inefficient, no closed form!)
     VolumeImpl(const std::string& name, size_t w, size_t h, size_t d, const uint8_t* data); // heterogeneous (linear array of w x h x d uchars)
@@ -18,6 +18,7 @@ public:
     //inline operator GLuint() const { return texture->operator GLuint(); }
 
     // data
+    const std::string name;
     glm::mat4 model;
     float absorbtion_coefficient;
     float scattering_coefficient;

@@ -1,6 +1,6 @@
 #include "environment.h"
 
-EnvironmentImpl::EnvironmentImpl(const Texture2D& texture) : model(1), texture(texture), strength(1) {
+EnvironmentImpl::EnvironmentImpl(const std::string& name, const Texture2D& texture) : name(name), model(1), texture(texture), strength(1) {
     // build cdf
     std::vector<std::vector<float>> conditional;
     std::vector<float> marginal;

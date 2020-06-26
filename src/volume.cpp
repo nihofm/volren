@@ -14,26 +14,28 @@
 #include <dcmtk/dcmimgle/dcmimage.h>
 #endif
 
-VolumeImpl::VolumeImpl() : model(1), absorbtion_coefficient(0.1), scattering_coefficient(0.5), phase_g(0), slice_thickness(1.f) {}
+#include "v3/ddsbase.h"
 
-VolumeImpl::VolumeImpl(const std::string& name, size_t w, size_t h, size_t d, float density) : VolumeImpl() {
+VolumeImpl::VolumeImpl(const std::string& name) : name(name), model(1), absorbtion_coefficient(0.1), scattering_coefficient(0.5), phase_g(0), slice_thickness(1.f) {}
+
+VolumeImpl::VolumeImpl(const std::string& name, size_t w, size_t h, size_t d, float density) : VolumeImpl(name) {
     std::vector<float> data(w * h * d, density);
     texture = Texture3D(name, w, h, d, GL_R32F, GL_RED, GL_FLOAT, data.data(), false);
 }
 
-VolumeImpl::VolumeImpl(const std::string& name, size_t w, size_t h, size_t d, const uint8_t* data) : VolumeImpl() {
+VolumeImpl::VolumeImpl(const std::string& name, size_t w, size_t h, size_t d, const uint8_t* data) : VolumeImpl(name) {
     texture = Texture3D(name, w, h, d, GL_R8, GL_RED, GL_UNSIGNED_BYTE, data, false);
 }
 
-VolumeImpl::VolumeImpl(const std::string& name, size_t w, size_t h, size_t d, const uint16_t* data) : VolumeImpl() {
+VolumeImpl::VolumeImpl(const std::string& name, size_t w, size_t h, size_t d, const uint16_t* data) : VolumeImpl(name) {
     texture = Texture3D(name, w, h, d, GL_R16, GL_RED, GL_UNSIGNED_SHORT, data, false);
 }
 
-VolumeImpl::VolumeImpl(const std::string& name, size_t w, size_t h, size_t d, const float* data) : VolumeImpl() {
+VolumeImpl::VolumeImpl(const std::string& name, size_t w, size_t h, size_t d, const float* data) : VolumeImpl(name) {
     texture = Texture3D(name, w, h, d, GL_R32F, GL_RED, GL_FLOAT, data, false);
 }
 
-VolumeImpl::VolumeImpl(const fs::path& path) : VolumeImpl() {
+VolumeImpl::VolumeImpl(const std::string& name, const fs::path& path) : VolumeImpl(name) {
     const fs::path extension = path.extension();
     if (extension == ".dat") {
         std::ifstream dat_file(path);
@@ -87,6 +89,9 @@ VolumeImpl::VolumeImpl(const fs::path& path) : VolumeImpl() {
             std::cerr << "WARN: Unable to parse data type from dat file: " << path << " -> falling back to uint8_t." << std::endl;
             texture = Texture3D(raw_path.filename(), dim.x, dim.y, dim.z, GL_R8, GL_RED, GL_UNSIGNED_BYTE, data.data(), false);
         }
+        // from z up to y up
+        std::swap(slice_thickness.y, slice_thickness.z);
+        model = glm::rotate(glm::mat4(1), float(1.5 * M_PI), glm::vec3(1, 0, 0));
     }
     else if (extension == ".raw") { // handle .raw
         std::ifstream raw(path, std::ios::binary);
@@ -116,6 +121,22 @@ VolumeImpl::VolumeImpl(const fs::path& path) : VolumeImpl() {
             }
             last = next + 1;
         }
+        // parse slice thickness WxHxD
+        if ((next = filename.find("_", last)) != std::string::npos) {
+            if ((next = filename.find("x", last)) != std::string::npos) {
+                slice_thickness.x = std::stof(filename.substr(last, next-last));
+                last = next + 1;
+            }
+            if ((next = filename.find("x", last)) != std::string::npos) {
+                slice_thickness.y = std::stof(filename.substr(last, next-last));
+                last = next + 1;
+            }
+            if ((next = filename.find("_", last)) != std::string::npos) {
+                slice_thickness.z = std::stof(filename.substr(last, next-last));
+                last = next + 1;
+            }
+            last = next + 1;
+        }
         // parse data type and setup volume texture
         std::vector<uint8_t> data(std::istreambuf_iterator<char>(raw), {});
         if (filename.find("uint8"))
@@ -128,6 +149,31 @@ VolumeImpl::VolumeImpl(const fs::path& path) : VolumeImpl() {
             std::cerr << "WARN: Unable to parse data type from raw file name: " << path << " -> falling back to uint8_t." << std::endl;
             texture = Texture3D(name, w, h, d, GL_R8, GL_RED, GL_UNSIGNED_BYTE, data.data(), false);
         }
+    }
+    else if (extension == ".pvm") { // handle .pvm files via V3 from http://www.stereofx.org/download/
+        // TODO FIXME test
+        uint32_t w, h, d, c;
+        const unsigned char* data = readPVMvolume(path.c_str(), &w, &h, &d, &c, &slice_thickness.x, &slice_thickness.y, &slice_thickness.z);
+        if (!data)
+            throw std::runtime_error("Unable to read file: " + path.string());
+        printf("pvm volume %ux%ux%u, components: %u, scale: %f, %f, %f\n", w, h, d, c, slice_thickness.x, slice_thickness.y, slice_thickness.z);
+        switch (c) {
+        case 1:
+            texture = Texture3D(path.stem(), w, h, d, GL_R8, GL_RED, GL_UNSIGNED_BYTE, data, false);
+            break;
+        case 2:
+            texture = Texture3D(path.stem(), w, h, d, GL_R16, GL_RED, GL_UNSIGNED_SHORT, data, false);
+            break;
+        case 4:
+            texture = Texture3D(path.stem(), w, h, d, GL_RED, GL_RED, GL_UNSIGNED_INT, data, false);
+            break;
+        default:
+            throw std::runtime_error("Unable to load pvm file with " + std::to_string(c) + " components...");
+        }
+        delete data;
+        // from z up to y up?
+        //std::swap(slice_thickness.y, slice_thickness.z);
+        model = glm::rotate(glm::mat4(1), float(M_PI), glm::vec3(1, 0, 0));
     }
 #if defined(WITH_OPENVDB)
     else if (extension == ".vdb") { // handle .vdb TODO FIXME some .vdb are broken, possibly stride?
@@ -195,9 +241,7 @@ VolumeImpl::VolumeImpl(const fs::path& path) : VolumeImpl() {
     else
         throw std::runtime_error("Unable to load file extension: " + extension.string());
     // setup model matrix
-    std::swap(slice_thickness.y, slice_thickness.z);                    // swap y and z axis
     model = glm::scale(model, slice_thickness);                         // scale slices
-    model = glm::rotate(model, float(1.5 * M_PI), glm::vec3(1, 0, 0));  // from z up to y up
 }
 
 VolumeImpl::~VolumeImpl() {
