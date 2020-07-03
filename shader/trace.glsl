@@ -25,12 +25,12 @@ float sqr(float x) { return x * x; }
 
 float luma(const vec3 col) { return dot(col, vec3(0.212671f, 0.715160f, 0.072169f)); }
 
-vec3 align(const vec3 axis, const vec3 v) {
-    const float s = sign(axis.z);
-    const vec3 w = vec3(v.x, v.y, v.z * s);
-    const vec3 h = vec3(axis.x, axis.y, axis.z + s);
-    const float k = dot(w, h) / (1.f + abs(axis.z));
-    return k * h - w;
+vec3 align(const vec3 N, const vec3 v) {
+    // build tangent frame
+    const vec3 T = abs(N.x) > abs(N.y) ? vec3(-N.z, 0, N.x) / sqrt(N.x * N.x + N.z * N.z) : vec3(0, N.z, -N.y) / sqrt(N.y * N.y + N.z * N.z);
+    const vec3 B = cross(N, T);
+    // tangent to world
+    return normalize(v.x * T + v.y * B + v.z * N);
 }
 
 float power_heuristic(const float a, const float b) { return sqr(a) / (sqr(a) + sqr(b)); }
