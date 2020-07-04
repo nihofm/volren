@@ -30,7 +30,7 @@ else()
     add_definitions(-UWITH_OPENVDB)
 endif()
 
-option(WITH_DCMTK "Enable DICOM toolkit." ON)
+option(WITH_DCMTK "Enable DICOM toolkit." OFF)
 
 if (WITH_DCMTK)
     add_definitions(-DWITH_DCMTK)
@@ -51,8 +51,8 @@ link_directories(${EXTERNAL_DIR}/lib)
 # CppGL
 ExternalProject_Add(cppgl-ext
     GIT_REPOSITORY  git@git9.cs.fau.de:renderingframeworks/cppgl.git
-    #GIT_TAG         v0.2
-    GIT_TAG         dev
+    GIT_TAG         v1.0
+    #GIT_TAG         dev
     GIT_SHALLOW     ON
     INSTALL_DIR     ${EXTERNAL_DIR}
     CMAKE_ARGS      -DCMAKE_INSTALL_PREFIX:PATH=<INSTALL_DIR> -Wno-dev

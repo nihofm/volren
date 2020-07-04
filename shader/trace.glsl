@@ -281,7 +281,7 @@ void main() {
     // free path? -> add envmap contribution
     if (n_paths < bounces && n_paths >= show_environment) {
         const vec3 Li = env_strength * environment_lookup(vol_to_world(dir));
-        const float weight = n_paths > 0 ? power_heuristic(f_p, pdf_environment(Li, dir)) : 1.f;
+        const float weight = 1.f;//n_paths > 0 ? power_heuristic(f_p, pdf_environment(Li, dir)) : 1.f; // TODO check MIS
         radiance += throughput * weight * Li;
     }
 

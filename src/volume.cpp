@@ -8,7 +8,6 @@
 #include <openvdb/openvdb.h>
 #endif
 
-#define WITH_DCMTK // XXX vs code hack
 #if defined(WITH_DCMTK)
 #include <dcmtk/dcmdata/dctk.h>
 #include <dcmtk/dcmimgle/dcmimage.h>
@@ -90,7 +89,7 @@ VolumeImpl::VolumeImpl(const std::string& name, const fs::path& path) : VolumeIm
             texture = Texture3D(raw_path.filename(), dim.x, dim.y, dim.z, GL_R8, GL_RED, GL_UNSIGNED_BYTE, data.data(), false);
         }
         // from z up to y up
-        std::swap(slice_thickness.y, slice_thickness.z);
+        //std::swap(slice_thickness.y, slice_thickness.z);
         model = glm::rotate(glm::mat4(1), float(1.5 * M_PI), glm::vec3(1, 0, 0));
     }
     else if (extension == ".raw") { // handle .raw
