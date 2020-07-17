@@ -7,7 +7,6 @@ class VolumeImpl {
 public:
     VolumeImpl(const std::string& name); // default construct as invalid volume
     VolumeImpl(const std::string& name, const fs::path& path); // heterogeneous from file on disk
-    // TODO remove name arg?
     VolumeImpl(const std::string& name, size_t w, size_t h, size_t d, float density); // homogeneous (very inefficient, no closed form!)
     VolumeImpl(const std::string& name, size_t w, size_t h, size_t d, const uint8_t* data); // heterogeneous (linear array of w x h x d uchars)
     VolumeImpl(const std::string& name, size_t w, size_t h, size_t d, const uint16_t* data); // heterogeneous (linear array of w x h x d ushorts)

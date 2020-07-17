@@ -3,10 +3,10 @@ set(TARGET vol)
 
 # glob source files
 file(GLOB_RECURSE HEADERS "*.h")
-file(GLOB_RECURSE SOURCES "*.cpp")
+file(GLOB_RECURSE SOURCES "*.cpp" "*.cu")
 
 # define target
-add_executable(${TARGET} ${SOURCES} ${HEADERS})
+add_executable(${TARGET} ${HEADERS} ${SOURCES})
 
 # install
 install(TARGETS ${TARGET} DESTINATION bin)
@@ -18,33 +18,22 @@ install(TARGETS ${TARGET} DESTINATION bin)
 find_package(Threads REQUIRED)
 target_link_libraries(${TARGET} ${CMAKE_THREAD_LIBS_INIT})
 
-# openmp
-find_package(OpenMP REQUIRED)
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${OpenMP_CXX_FLAGS}")
-include_directories(${TARGET} ${OpenMP_CXX_INCLUDE_DIRS})
-target_link_libraries(${TARGET} ${OpenMP_CXX_LIBRARIES})
-
 # opengl
 set(OpenGL_GL_PREFERENCE "GLVND")
 find_package(OpenGL REQUIRED)
 target_include_directories(${TARGET} PUBLIC ${OPENGL_INCLUDE_DIR})
 target_link_libraries(${TARGET} ${OPENGL_LIBRARIES})
 
-# glew
-find_package(GLEW REQUIRED)
-target_include_directories(${TARGET} PUBLIC ${GLEW_INCLUDE_DIR})
-target_link_libraries(${TARGET} ${GLEW_LIBRARIES})
-
-# glfw3
-find_package(glfw3 REQUIRED)
-target_link_libraries(${TARGET} glfw)
-
-# std::filesystem
-target_link_libraries(${TARGET} stdc++fs)
-
-# external libs
+# external libs and dependencies
 add_dependencies(${TARGET} cppgl-ext)
-target_link_libraries(${TARGET} cppgl)
+find_library(GLEW GLEW PATHS ${EXTERNAL_DIR}/lib NO_DEFAULT_PATH)
+find_library(GLFW glfw PATHS ${EXTERNAL_DIR}/lib NO_DEFAULT_PATH)
+find_library(ASSIMP assimp PATHS ${EXTERNAL_DIR}/lib NO_DEFAULT_PATH)
+target_link_libraries(${TARGET} ${GLEW} ${GLFW} ${ASSIMP} stdc++fs cppgl)
+
+# CUDA
+find_package(CUDA REQUIRED)
+target_link_libraries(${TARGET} ${CUDA_LIBRARIES})
 
 # pytorch (optional)
 if (WITH_TORCH)

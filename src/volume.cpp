@@ -13,8 +13,6 @@
 #include <dcmtk/dcmimgle/dcmimage.h>
 #endif
 
-#include "v3/ddsbase.h"
-
 VolumeImpl::VolumeImpl(const std::string& name) : name(name), model(1), absorbtion_coefficient(0.1), scattering_coefficient(0.5), phase_g(0), slice_thickness(1.f) {}
 
 VolumeImpl::VolumeImpl(const std::string& name, size_t w, size_t h, size_t d, float density) : VolumeImpl(name) {
@@ -36,7 +34,7 @@ VolumeImpl::VolumeImpl(const std::string& name, size_t w, size_t h, size_t d, co
 
 VolumeImpl::VolumeImpl(const std::string& name, const fs::path& path) : VolumeImpl(name) {
     const fs::path extension = path.extension();
-    if (extension == ".dat") {
+    if (extension == ".dat") { // handle .dat
         std::ifstream dat_file(path);
         if (!dat_file.is_open())
             throw std::runtime_error("Unable to read file: " + path.string());
@@ -148,31 +146,6 @@ VolumeImpl::VolumeImpl(const std::string& name, const fs::path& path) : VolumeIm
             std::cerr << "WARN: Unable to parse data type from raw file name: " << path << " -> falling back to uint8_t." << std::endl;
             texture = Texture3D(name, w, h, d, GL_R8, GL_RED, GL_UNSIGNED_BYTE, data.data(), false);
         }
-    }
-    else if (extension == ".pvm") { // handle .pvm files via V3 from http://www.stereofx.org/download/
-        // TODO FIXME test
-        uint32_t w, h, d, c;
-        const unsigned char* data = readPVMvolume(path.c_str(), &w, &h, &d, &c, &slice_thickness.x, &slice_thickness.y, &slice_thickness.z);
-        if (!data)
-            throw std::runtime_error("Unable to read file: " + path.string());
-        printf("pvm volume %ux%ux%u, components: %u, scale: %f, %f, %f\n", w, h, d, c, slice_thickness.x, slice_thickness.y, slice_thickness.z);
-        switch (c) {
-        case 1:
-            texture = Texture3D(path.stem(), w, h, d, GL_R8, GL_RED, GL_UNSIGNED_BYTE, data, false);
-            break;
-        case 2:
-            texture = Texture3D(path.stem(), w, h, d, GL_R16, GL_RED, GL_UNSIGNED_SHORT, data, false);
-            break;
-        case 4:
-            texture = Texture3D(path.stem(), w, h, d, GL_RED, GL_RED, GL_UNSIGNED_INT, data, false);
-            break;
-        default:
-            throw std::runtime_error("Unable to load pvm file with " + std::to_string(c) + " components...");
-        }
-        delete data;
-        // from z up to y up?
-        //std::swap(slice_thickness.y, slice_thickness.z);
-        model = glm::rotate(glm::mat4(1), float(M_PI), glm::vec3(1, 0, 0));
     }
 #if defined(WITH_OPENVDB)
     else if (extension == ".vdb") { // handle .vdb TODO FIXME some .vdb are broken, possibly stride?

@@ -27,7 +27,9 @@ float luma(const vec3 col) { return dot(col, vec3(0.212671f, 0.715160f, 0.072169
 
 vec3 align(const vec3 N, const vec3 v) {
     // build tangent frame
-    const vec3 T = abs(N.x) > abs(N.y) ? vec3(-N.z, 0, N.x) / sqrt(N.x * N.x + N.z * N.z) : vec3(0, N.z, -N.y) / sqrt(N.y * N.y + N.z * N.z);
+    const vec3 T = abs(N.x) > abs(N.y) ?
+        vec3(-N.z, 0, N.x) / sqrt(N.x * N.x + N.z * N.z) :
+        vec3(0, N.z, -N.y) / sqrt(N.y * N.y + N.z * N.z);
     const vec3 B = cross(N, T);
     // tangent to world
     return normalize(v.x * T + v.y * B + v.z * N);
@@ -129,7 +131,7 @@ float pdf_environment(const vec3 emission, const vec3 dir) {
 // box intersect helper
 
 bool intersect_box(const vec3 pos, const vec3 dir, const vec3 bb_min, const vec3 bb_max, out vec2 near_far) {
-    // TODO fix inside
+    // TODO fix inside?
     const vec3 inv_dir = 1.f / dir;
     const vec3 lo = (bb_min - pos) * inv_dir;
     const vec3 hi = (bb_max - pos) * inv_dir;
@@ -182,6 +184,8 @@ uniform sampler3D vol_texture;
 uniform float vol_absorb;
 uniform float vol_scatter;
 uniform float vol_phase_g;
+uniform vec3 vol_bb_min;
+uniform vec3 vol_bb_max;
 
 float density(const vec3 tc) { return texture(vol_texture, tc).r; }
 vec3 world_to_vol(const vec4 world) { return vec3(vol_inv_model * world); } // position
@@ -189,11 +193,11 @@ vec3 world_to_vol(const vec3 world) { return normalize(mat3(vol_inv_model) * wor
 vec3 vol_to_world(const vec4 model) { return vec3(vol_model * model); } // position
 vec3 vol_to_world(const vec3 model) { return normalize(mat3(vol_model) * model); } // direction
 
-// pos and dir in model (volume) space
+// pos and dir assumed in model (volume) space
 float transmittance(const vec3 pos, const vec3 dir, inout uint seed) {
     // clip volume
     vec2 near_far;
-    if (!intersect_box(pos, dir, vec3(0), vec3(1), near_far)) return 1.f;
+    if (!intersect_box(pos, dir, vol_bb_min, vol_bb_max, near_far)) return 1.f;
     // ratio tracking
     float t = near_far.x, Tr = 1.f;
     const float sigma_t = vol_absorb + vol_scatter;
@@ -203,19 +207,19 @@ float transmittance(const vec3 pos, const vec3 dir, inout uint seed) {
         // russian roulette
         const float rr_threshold = .1f;
         if (Tr < rr_threshold) {
-            const float q = max(.05f, 1 - Tr);
-            if (rng(seed) < q) return 0.f;
-            Tr /= 1 - q;
+            const float prob = 1 - Tr;
+            if (rng(seed) < prob) return 0.f;
+            Tr /= 1 - prob;
         }
     }
     return Tr;
 }
 
-// pos and dir in model (volume) space
+// pos and dir assumed in model (volume) space
 bool sample_volume(const vec3 pos, const vec3 dir, inout uint seed, out float t, inout vec3 throughput) {
     // clip volume
     vec2 near_far;
-    if (!intersect_box(pos, dir, vec3(0), vec3(1), near_far)) return false;
+    if (!intersect_box(pos, dir, vol_bb_min, vol_bb_max, near_far)) return false;
     // delta tracking
     t = near_far.x;
     float Tr = 1.f;
@@ -229,6 +233,58 @@ bool sample_volume(const vec3 pos, const vec3 dir, inout uint seed, out float t,
         }
      }
      return false;
+}
+
+// ---------------------------------------------------
+// weighted reservoir sampling / resampled importance sampling
+
+struct Reservoir {
+    vec3 y;         // the output sample
+    float p_hat;    // the output sample target pdf
+    float w_sum;    // the sum of weights
+    uint M;         // the number of samples seen so far
+};
+layout(std430, binding = 2) buffer ReservoirBuffer {
+    Reservoir reservoirs[];
+};
+
+void wrs_init(inout Reservoir r) {
+    r.y = vec3(0);
+    r.p_hat = 0;
+    r.w_sum = 0;
+    r.M = 0;
+}
+
+void wrs_update(inout Reservoir r, const vec3 xi, const float wi, const float pi, inout uint seed) {
+    const float w = pi / wi;
+    r.M += 1;
+    r.w_sum += w;
+    if (rng(seed) < w / r.w_sum) {
+        r.y = xi;
+        r.p_hat = pi;
+    }
+}
+
+// TODO decide on target pdf / use-case
+float target_pdf(const vec3 y, const vec3 dir) {
+    return phase_henyey_greenstein(dot(-dir, y), vol_phase_g) * luma(environment_lookup(vol_to_world(y)));
+}
+
+float stream_ris(inout Reservoir r, const int M, const vec3 dir, inout uint seed) {
+    for (int i = 0; i < M; ++i) {
+        // generate sample (isotropic)
+        const vec3 xi = sample_phase_isotropic(rng2(seed));
+        const float wi = phase_isotropic();
+        // update reservoir
+        wrs_update(r, xi, wi, target_pdf(xi, dir), seed);
+    }
+    // apply RIS (ReSTIR, eq. 6)
+    return r.w_sum / (r.p_hat * r.M);
+}
+
+float stream_ris_single(inout Reservoir r, const vec3 xi, const float wi, const float pi, inout uint seed) {
+    wrs_update(r, xi, wi, pi, seed);
+    return r.w_sum / (r.p_hat * r.M);
 }
 
 // --------------------------------------------------------------
@@ -247,7 +303,8 @@ void main() {
     // trace path
     vec3 radiance = vec3(0), throughput = vec3(1);
     int n_paths = 0;
-    float t, f_p = 1.f; // t: end of ray segment (i.e. sampled position or out of volume), f_p: phase function of last bounce
+    bool free_path = true;
+    float t, f_p; // t: end of ray segment (i.e. sampled position or out of volume), f_p: last phase function sample
     while (sample_volume(pos, dir, seed, t, throughput)) {
         // advance ray
         pos = pos + t * dir;
@@ -258,31 +315,45 @@ void main() {
         if (Li_pdf.w > 0) {
             const vec3 to_light = world_to_vol(w_i);
             f_p = phase_henyey_greenstein(dot(-dir, to_light), vol_phase_g);
-            const float weight = 1.f;//power_heuristic(Li_pdf.w, f_p); // TODO check MIS
+            const float weight = power_heuristic(Li_pdf.w, f_p);
             radiance += throughput * weight * f_p * transmittance(pos, to_light, seed) * Li_pdf.rgb / Li_pdf.w;
         }
-        if (++n_paths >= bounces) break;
 
-        // scatter ray
-        const vec3 scatter_dir = sample_phase_henyey_greenstein(dir, vol_phase_g, rng2(seed));
-        f_p = phase_henyey_greenstein(dot(-dir, scatter_dir), vol_phase_g);
-        dir = scatter_dir;
-
+        // early out?
+        if (++n_paths >= bounces) { free_path = false; break; }
         // russian roulette
         const float rr_threshold = .1f;
         const float rr_val = luma(throughput);
         if (rr_val < rr_threshold) {
-            const float q = max(.05f, 1 - rr_val);
-            if (rng(seed) < q) break;
-            throughput /= 1 - q;
+            const float prob = 1 - rr_val;
+            if (rng(seed) < prob) { free_path = false; break; }
+            throughput /= 1 - prob;
+        }
+
+        // scatter ray
+        if (false && n_paths <= 1) { // RIS/WRS
+            // load and clear reservoir?
+            Reservoir r = reservoirs[pixel.y * size.x + pixel.x];
+            if (current_sample == 0) wrs_init(reservoirs[pixel.y * size.x + pixel.x]);
+            // RIS/WRS
+            const float ris_w = stream_ris(reservoirs[pixel.y * size.x + pixel.x], 32, dir, seed);
+            const vec3 scatter_dir = reservoirs[pixel.y * size.x + pixel.x].y;
+            f_p = phase_henyey_greenstein(dot(-dir, scatter_dir), vol_phase_g);
+            dir = scatter_dir;
+            throughput *= f_p * ris_w;
+        } else { // IS
+            const vec3 scatter_dir = sample_phase_henyey_greenstein(dir, vol_phase_g, rng2(seed));
+            f_p = phase_henyey_greenstein(dot(-dir, scatter_dir), vol_phase_g);
+            dir = scatter_dir;
         }
     }
 
     // free path? -> add envmap contribution
-    if (n_paths < bounces && n_paths >= show_environment) {
-        const vec3 Li = env_strength * environment_lookup(vol_to_world(dir));
-        const float weight = 1.f;//n_paths > 0 ? power_heuristic(f_p, pdf_environment(Li, dir)) : 1.f; // TODO check MIS
-        radiance += throughput * weight * Li;
+    if (free_path && n_paths >= show_environment) {
+        dir = vol_to_world(dir);
+        const vec3 Le = environment_lookup(dir);
+        const float weight = n_paths > 0 ? power_heuristic(f_p, pdf_environment(Le, dir)) : 1.f;
+        radiance += throughput * weight * env_strength * Le;
     }
 
     // write output

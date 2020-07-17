@@ -1,4 +1,4 @@
-project(vol)
+project(vol LANGUAGES C CXX CUDA)
 cmake_minimum_required(VERSION 3.10)
 
 # ---------------------------------------------------------------------
@@ -51,8 +51,8 @@ link_directories(${EXTERNAL_DIR}/lib)
 # CppGL
 ExternalProject_Add(cppgl-ext
     GIT_REPOSITORY  git@git9.cs.fau.de:renderingframeworks/cppgl.git
-    GIT_TAG         v1.0
-    #GIT_TAG         dev
+    #GIT_TAG         v1.0
+    GIT_TAG         dev
     GIT_SHALLOW     ON
     INSTALL_DIR     ${EXTERNAL_DIR}
     CMAKE_ARGS      -DCMAKE_INSTALL_PREFIX:PATH=<INSTALL_DIR> -Wno-dev

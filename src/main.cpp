@@ -17,14 +17,17 @@ static int sppx = 1000;
 static int bounces = 100;
 static bool tonemapping = true;
 static float tonemap_exposure = 10.f;
-static float tonemap_gamma = 1.0f;
+static float tonemap_gamma = 2.2f;
+static bool auto_exposure = false; // TODO
 static bool show_convergence = false;
 static bool show_environment = false;
 static Volume volume;
+static glm::vec3 vol_bb_min = glm::vec3(0), vol_bb_max = glm::vec3(1);
 static TransferFunction transferfunc;
 static Environment environment;
 static Shader trace_shader;
 static Framebuffer fbo;
+static SSBO reservoir;
 static Animation animation;
 static float animation_frames_per_node = 100;
 static float shader_check_delay_ms = 1000;
@@ -44,7 +47,8 @@ void tonemap(const Texture2D& tex) {
     static Shader tonemap_shader = Shader("tonemap", "shader/quad.vs", "shader/tonemap.fs");
     tonemap_shader->bind();
     tonemap_shader->uniform("tex", tex, 0);
-    tonemap_shader->uniform("exposure", tonemap_exposure);
+    tonemap_shader->uniform("auto_exposure", int(auto_exposure));
+    tonemap_shader->uniform("default_exposure", tonemap_exposure);
     tonemap_shader->uniform("gamma", tonemap_gamma);
     Quad::draw();
     tonemap_shader->unbind();
@@ -61,6 +65,7 @@ void convergence(const Texture2D& color, const Texture2D& even) {
 
 void resize_callback(int w, int h) {
     fbo->resize(w, h);
+    reservoir->resize(w * h * sizeof(float)*6);
     sample = 0; // restart rendering
 }
 
@@ -87,6 +92,8 @@ void keyboard_callback(int key, int scancode, int action, int mods) {
         animation->put_data("absorbtion_coefficient", i, volume->absorbtion_coefficient);
         animation->put_data("scattering_coefficient", i, volume->scattering_coefficient);
         animation->put_data("phase_g", i, volume->phase_g);
+        animation->put_data("vol_bb_min", i, vol_bb_min);
+        animation->put_data("vol_bb_max", i, vol_bb_max);
         animation->put_data("window_center", i, transferfunc->window_center);
         animation->put_data("window_width", i, transferfunc->window_width);
         std::cout << "curr anim length: " << i + 1 << std::endl;
@@ -132,18 +139,22 @@ void gui_callback(void) {
         if (ImGui::InputInt("Bounces", &bounces)) sample = 0;
         ImGui::Separator();
         if (ImGui::Checkbox("Environment", &show_environment)) sample = 0;
-        if (ImGui::SliderFloat("Env strength", &environment->strength, 0.1f, 100.f)) sample = 0;
+        if (ImGui::DragFloat("Env strength", &environment->strength, 0.1f)) sample = 0;
         ImGui::Checkbox("Tonemapping", &tonemapping);
-        ImGui::SliderFloat("Exposure", &tonemap_exposure, 0.1f, 100.f);
-        ImGui::SliderFloat("Gamma", &tonemap_gamma, 0.25f, 5.f);
+        ImGui::Checkbox("Auto exposure", &auto_exposure);
+        ImGui::DragFloat("Exposure", &tonemap_exposure, 0.01f);
+        ImGui::DragFloat("Gamma", &tonemap_gamma, 0.01f);
         ImGui::Checkbox("Show convergence", &show_convergence);
         ImGui::Separator();
-        if (ImGui::SliderFloat("Absorb", &volume->absorbtion_coefficient, 0.001f, 100.f)) sample = 0;
-        if (ImGui::SliderFloat("Scatter", &volume->scattering_coefficient, 0.001f, 100.f)) sample = 0;
+        if (ImGui::DragFloat("Absorb", &volume->absorbtion_coefficient, 0.1f)) sample = 0;
+        if (ImGui::DragFloat("Scatter", &volume->scattering_coefficient, 0.1f)) sample = 0;
         if (ImGui::SliderFloat("Phase g", &volume->phase_g, -.9f, .9f)) sample = 0;
         ImGui::Separator();
-        if (ImGui::SliderFloat("Window center", &transferfunc->window_center, 0.f, 1.f)) sample = 0;
-        if (ImGui::SliderFloat("Window width", &transferfunc->window_width, 0.f, 5.f)) sample = 0;
+        if (ImGui::DragFloat("Window center", &transferfunc->window_center, 0.01f)) sample = 0;
+        if (ImGui::DragFloat("Window width", &transferfunc->window_width, 0.01f)) sample = 0;
+        ImGui::Separator();
+        if (ImGui::SliderFloat3("Vol bb min", &vol_bb_min.x, 0.f, 1.f)) sample = 0;
+        if (ImGui::SliderFloat3("Vol bb max", &vol_bb_max.x, 0.f, 1.f)) sample = 0;
         ImGui::Separator();
         ImGui::Text("Model:");
         glm::mat4 row_maj = glm::transpose(volume->model);
@@ -227,7 +238,7 @@ int main(int argc, char** argv) {
     // setup fbo
     const glm::ivec2 res = Context::resolution();
     fbo = Framebuffer("fbo", res.x, res.y);
-    fbo->attach_depthbuffer(Texture2D("fbo/depth", res.x, res.y, GL_DEPTH_COMPONENT, GL_DEPTH_COMPONENT, GL_UNSIGNED_INT));
+    fbo->attach_depthbuffer(Texture2D("fbo/depth", res.x, res.y, GL_DEPTH_COMPONENT32F, GL_DEPTH_COMPONENT, GL_FLOAT));
     fbo->attach_colorbuffer(Texture2D("fbo/col", res.x, res.y, GL_RGBA32F, GL_RGBA, GL_FLOAT));
     fbo->attach_colorbuffer(Texture2D("fbo/f_pos", res.x, res.y, GL_RGBA32F, GL_RGBA, GL_FLOAT));
     fbo->attach_colorbuffer(Texture2D("fbo/f_norm", res.x, res.y, GL_RGBA32F, GL_RGBA, GL_FLOAT));
@@ -235,6 +246,10 @@ int main(int argc, char** argv) {
     fbo->attach_colorbuffer(Texture2D("fbo/f_vol", res.x, res.y, GL_RGBA32F, GL_RGBA, GL_FLOAT));
     fbo->attach_colorbuffer(Texture2D("fbo/even", res.x, res.y, GL_RGBA32F, GL_RGBA, GL_FLOAT));
     fbo->check();
+
+    // reservoir buffer
+    reservoir = SSBO("reservoir buffer");
+    reservoir->resize(res.x * res.y * sizeof(float)*6);
 
     // setup trace shader and animation
     trace_shader = Shader("trace", "shader/trace.glsl");
@@ -244,25 +259,20 @@ int main(int argc, char** argv) {
     if (!environment) {
         glm::vec3 color(1);
         environment = Environment("white_background", Texture2D("white_background", 1, 1, GL_RGB32F, GL_RGB, GL_FLOAT, &color.x));
-        // environment = Environment("clearsky", Texture2D("clearsky", "data/clearsky.hdr"));
-        // environment = Environment("sunset", Texture2D("sunset", "data_old/gi/envmaps/sunset.hdr"));
-        // environment = Environment("woods", Texture2D("woods", "data_old/images/envmaps/woods.hdr"));
     }
 
     // load default volume?
     if (!volume)
-        volume = Volume("cloud", "data/volumetric/smoke.vdb");
-        //volume = Volume("skull", "data/volumetric/skull_256x256x256_uint8.raw");
+        volume = Volume("cloud", "data/head_8bit.dat");
 
     // setup transfer function (LUT)
     if (!transferfunc)
-        transferfunc = TransferFunction("tf", "data/AbdShaded_b.txt");
-        // transferfunc = TransferFunction("tf", "data/SplineShaded.txt");
+        transferfunc = TransferFunction("tf", "data/AbdShaded_c.txt");
 
     // test default setup
-    current_camera()->pos = glm::vec3(.5, .5, .5);
-    current_camera()->dir = glm::vec3(0, 0, -1);
-    volume->scattering_coefficient = 3;
+    current_camera()->pos = glm::vec3(.5, .5, .3);
+    current_camera()->dir = glm::vec3(-.4, -.2, -.8);
+    volume->scattering_coefficient = 50;
     volume->absorbtion_coefficient = 1;
     volume->phase_g = 0.0;
 
@@ -282,6 +292,8 @@ int main(int argc, char** argv) {
             volume->scattering_coefficient = animation->eval_float("scattering_coefficient");
             volume->absorbtion_coefficient = animation->eval_float("absorbtion_coefficient");
             volume->phase_g = animation->eval_float("phase_g");
+            vol_bb_min = animation->eval_vec3("vol_bb_min");
+            vol_bb_max = animation->eval_vec3("vol_bb_max");
             transferfunc->window_center = animation->eval_float("window_center");
             transferfunc->window_width = animation->eval_float("window_width");
         }
@@ -311,6 +323,8 @@ int main(int argc, char** argv) {
             trace_shader->uniform("vol_absorb", volume->absorbtion_coefficient);
             trace_shader->uniform("vol_scatter", volume->scattering_coefficient);
             trace_shader->uniform("vol_phase_g", volume->phase_g);
+            trace_shader->uniform("vol_bb_min", vol_bb_min);
+            trace_shader->uniform("vol_bb_max", vol_bb_max);
             // transfer function
             trace_shader->uniform("tf_window_center", transferfunc->window_center);
             trace_shader->uniform("tf_window_width", transferfunc->window_width);
@@ -344,9 +358,12 @@ int main(int argc, char** argv) {
         if (show_convergence)
             convergence(fbo->color_textures[0], fbo->color_textures[fbo->color_textures.size() - 1]);
         else {
-            if (tonemapping)
+            if (tonemapping) {
+                if (false || auto_exposure) {
+                    // TODO compute min/max
+                }
                 tonemap(fbo->color_textures[0]);
-            else
+            } else
                 blit(fbo->color_textures[0]);
         }
 
