@@ -235,6 +235,58 @@ bool sample_volume(const vec3 pos, const vec3 dir, inout uint seed, out float t,
      return false;
 }
 
+
+// ---------------------------------------------------
+// path tracing
+
+vec3 trace_ray(vec3 pos, vec3 dir, inout uint seed) {
+    // trace path
+    vec3 radiance = vec3(0), throughput = vec3(1);
+    int n_paths = 0;
+    bool free_path = true;
+    float t, f_p; // t: end of ray segment (i.e. sampled position or out of volume), f_p: last phase function sample for MIS
+    while (sample_volume(pos, dir, seed, t, throughput)) {
+        // advance ray
+        pos = pos + t * dir;
+
+        // sample light source (environment)
+        vec3 w_i;
+        const vec4 Li_pdf = sample_environment(rng2(seed), w_i);
+        if (Li_pdf.w > 0) {
+            const vec3 to_light = world_to_vol(w_i);
+            f_p = phase_henyey_greenstein(dot(-dir, to_light), vol_phase_g);
+            const float weight = power_heuristic(Li_pdf.w, f_p);
+            radiance += throughput * weight * f_p * transmittance(pos, to_light, seed) * Li_pdf.rgb / Li_pdf.w;
+        }
+
+        // early out?
+        if (++n_paths >= bounces) { free_path = false; break; }
+        // russian roulette
+        const float rr_threshold = .1f;
+        const float rr_val = luma(throughput);
+        if (rr_val < rr_threshold) {
+            const float prob = 1 - rr_val;
+            if (rng(seed) < prob) { free_path = false; break; }
+            throughput /= 1 - prob;
+        }
+
+        // scatter ray
+        const vec3 scatter_dir = sample_phase_henyey_greenstein(dir, vol_phase_g, rng2(seed));
+        f_p = phase_henyey_greenstein(dot(-dir, scatter_dir), vol_phase_g);
+        dir = scatter_dir;
+    }
+
+    // free path? -> add envmap contribution
+    if (free_path && n_paths >= show_environment) {
+        dir = vol_to_world(dir);
+        const vec3 Le = environment_lookup(dir);
+        const float weight = n_paths > 0 ? power_heuristic(f_p, pdf_environment(Le, dir)) : 1.f;
+        radiance += throughput * weight * env_strength * Le;
+    }
+
+    return radiance;
+}
+
 // ---------------------------------------------------
 // weighted reservoir sampling / resampled importance sampling
 
@@ -287,6 +339,19 @@ float stream_ris_single(inout Reservoir r, const vec3 xi, const float wi, const 
     return r.w_sum / (r.p_hat * r.M);
 }
 
+/*
+// RIS/WRS
+// load and clear reservoir?
+Reservoir r = reservoirs[pixel.y * size.x + pixel.x];
+if (current_sample == 0) wrs_init(reservoirs[pixel.y * size.x + pixel.x]);
+// RIS/WRS
+const float ris_w = stream_ris(reservoirs[pixel.y * size.x + pixel.x], 32, dir, seed);
+const vec3 scatter_dir = reservoirs[pixel.y * size.x + pixel.x].y;
+f_p = phase_henyey_greenstein(dot(-dir, scatter_dir), vol_phase_g);
+dir = scatter_dir;
+throughput *= f_p * ris_w;
+*/
+
 // --------------------------------------------------------------
 // main
 
@@ -295,66 +360,13 @@ void main() {
     const ivec2 size = imageSize(color);
 	if (any(greaterThanEqual(pixel, size))) return;
 
-    // setup random seed and view ray (in model space!)
+    // setup random seed and camera ray (in model space!)
     uint seed = tea(pixel.y * size.x + pixel.x, current_sample, 8);
     vec3 pos = world_to_vol(vec4(cam_pos, 1));
     vec3 dir = world_to_vol(view_dir(pixel, size, rng2(seed)));
 
-    // trace path
-    vec3 radiance = vec3(0), throughput = vec3(1);
-    int n_paths = 0;
-    bool free_path = true;
-    float t, f_p; // t: end of ray segment (i.e. sampled position or out of volume), f_p: last phase function sample
-    while (sample_volume(pos, dir, seed, t, throughput)) {
-        // advance ray
-        pos = pos + t * dir;
-
-        // sample light source (environment)
-        vec3 w_i;
-        const vec4 Li_pdf = sample_environment(rng2(seed), w_i);
-        if (Li_pdf.w > 0) {
-            const vec3 to_light = world_to_vol(w_i);
-            f_p = phase_henyey_greenstein(dot(-dir, to_light), vol_phase_g);
-            const float weight = power_heuristic(Li_pdf.w, f_p);
-            radiance += throughput * weight * f_p * transmittance(pos, to_light, seed) * Li_pdf.rgb / Li_pdf.w;
-        }
-
-        // early out?
-        if (++n_paths >= bounces) { free_path = false; break; }
-        // russian roulette
-        const float rr_threshold = .1f;
-        const float rr_val = luma(throughput);
-        if (rr_val < rr_threshold) {
-            const float prob = 1 - rr_val;
-            if (rng(seed) < prob) { free_path = false; break; }
-            throughput /= 1 - prob;
-        }
-
-        // scatter ray
-        if (false && n_paths <= 1) { // RIS/WRS
-            // load and clear reservoir?
-            Reservoir r = reservoirs[pixel.y * size.x + pixel.x];
-            if (current_sample == 0) wrs_init(reservoirs[pixel.y * size.x + pixel.x]);
-            // RIS/WRS
-            const float ris_w = stream_ris(reservoirs[pixel.y * size.x + pixel.x], 32, dir, seed);
-            const vec3 scatter_dir = reservoirs[pixel.y * size.x + pixel.x].y;
-            f_p = phase_henyey_greenstein(dot(-dir, scatter_dir), vol_phase_g);
-            dir = scatter_dir;
-            throughput *= f_p * ris_w;
-        } else { // IS
-            const vec3 scatter_dir = sample_phase_henyey_greenstein(dir, vol_phase_g, rng2(seed));
-            f_p = phase_henyey_greenstein(dot(-dir, scatter_dir), vol_phase_g);
-            dir = scatter_dir;
-        }
-    }
-
-    // free path? -> add envmap contribution
-    if (free_path && n_paths >= show_environment) {
-        dir = vol_to_world(dir);
-        const vec3 Le = environment_lookup(dir);
-        const float weight = n_paths > 0 ? power_heuristic(f_p, pdf_environment(Le, dir)) : 1.f;
-        radiance += throughput * weight * env_strength * Le;
-    }
+    // trace ray
+    const vec3 radiance = trace_ray(pos, dir, seed);
 
     // write output
     if (any(isnan(radiance)) || any(isinf(radiance))) return;
