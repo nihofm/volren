@@ -1,20 +1,3 @@
-#version 450 core
-
-#include "random.h"
-
-layout (local_size_x = 32, local_size_y = 32) in;
-
-layout (binding = 0, rgba32f) uniform image2D color;
-layout (binding = 1, rgba32f) uniform image2D f_pos;
-layout (binding = 2, rgba32f) uniform image2D f_norm;
-layout (binding = 3, rgba32f) uniform image2D f_alb;
-layout (binding = 4, rgba32f) uniform image2D f_vol;
-layout (binding = 5, rgba32f) uniform image2D even;
-
-uniform int current_sample;
-uniform int bounces;
-uniform int show_environment;
-
 // --------------------------------------------------------------
 // constants and helper funcs
 
@@ -38,6 +21,35 @@ vec3 align(const vec3 N, const vec3 v) {
 float power_heuristic(const float a, const float b) { return sqr(a) / (sqr(a) + sqr(b)); }
 
 // --------------------------------------------------------------
+// random number generation
+
+uint tea(const uint val0, const uint val1, const uint N) { // tiny encryption algorithm (TEA) to calculate a seed per launch index and iteration
+    uint v0 = val0;
+    uint v1 = val1;
+    uint s0 = 0;
+    for (uint n = 0; n < N; ++n) {
+        s0 += 0x9e3779b9;
+        v0 += ((v1 << 4) + 0xA341316C) ^ (v1 + s0) ^ ((v1 >> 5) + 0xC8013EA4);
+        v1 += ((v0 << 4) + 0xAD90777D) ^ (v0 + s0) ^ ((v0 >> 5) + 0x7E95761E);
+    }
+    return v0;
+}
+
+float rng(inout uint previous) { // return a random sample in the range [0, 1) with a simple linear congruential generator
+    previous = previous * 1664525u + 1013904223u;
+    return float(previous & 0x00FFFFFF) / float(0x01000000u);
+}
+vec2 rng2(inout uint previous) {
+    return vec2(rng(previous), rng(previous));
+}
+vec3 rng3(inout uint previous) {
+    return vec3(rng(previous), rng(previous), rng(previous));
+}
+vec4 rng4(inout uint previous) {
+    return vec4(rng(previous), rng(previous), rng(previous), rng(previous));
+}
+
+// --------------------------------------------------------------
 // camera helper
 
 uniform vec3 cam_pos;
@@ -51,7 +63,7 @@ vec3 view_dir(const ivec2 xy, const ivec2 wh, const vec2 pixel_sample) {
 }
 
 // --------------------------------------------------------------
-// environment helper (vectors all in world space!)
+// environment helper (input vectors assumed in world space!)
 
 uniform mat4 env_model;
 uniform mat4 env_inv_model;
@@ -131,7 +143,6 @@ float pdf_environment(const vec3 emission, const vec3 dir) {
 // box intersect helper
 
 bool intersect_box(const vec3 pos, const vec3 dir, const vec3 bb_min, const vec3 bb_max, out vec2 near_far) {
-    // TODO fix inside?
     const vec3 inv_dir = 1.f / dir;
     const vec3 lo = (bb_min - pos) * inv_dir;
     const vec3 hi = (bb_max - pos) * inv_dir;
@@ -153,7 +164,7 @@ vec4 tf_lookup(float d) {
 }
 
 // --------------------------------------------------------------
-// phase function helpers (vectors all in model space!)
+// phase function helpers
 
 float phase_isotropic() { return inv_4PI; }
 float phase_henyey_greenstein(const float cos_t, const float g) {
@@ -176,7 +187,7 @@ vec3 sample_phase_henyey_greenstein(const vec3 dir, const float g, const vec2 ph
 }
 
 // --------------------------------------------------------------
-// volume sampling helpers (vectors all in model space!)
+// volume sampling helpers (input vectors assumed in model space!)
 
 uniform mat4 vol_model;
 uniform mat4 vol_inv_model;
@@ -239,7 +250,10 @@ bool sample_volume(const vec3 pos, const vec3 dir, inout uint seed, out float t,
 // ---------------------------------------------------
 // path tracing
 
-vec3 trace_ray(in vec3 pos, in vec3 dir, inout uint seed) {
+uniform int bounces;
+uniform int show_environment;
+
+vec3 trace_path(in vec3 pos, in vec3 dir, inout uint seed) {
     // trace path
     vec3 radiance = vec3(0), throughput = vec3(1);
     int n_paths = 0;
@@ -319,7 +333,7 @@ void wrs_update(inout Reservoir r, const vec3 xi, const float wi, const float pi
 
 // TODO decide on target pdf / use-case
 float target_pdf(const vec3 y, const vec3 dir) {
-    return phase_henyey_greenstein(dot(-dir, y), vol_phase_g) * luma(environment_lookup(vol_to_world(y)));
+    return phase_henyey_greenstein(dot(-dir, y), vol_phase_g) * luma(env_strength * environment_lookup(vol_to_world(y)));
 }
 
 float stream_ris(inout Reservoir r, const int M, const vec3 dir, inout uint seed) {
@@ -351,26 +365,3 @@ f_p = phase_henyey_greenstein(dot(-dir, scatter_dir), vol_phase_g);
 dir = scatter_dir;
 throughput *= f_p * ris_w;
 */
-
-// --------------------------------------------------------------
-// main
-
-void main() {
-	const ivec2 pixel = ivec2(gl_GlobalInvocationID.xy);
-    const ivec2 size = imageSize(color);
-	if (any(greaterThanEqual(pixel, size))) return;
-
-    // setup random seed and camera ray (in model space!)
-    uint seed = tea(pixel.y * size.x + pixel.x, current_sample, 8);
-    vec3 pos = world_to_vol(vec4(cam_pos, 1));
-    vec3 dir = world_to_vol(view_dir(pixel, size, rng2(seed)));
-
-    // trace ray
-    const vec3 radiance = trace_ray(pos, dir, seed);
-
-    // write output
-    if (any(isnan(radiance)) || any(isinf(radiance))) return;
-    imageStore(color, pixel, vec4(mix(imageLoad(color, pixel).rgb, radiance, 1.f / current_sample), 1));
-    if (current_sample % 2 == 1)
-        imageStore(even, pixel, vec4(mix(imageLoad(even, pixel).rgb, radiance, 1.f / ((current_sample+ 1) / 2)), 1));
-}

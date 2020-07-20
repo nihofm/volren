@@ -139,15 +139,25 @@ void gui_callback(void) {
         if (ImGui::InputInt("Bounces", &bounces)) sample = 0;
         ImGui::Separator();
         if (ImGui::Checkbox("Environment", &show_environment)) sample = 0;
-        if (ImGui::DragFloat("Env strength", &environment->strength, 0.1f)) sample = 0;
+        if (ImGui::DragFloat("Env strength", &environment->strength, 0.1f)) {
+            sample = 0;
+            environment->strength = fmaxf(0.f, environment->strength);
+        }
         ImGui::Checkbox("Tonemapping", &tonemapping);
         ImGui::Checkbox("Auto exposure", &auto_exposure);
-        ImGui::DragFloat("Exposure", &tonemap_exposure, 0.01f);
+        if (ImGui::DragFloat("Exposure", &tonemap_exposure, 0.01f))
+            tonemap_exposure = fmaxf(0.f, tonemap_exposure);
         ImGui::DragFloat("Gamma", &tonemap_gamma, 0.01f);
         ImGui::Checkbox("Show convergence", &show_convergence);
         ImGui::Separator();
-        if (ImGui::DragFloat("Absorb", &volume->absorbtion_coefficient, 0.1f)) sample = 0;
-        if (ImGui::DragFloat("Scatter", &volume->scattering_coefficient, 0.1f)) sample = 0;
+        if (ImGui::DragFloat("Absorb", &volume->absorbtion_coefficient, 0.1f)) {
+            sample = 0;
+            volume->absorbtion_coefficient = fmaxf(0.f, volume->absorbtion_coefficient);
+        }
+        if (ImGui::DragFloat("Scatter", &volume->scattering_coefficient, 0.1f)) {
+            sample = 0;
+            volume->scattering_coefficient = fmaxf(0.f, volume->scattering_coefficient);
+        }
         if (ImGui::SliderFloat("Phase g", &volume->phase_g, -.9f, .9f)) sample = 0;
         ImGui::Separator();
         if (ImGui::DragFloat("Window center", &transferfunc->window_center, 0.01f)) sample = 0;
@@ -240,11 +250,11 @@ int main(int argc, char** argv) {
     fbo = Framebuffer("fbo", res.x, res.y);
     fbo->attach_depthbuffer(Texture2D("fbo/depth", res.x, res.y, GL_DEPTH_COMPONENT32F, GL_DEPTH_COMPONENT, GL_FLOAT));
     fbo->attach_colorbuffer(Texture2D("fbo/col", res.x, res.y, GL_RGBA32F, GL_RGBA, GL_FLOAT));
-    fbo->attach_colorbuffer(Texture2D("fbo/f_pos", res.x, res.y, GL_RGBA32F, GL_RGBA, GL_FLOAT));
-    fbo->attach_colorbuffer(Texture2D("fbo/f_norm", res.x, res.y, GL_RGBA32F, GL_RGBA, GL_FLOAT));
-    fbo->attach_colorbuffer(Texture2D("fbo/f_alb", res.x, res.y, GL_RGBA32F, GL_RGBA, GL_FLOAT));
-    fbo->attach_colorbuffer(Texture2D("fbo/f_vol", res.x, res.y, GL_RGBA32F, GL_RGBA, GL_FLOAT));
     fbo->attach_colorbuffer(Texture2D("fbo/even", res.x, res.y, GL_RGBA32F, GL_RGBA, GL_FLOAT));
+    //fbo->attach_colorbuffer(Texture2D("fbo/f_pos", res.x, res.y, GL_RGBA32F, GL_RGBA, GL_FLOAT));
+    //fbo->attach_colorbuffer(Texture2D("fbo/f_norm", res.x, res.y, GL_RGBA32F, GL_RGBA, GL_FLOAT));
+    //fbo->attach_colorbuffer(Texture2D("fbo/f_alb", res.x, res.y, GL_RGBA32F, GL_RGBA, GL_FLOAT));
+    //fbo->attach_colorbuffer(Texture2D("fbo/f_vol", res.x, res.y, GL_RGBA32F, GL_RGBA, GL_FLOAT));
     fbo->check();
 
     // reservoir buffer
@@ -252,7 +262,7 @@ int main(int argc, char** argv) {
     reservoir->resize(res.x * res.y * sizeof(float)*6);
 
     // setup trace shader and animation
-    trace_shader = Shader("trace", "shader/trace.glsl");
+    trace_shader = Shader("trace", "shader/pathtracer.glsl");
     animation = Animation("animation");
 
     // load default envmap?
@@ -263,11 +273,12 @@ int main(int argc, char** argv) {
 
     // load default volume?
     if (!volume)
-        volume = Volume("cloud", "data/head_8bit.dat");
+        volume = Volume("head", "data/head_8bit.dat");
 
     // setup transfer function (LUT)
     if (!transferfunc)
         transferfunc = TransferFunction("tf", "data/AbdShaded_c.txt");
+        //transferfunc = TransferFunction("tf", std::vector<glm::vec4>(1, glm::vec4(1)));
 
     // test default setup
     current_camera()->pos = glm::vec3(.5, .5, .3);
@@ -284,7 +295,7 @@ int main(int argc, char** argv) {
         if (CameraImpl::default_input_handler(Context::frame_time()))
             sample = 0; // restart rendering
 
-        // update and reload shaders
+        // update
         current_camera()->update();
         if (animation->running && sample >= sppx) {
             animation->update(animation->ms_between_nodes / animation_frames_per_node);
@@ -297,6 +308,7 @@ int main(int argc, char** argv) {
             transferfunc->window_center = animation->eval_float("window_center");
             transferfunc->window_width = animation->eval_float("window_width");
         }
+        // reload shaders?
         shader_timer -= Context::frame_time();
         if (shader_timer <= 0) {
             reload_modified_shaders();
@@ -311,6 +323,7 @@ int main(int argc, char** argv) {
                 fbo->color_textures[i]->bind_image(i, GL_READ_WRITE, GL_RGBA32F);
             environment->cdf_U->bind_base(0);
             environment->cdf_V->bind_base(1);
+            reservoir->bind_base(2);
 
             // uniforms
             trace_shader->uniform("current_sample", ++sample);
@@ -345,8 +358,9 @@ int main(int argc, char** argv) {
             trace_shader->dispatch_compute(size.x, size.y);
 
             // unbind
-            environment->cdf_U->unbind_base(0);
+            reservoir->unbind_base(2);
             environment->cdf_V->unbind_base(1);
+            environment->cdf_U->unbind_base(0);
             for (uint32_t i = 0; i < fbo->color_textures.size(); ++i)
                 fbo->color_textures[i]->unbind_image(i);
             trace_shader->unbind();
@@ -356,7 +370,7 @@ int main(int argc, char** argv) {
         // draw
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
         if (show_convergence)
-            convergence(fbo->color_textures[0], fbo->color_textures[fbo->color_textures.size() - 1]);
+            convergence(fbo->color_textures[0], fbo->color_textures[1]);
         else {
             if (tonemapping) {
                 if (false || auto_exposure) {

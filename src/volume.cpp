@@ -13,34 +13,23 @@
 #include <dcmtk/dcmimgle/dcmimage.h>
 #endif
 
-void set_nearest(const Texture3D& texture) {
-    texture->bind(0);
-    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-    texture->unbind();
-}
-
 VolumeImpl::VolumeImpl(const std::string& name) : name(name), model(1), absorbtion_coefficient(0.1), scattering_coefficient(0.5), phase_g(0), slice_thickness(1.f) {}
 
 VolumeImpl::VolumeImpl(const std::string& name, size_t w, size_t h, size_t d, float density) : VolumeImpl(name) {
     std::vector<float> data(w * h * d, density);
     texture = Texture3D(name, w, h, d, GL_R32F, GL_RED, GL_FLOAT, data.data(), false);
-    set_nearest(texture);
 }
 
 VolumeImpl::VolumeImpl(const std::string& name, size_t w, size_t h, size_t d, const uint8_t* data) : VolumeImpl(name) {
     texture = Texture3D(name, w, h, d, GL_R8, GL_RED, GL_UNSIGNED_BYTE, data, false);
-    set_nearest(texture);
 }
 
 VolumeImpl::VolumeImpl(const std::string& name, size_t w, size_t h, size_t d, const uint16_t* data) : VolumeImpl(name) {
     texture = Texture3D(name, w, h, d, GL_R16, GL_RED, GL_UNSIGNED_SHORT, data, false);
-    set_nearest(texture);
 }
 
 VolumeImpl::VolumeImpl(const std::string& name, size_t w, size_t h, size_t d, const float* data) : VolumeImpl(name) {
     texture = Texture3D(name, w, h, d, GL_R32F, GL_RED, GL_FLOAT, data, false);
-    set_nearest(texture);
 }
 
 VolumeImpl::VolumeImpl(const std::string& name, const fs::path& path) : VolumeImpl(name) {
@@ -225,7 +214,6 @@ VolumeImpl::VolumeImpl(const std::string& name, const fs::path& path) : VolumeIm
         throw std::runtime_error("Unable to load file extension: " + extension.string());
     // setup model matrix
     model = glm::scale(model, slice_thickness);                         // scale slices
-    set_nearest(texture);
 }
 
 VolumeImpl::~VolumeImpl() {
