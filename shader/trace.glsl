@@ -119,7 +119,7 @@ vec4 sample_environment(const vec2 env_sample, out vec3 w_i) {
     // compute emission and pdf
     const vec3 emission = environment_lookup(w_i);
     const float pdf = (luma(emission) / env_integral) / (2.f * PI * PI * sin_t);
-    return vec4(env_strength * emission, pdf);
+    return vec4(emission, pdf);
 }
 
 float pdf_environment(const vec3 emission, const vec3 dir) {
@@ -239,7 +239,7 @@ bool sample_volume(const vec3 pos, const vec3 dir, inout uint seed, out float t,
 // ---------------------------------------------------
 // path tracing
 
-vec3 trace_ray(vec3 pos, vec3 dir, inout uint seed) {
+vec3 trace_ray(in vec3 pos, in vec3 dir, inout uint seed) {
     // trace path
     vec3 radiance = vec3(0), throughput = vec3(1);
     int n_paths = 0;
@@ -256,7 +256,7 @@ vec3 trace_ray(vec3 pos, vec3 dir, inout uint seed) {
             const vec3 to_light = world_to_vol(w_i);
             f_p = phase_henyey_greenstein(dot(-dir, to_light), vol_phase_g);
             const float weight = power_heuristic(Li_pdf.w, f_p);
-            radiance += throughput * weight * f_p * transmittance(pos, to_light, seed) * Li_pdf.rgb / Li_pdf.w;
+            radiance += throughput * weight * f_p * transmittance(pos, to_light, seed) * env_strength * Li_pdf.rgb / Li_pdf.w;
         }
 
         // early out?
