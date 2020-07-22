@@ -1,3 +1,7 @@
+#extension GL_NV_gpu_shader5 : enable
+#extension GL_NV_shader_atomic_float : enable
+#extension GL_NV_shader_atomic_fp16_vector : enable
+
 // --------------------------------------------------------------
 // constants and helper funcs
 
@@ -21,7 +25,7 @@ vec3 align(const vec3 N, const vec3 v) {
 float power_heuristic(const float a, const float b) { return sqr(a) / (sqr(a) + sqr(b)); }
 
 // --------------------------------------------------------------
-// random number generation
+// random number generation helpers
 
 uint tea(const uint val0, const uint val1, const uint N) { // tiny encryption algorithm (TEA) to calculate a seed per launch index and iteration
     uint v0 = val0;
@@ -198,6 +202,8 @@ uniform float vol_phase_g;
 uniform vec3 vol_bb_min;
 uniform vec3 vol_bb_max;
 
+const ivec3 vol_size = textureSize(vol_texture, 0);
+
 float density(const vec3 tc) { return texture(vol_texture, tc).r; }
 vec3 world_to_vol(const vec4 world) { return vec3(vol_inv_model * world); } // position
 vec3 world_to_vol(const vec3 world) { return normalize(mat3(vol_inv_model) * world); } // direction
@@ -246,122 +252,31 @@ bool sample_volume(const vec3 pos, const vec3 dir, inout uint seed, out float t,
      return false;
 }
 
-
-// ---------------------------------------------------
-// path tracing
-
-uniform int bounces;
-uniform int show_environment;
-
-vec3 trace_path(in vec3 pos, in vec3 dir, inout uint seed) {
-    // trace path
-    vec3 radiance = vec3(0), throughput = vec3(1);
-    int n_paths = 0;
-    bool free_path = true;
-    float t, f_p; // t: end of ray segment (i.e. sampled position or out of volume), f_p: last phase function sample for MIS
-    while (sample_volume(pos, dir, seed, t, throughput)) {
-        // advance ray
-        pos = pos + t * dir;
-
-        // sample light source (environment)
-        vec3 w_i;
-        const vec4 Li_pdf = sample_environment(rng2(seed), w_i);
-        if (Li_pdf.w > 0) {
-            const vec3 to_light = world_to_vol(w_i);
-            f_p = phase_henyey_greenstein(dot(-dir, to_light), vol_phase_g);
-            const float weight = power_heuristic(Li_pdf.w, f_p);
-            radiance += throughput * weight * f_p * transmittance(pos, to_light, seed) * env_strength * Li_pdf.rgb / Li_pdf.w;
-        }
-
-        // early out?
-        if (++n_paths >= bounces) { free_path = false; break; }
-        // russian roulette
-        const float rr_threshold = .1f;
-        const float rr_val = luma(throughput);
-        if (rr_val < rr_threshold) {
-            const float prob = 1 - rr_val;
-            if (rng(seed) < prob) { free_path = false; break; }
-            throughput /= 1 - prob;
-        }
-
-        // scatter ray
-        const vec3 scatter_dir = sample_phase_henyey_greenstein(dir, vol_phase_g, rng2(seed));
-        f_p = phase_henyey_greenstein(dot(-dir, scatter_dir), vol_phase_g);
-        dir = scatter_dir;
-    }
-
-    // free path? -> add envmap contribution
-    if (free_path && n_paths >= show_environment) {
-        dir = vol_to_world(dir);
-        const vec3 Le = environment_lookup(dir);
-        const float weight = n_paths > 0 ? power_heuristic(f_p, pdf_environment(Le, dir)) : 1.f;
-        radiance += throughput * weight * env_strength * Le;
-    }
-
-    return radiance;
-}
-
 // ---------------------------------------------------
 // weighted reservoir sampling / resampled importance sampling
 
 struct Reservoir {
-    vec3 y;         // the output sample
-    float p_hat;    // the output sample target pdf
+    f16vec4 y_pt;   // the output sample (vec3) and the target pdf (float)
     float w_sum;    // the sum of weights
     uint M;         // the number of samples seen so far
+    float weight() { return w_sum / (float(y_pt.w) * M); }
 };
 layout(std430, binding = 2) buffer ReservoirBuffer {
     Reservoir reservoirs[];
 };
 
-void wrs_init(inout Reservoir r) {
-    r.y = vec3(0);
-    r.p_hat = 0;
-    r.w_sum = 0;
-    r.M = 0;
-}
-
 void wrs_update(inout Reservoir r, const vec3 xi, const float wi, const float pi, inout uint seed) {
     const float w = pi / wi;
     r.M += 1;
     r.w_sum += w;
-    if (rng(seed) < w / r.w_sum) {
-        r.y = xi;
-        r.p_hat = pi;
-    }
+    if (rng(seed) < w / r.w_sum)
+        r.y_pt = f16vec4(xi, pi);
 }
 
-// TODO decide on target pdf / use-case
-float target_pdf(const vec3 y, const vec3 dir) {
-    return phase_henyey_greenstein(dot(-dir, y), vol_phase_g) * luma(env_strength * environment_lookup(vol_to_world(y)));
+void wrs_update_atomic(const uint ridx, const vec3 xi, const float wi, const float pi, inout uint seed) {
+    const float w = pi / wi;
+    atomicAdd(reservoirs[ridx].M, 1);
+    atomicAdd(reservoirs[ridx].w_sum, w);
+    if (rng(seed) < w / reservoirs[ridx].w_sum) // TODO possible race condition
+        atomicExchange(reservoirs[ridx].y_pt, f16vec4(xi, pi));
 }
-
-float stream_ris(inout Reservoir r, const int M, const vec3 dir, inout uint seed) {
-    for (int i = 0; i < M; ++i) {
-        // generate sample (isotropic)
-        const vec3 xi = sample_phase_isotropic(rng2(seed));
-        const float wi = phase_isotropic();
-        // update reservoir
-        wrs_update(r, xi, wi, target_pdf(xi, dir), seed);
-    }
-    // apply RIS (ReSTIR, eq. 6)
-    return r.w_sum / (r.p_hat * r.M);
-}
-
-float stream_ris_single(inout Reservoir r, const vec3 xi, const float wi, const float pi, inout uint seed) {
-    wrs_update(r, xi, wi, pi, seed);
-    return r.w_sum / (r.p_hat * r.M);
-}
-
-/*
-// RIS/WRS
-// load and clear reservoir?
-Reservoir r = reservoirs[pixel.y * size.x + pixel.x];
-if (current_sample == 0) wrs_init(reservoirs[pixel.y * size.x + pixel.x]);
-// RIS/WRS
-const float ris_w = stream_ris(reservoirs[pixel.y * size.x + pixel.x], 32, dir, seed);
-const vec3 scatter_dir = reservoirs[pixel.y * size.x + pixel.x].y;
-f_p = phase_henyey_greenstein(dot(-dir, scatter_dir), vol_phase_g);
-dir = scatter_dir;
-throughput *= f_p * ris_w;
-*/

@@ -1,17 +1,69 @@
 #version 450 core
 
-layout (local_size_x = 32, local_size_y = 32) in;
+#include "common.h"
+
+layout (local_size_x = 16, local_size_y = 16) in;
 
 layout (binding = 0, rgba32f) uniform image2D color;
 layout (binding = 1, rgba32f) uniform image2D even;
-//layout (binding = 2, rgba32f) uniform image2D f_pos;
-//layout (binding = 3, rgba32f) uniform image2D f_norm;
-//layout (binding = 4, rgba32f) uniform image2D f_alb;
-//layout (binding = 5, rgba32f) uniform image2D f_vol;
 
-#include "common.h"
+// ---------------------------------------------------
+// path tracing
 
 uniform int current_sample;
+uniform int bounces;
+uniform int show_environment;
+
+vec3 trace_path(in vec3 pos, in vec3 dir, inout uint seed) {
+    // trace path
+    vec3 radiance = vec3(0), throughput = vec3(1);
+    int n_paths = 0;
+    bool free_path = true;
+    float t, f_p; // t: end of ray segment (i.e. sampled position or out of volume), f_p: last phase function sample for MIS
+    while (sample_volume(pos, dir, seed, t, throughput)) {
+        // advance ray
+        pos = pos + t * dir;
+
+        // sample light source (environment)
+        vec3 w_i;
+        const vec4 Li_pdf = sample_environment(rng2(seed), w_i);
+        if (Li_pdf.w > 0) {
+            const vec3 to_light = world_to_vol(w_i);
+            f_p = phase_henyey_greenstein(dot(-dir, to_light), vol_phase_g);
+            const float weight = power_heuristic(Li_pdf.w, f_p);
+            radiance += throughput * weight * f_p * transmittance(pos, to_light, seed) * env_strength * Li_pdf.rgb / Li_pdf.w;
+        }
+
+        // early out?
+        if (++n_paths >= bounces) { free_path = false; break; }
+        // russian roulette
+        const float rr_threshold = .1f;
+        const float rr_val = luma(throughput);
+        if (rr_val < rr_threshold) {
+            const float prob = 1 - rr_val;
+            if (rng(seed) < prob) { free_path = false; break; }
+            throughput /= 1 - prob;
+        }
+
+        // scatter ray
+        const vec3 scatter_dir = sample_phase_henyey_greenstein(dir, vol_phase_g, rng2(seed));
+        f_p = phase_henyey_greenstein(dot(-dir, scatter_dir), vol_phase_g);
+        dir = scatter_dir;
+    }
+
+    // free path? -> add envmap contribution
+    if (free_path && n_paths >= show_environment) {
+        dir = vol_to_world(dir);
+        const vec3 Le = environment_lookup(dir);
+        const float weight = n_paths > 0 ? power_heuristic(f_p, pdf_environment(Le, dir)) : 1.f;
+        radiance += throughput * weight * env_strength * Le;
+    }
+
+    return radiance;
+}
+
+// ---------------------------------------------------
+// main
 
 void main() {
 	const ivec2 pixel = ivec2(gl_GlobalInvocationID.xy);

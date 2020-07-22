@@ -14,7 +14,7 @@
 
 static int sample = 0;
 static int sppx = 1000;
-static int bounces = 100;
+static int bounces = 10;
 static bool tonemapping = true;
 static float tonemap_exposure = 10.f;
 static float tonemap_gamma = 2.2f;
@@ -65,7 +65,6 @@ void convergence(const Texture2D& color, const Texture2D& even) {
 
 void resize_callback(int w, int h) {
     fbo->resize(w, h);
-    reservoir->resize(w * h * sizeof(float)*6);
     sample = 0; // restart rendering
 }
 
@@ -158,13 +157,37 @@ void gui_callback(void) {
             sample = 0;
             volume->scattering_coefficient = fmaxf(0.f, volume->scattering_coefficient);
         }
-        if (ImGui::SliderFloat("Phase g", &volume->phase_g, -.9f, .9f)) sample = 0;
+        if (ImGui::SliderFloat("Phase g", &volume->phase_g, -.95f, .95f)) sample = 0;
         ImGui::Separator();
         if (ImGui::DragFloat("Window center", &transferfunc->window_center, 0.01f)) sample = 0;
         if (ImGui::DragFloat("Window width", &transferfunc->window_width, 0.01f)) sample = 0;
         ImGui::Separator();
         if (ImGui::SliderFloat3("Vol bb min", &vol_bb_min.x, 0.f, 1.f)) sample = 0;
         if (ImGui::SliderFloat3("Vol bb max", &vol_bb_max.x, 0.f, 1.f)) sample = 0;
+        ImGui::Separator();
+        if (ImGui::Button("Use pathtracer")) {
+            trace_shader = Shader("trace", "shader/pathtracer.glsl");
+            sample = 0;
+        }
+        if (ImGui::Button("Use guided pathtracer")) {
+            trace_shader = Shader("trace", "shader/pathtracer_guided.glsl");
+            sample = 0;
+        }
+        if (ImGui::Button("Clear reservoirs")) {
+            reservoir->clear();
+            sample = 0;
+        }
+        /*
+        if (ImGui::Button("Gather reservoirs")) {
+            Shader gather_shader = Shader::find("gather") ? Shader::find("gather") : Shader("gather", "shader/reservoir_gather.glsl");
+            gather_shader->bind();
+            reservoir->bind_base(2);
+            gather_shader->uniform("vol_texture", volume->texture, 0);
+            gather_shader->dispatch_compute(volume->texture->w, volume->texture->h, volume->texture->d);
+            reservoir->unbind_base(2);
+            gather_shader->unbind();
+        }
+        */
         ImGui::Separator();
         ImGui::Text("Model:");
         glm::mat4 row_maj = glm::transpose(volume->model);
@@ -181,6 +204,8 @@ void gui_callback(void) {
         ImGui::Text("Animation time %.3f / %lu", animation->time, animation->camera_path.size());
         ImGui::Checkbox("Animation running", &animation->running);
         ImGui::InputFloat("Animation frames per node", &animation_frames_per_node);
+        if (ImGui::Button("ffmpeg"))
+            system("ffmpeg -f image2 -i anim_%5d.jpg output.mp4");
         ImGui::PopStyleVar();
         ImGui::End();
     }
@@ -195,8 +220,8 @@ int main(int argc, char** argv) {
     params.width = 1024;
     params.height = 1024;
     params.title = "VolGL";
-    //params.floating = GLFW_TRUE;
-    //params.resizable = GLFW_FALSE;
+    params.floating = GLFW_TRUE;
+    params.resizable = GLFW_FALSE;
     params.swap_interval = 0;
     try  {
         Context::init(params);
@@ -251,15 +276,7 @@ int main(int argc, char** argv) {
     fbo->attach_depthbuffer(Texture2D("fbo/depth", res.x, res.y, GL_DEPTH_COMPONENT32F, GL_DEPTH_COMPONENT, GL_FLOAT));
     fbo->attach_colorbuffer(Texture2D("fbo/col", res.x, res.y, GL_RGBA32F, GL_RGBA, GL_FLOAT));
     fbo->attach_colorbuffer(Texture2D("fbo/even", res.x, res.y, GL_RGBA32F, GL_RGBA, GL_FLOAT));
-    //fbo->attach_colorbuffer(Texture2D("fbo/f_pos", res.x, res.y, GL_RGBA32F, GL_RGBA, GL_FLOAT));
-    //fbo->attach_colorbuffer(Texture2D("fbo/f_norm", res.x, res.y, GL_RGBA32F, GL_RGBA, GL_FLOAT));
-    //fbo->attach_colorbuffer(Texture2D("fbo/f_alb", res.x, res.y, GL_RGBA32F, GL_RGBA, GL_FLOAT));
-    //fbo->attach_colorbuffer(Texture2D("fbo/f_vol", res.x, res.y, GL_RGBA32F, GL_RGBA, GL_FLOAT));
     fbo->check();
-
-    // reservoir buffer
-    reservoir = SSBO("reservoir buffer");
-    reservoir->resize(res.x * res.y * sizeof(float)*6);
 
     // setup trace shader and animation
     trace_shader = Shader("trace", "shader/pathtracer.glsl");
@@ -280,6 +297,11 @@ int main(int argc, char** argv) {
         transferfunc = TransferFunction("tf", "data/AbdShaded_c.txt");
         //transferfunc = TransferFunction("tf", std::vector<glm::vec4>(1, glm::vec4(1)));
 
+    // reservoir buffer for path guiding
+    reservoir = SSBO("reservoir buffer");
+    reservoir->resize(volume->texture->w * volume->texture->h * volume->texture->d * sizeof(float)*4);
+    reservoir->clear();
+
     // test default setup
     current_camera()->pos = glm::vec3(.5, .5, .3);
     current_camera()->dir = glm::vec3(-.4, -.2, -.8);
@@ -297,17 +319,6 @@ int main(int argc, char** argv) {
 
         // update
         current_camera()->update();
-        if (animation->running && sample >= sppx) {
-            animation->update(animation->ms_between_nodes / animation_frames_per_node);
-            sample = 0;
-            volume->scattering_coefficient = animation->eval_float("scattering_coefficient");
-            volume->absorbtion_coefficient = animation->eval_float("absorbtion_coefficient");
-            volume->phase_g = animation->eval_float("phase_g");
-            vol_bb_min = animation->eval_vec3("vol_bb_min");
-            vol_bb_max = animation->eval_vec3("vol_bb_max");
-            transferfunc->window_center = animation->eval_float("window_center");
-            transferfunc->window_width = animation->eval_float("window_width");
-        }
         // reload shaders?
         shader_timer -= Context::frame_time();
         if (shader_timer <= 0) {
@@ -332,7 +343,7 @@ int main(int argc, char** argv) {
             // volume
             trace_shader->uniform("vol_model", volume->model);
             trace_shader->uniform("vol_inv_model", glm::inverse(volume->model));
-            trace_shader->uniform("vol_tex", volume->texture, 0);
+            trace_shader->uniform("vol_texture", volume->texture, 0);
             trace_shader->uniform("vol_absorb", volume->absorbtion_coefficient);
             trace_shader->uniform("vol_scatter", volume->scattering_coefficient);
             trace_shader->uniform("vol_phase_g", volume->phase_g);
@@ -379,6 +390,24 @@ int main(int argc, char** argv) {
                 tonemap(fbo->color_textures[0]);
             } else
                 blit(fbo->color_textures[0]);
+        }
+
+        // update animation
+        if (animation->running && sample >= sppx) {
+            // save rendering TODO skip first image?
+            std::stringstream ss;
+            ss << "anim_" << std::setw(5) << std::setfill('0') << int(std::round(animation->time * animation_frames_per_node)) << ".jpg";
+            Context::screenshot(ss.str());
+            // advance animation
+            animation->update(animation->ms_between_nodes / animation_frames_per_node);
+            sample = 0;
+            volume->scattering_coefficient = animation->eval_float("scattering_coefficient");
+            volume->absorbtion_coefficient = animation->eval_float("absorbtion_coefficient");
+            volume->phase_g = animation->eval_float("phase_g");
+            vol_bb_min = animation->eval_vec3("vol_bb_min");
+            vol_bb_max = animation->eval_vec3("vol_bb_max");
+            transferfunc->window_center = animation->eval_float("window_center");
+            transferfunc->window_width = animation->eval_float("window_width");
         }
 
         // finish frame
