@@ -27,7 +27,7 @@ static TransferFunction transferfunc;
 static Environment environment;
 static Shader trace_shader;
 static Framebuffer fbo;
-static SSBO reservoir;
+static SSBO reservoir, reservoir_flipflop;
 static Animation animation;
 static float animation_frames_per_node = 100;
 static float shader_check_delay_ms = 1000;
@@ -177,17 +177,20 @@ void gui_callback(void) {
             reservoir->clear();
             sample = 0;
         }
-        /*
         if (ImGui::Button("Gather reservoirs")) {
             Shader gather_shader = Shader::find("gather") ? Shader::find("gather") : Shader("gather", "shader/reservoir_gather.glsl");
             gather_shader->bind();
             reservoir->bind_base(2);
+            reservoir_flipflop->bind_base(3);
+            gather_shader->uniform("current_sample", sample);
             gather_shader->uniform("vol_texture", volume->texture, 0);
             gather_shader->dispatch_compute(volume->texture->w, volume->texture->h, volume->texture->d);
+            reservoir_flipflop->unbind_base(3);
             reservoir->unbind_base(2);
             gather_shader->unbind();
+            // flipflop
+            std::swap(reservoir->id, reservoir_flipflop->id);
         }
-        */
         ImGui::Separator();
         ImGui::Text("Model:");
         glm::mat4 row_maj = glm::transpose(volume->model);
@@ -301,6 +304,9 @@ int main(int argc, char** argv) {
     reservoir = SSBO("reservoir buffer");
     reservoir->resize(volume->texture->w * volume->texture->h * volume->texture->d * sizeof(float)*4);
     reservoir->clear();
+    reservoir_flipflop = SSBO("reservoir buffer flip flop");
+    reservoir_flipflop->resize(volume->texture->w * volume->texture->h * volume->texture->d * sizeof(float)*4);
+    reservoir_flipflop->clear();
 
     // test default setup
     current_camera()->pos = glm::vec3(.5, .5, .3);

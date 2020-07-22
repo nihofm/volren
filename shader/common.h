@@ -264,6 +264,15 @@ struct Reservoir {
 layout(std430, binding = 2) buffer ReservoirBuffer {
     Reservoir reservoirs[];
 };
+layout(std430, binding = 3) buffer ReservoirBufferFlipFlop {
+    Reservoir reservoirs_flipflop[];
+};
+
+void wrs_clear(inout Reservoir r) {
+    r.y_pt = f16vec4(0);
+    r.w_sum = 0;
+    r.M = 0;
+}
 
 void wrs_update(inout Reservoir r, const vec3 xi, const float wi, const float pi, inout uint seed) {
     const float w = pi / wi;
