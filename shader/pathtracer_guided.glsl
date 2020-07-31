@@ -57,7 +57,7 @@ vec3 trace_path(in vec3 pos, in vec3 dir, inout uint seed) {
         pos = pos + t * dir;
 
         // sample light source (environment)
-        const float pt_prev = luma(radiance);
+        const float pt_prev = max(0.f, luma(radiance));
         vec3 w_i;
         const vec4 Li_pdf = sample_environment(rng2(seed), w_i);
         if (Li_pdf.w > 0) {
@@ -76,7 +76,7 @@ vec3 trace_path(in vec3 pos, in vec3 dir, inout uint seed) {
         ridx = (idx.z * vol_size.y + idx.y) * vol_size.x + idx.x;
         // debug output
         if (n_paths == 0) debug = max(vec3(0), reservoirs[ridx].y_pt.rgb * .5 + .5);
-        //if (n_paths == 0) debug = vec3(reservoirs[ridx].M / 100.f);
+        //if (n_paths == 0) debug = vec3(reservoirs[ridx].M / float(0xFFFFFFFF));
 
         // early out?
         if (++n_paths >= bounces) { free_path = false; break; }

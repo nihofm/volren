@@ -25,11 +25,10 @@ target_include_directories(${TARGET} PUBLIC ${OPENGL_INCLUDE_DIR})
 target_link_libraries(${TARGET} ${OPENGL_LIBRARIES})
 
 # external libs and dependencies
-add_dependencies(${TARGET} cppgl-ext)
 find_library(GLEW GLEW PATHS ${EXTERNAL_DIR}/lib NO_DEFAULT_PATH)
 find_library(GLFW glfw PATHS ${EXTERNAL_DIR}/lib NO_DEFAULT_PATH)
 find_library(ASSIMP assimp PATHS ${EXTERNAL_DIR}/lib NO_DEFAULT_PATH)
-target_link_libraries(${TARGET} ${GLEW} ${GLFW} ${ASSIMP} stdc++fs cppgl)
+target_link_libraries(${TARGET} stdc++fs cppgl)
 
 # CUDA
 find_package(CUDA REQUIRED)

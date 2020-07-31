@@ -259,6 +259,7 @@ struct Reservoir {
     f16vec4 y_pt;   // the output sample (vec3) and the target pdf (float)
     float w_sum;    // the sum of weights
     uint M;         // the number of samples seen so far
+
     float weight() { return w_sum / (float(y_pt.w) * M); }
 };
 layout(std430, binding = 2) buffer ReservoirBuffer {

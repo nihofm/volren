@@ -1,0 +1,4 @@
+[submodule "submodules/cppgl"]
+	path = submodules/cppgl
+	url = git@git9.cs.fau.de:renderingframeworks/cppgl.git
+	branch = subm

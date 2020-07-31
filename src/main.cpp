@@ -28,6 +28,7 @@ static Environment environment;
 static Shader trace_shader;
 static Framebuffer fbo;
 static SSBO reservoir, reservoir_flipflop;
+static bool gather_always = false;
 static Animation animation;
 static float animation_frames_per_node = 100;
 static float shader_check_delay_ms = 1000;
@@ -61,6 +62,21 @@ void convergence(const Texture2D& color, const Texture2D& even) {
     tonemap_shader->uniform("even", even, 1);
     Quad::draw();
     tonemap_shader->unbind();
+}
+
+void reservoir_gather() {
+    Shader gather_shader = Shader::find("gather") ? Shader::find("gather") : Shader("gather", "shader/reservoir_gather.glsl");
+    gather_shader->bind();
+    reservoir->bind_base(2);
+    reservoir_flipflop->bind_base(3);
+    gather_shader->uniform("current_sample", sample);
+    gather_shader->uniform("vol_texture", volume->texture, 0);
+    gather_shader->dispatch_compute(volume->texture->w, volume->texture->h, volume->texture->d);
+    reservoir_flipflop->unbind_base(3);
+    reservoir->unbind_base(2);
+    gather_shader->unbind();
+    // flipflop
+    std::swap(reservoir->id, reservoir_flipflop->id);
 }
 
 void resize_callback(int w, int h) {
@@ -178,19 +194,11 @@ void gui_callback(void) {
             sample = 0;
         }
         if (ImGui::Button("Gather reservoirs")) {
-            Shader gather_shader = Shader::find("gather") ? Shader::find("gather") : Shader("gather", "shader/reservoir_gather.glsl");
-            gather_shader->bind();
-            reservoir->bind_base(2);
-            reservoir_flipflop->bind_base(3);
-            gather_shader->uniform("current_sample", sample);
-            gather_shader->uniform("vol_texture", volume->texture, 0);
-            gather_shader->dispatch_compute(volume->texture->w, volume->texture->h, volume->texture->d);
-            reservoir_flipflop->unbind_base(3);
-            reservoir->unbind_base(2);
-            gather_shader->unbind();
-            // flipflop
-            std::swap(reservoir->id, reservoir_flipflop->id);
+            reservoir_gather();
+            sample = 0;
         }
+        if (ImGui::Checkbox("Gather always", &gather_always))
+            sample = 0;
         ImGui::Separator();
         ImGui::Text("Model:");
         glm::mat4 row_maj = glm::transpose(volume->model);
@@ -220,8 +228,8 @@ void gui_callback(void) {
 int main(int argc, char** argv) {
     // init GL
     ContextParameters params;
-    params.width = 1024;
-    params.height = 1024;
+    params.width = 1920;
+    params.height = 1080;
     params.title = "VolGL";
     params.floating = GLFW_TRUE;
     params.resizable = GLFW_FALSE;
@@ -381,6 +389,9 @@ int main(int argc, char** argv) {
             for (uint32_t i = 0; i < fbo->color_textures.size(); ++i)
                 fbo->color_textures[i]->unbind_image(i);
             trace_shader->unbind();
+
+            if (gather_always)
+                reservoir_gather();
         } else
             glfwWaitEventsTimeout(1.f / 10); // 10fps idle
 

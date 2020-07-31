@@ -39,6 +39,11 @@ else()
 endif()
 
 # ---------------------------------------------------------------------
+# submodules
+
+add_subdirectory(submodules/cppgl)
+
+# ---------------------------------------------------------------------
 # external projects
 
 include(ExternalProject)
@@ -49,14 +54,14 @@ include_directories(${EXTERNAL_DIR}/include)
 link_directories(${EXTERNAL_DIR}/lib)
 
 # CppGL
-ExternalProject_Add(cppgl-ext
-    GIT_REPOSITORY  git@git9.cs.fau.de:renderingframeworks/cppgl.git
-    #GIT_TAG         v1.0
-    GIT_TAG         dev
-    GIT_SHALLOW     ON
-    INSTALL_DIR     ${EXTERNAL_DIR}
-    CMAKE_ARGS      -DCMAKE_INSTALL_PREFIX:PATH=<INSTALL_DIR> -Wno-dev
-)
+#ExternalProject_Add(cppgl-ext
+    #GIT_REPOSITORY  git@git9.cs.fau.de:renderingframeworks/cppgl.git
+    ##GIT_TAG         v1.0
+    #GIT_TAG         dev
+    #GIT_SHALLOW     ON
+    #INSTALL_DIR     ${EXTERNAL_DIR}
+    #CMAKE_ARGS      -DCMAKE_INSTALL_PREFIX:PATH=<INSTALL_DIR> -Wno-dev
+#)
 
 # OpenVDB
 if (WITH_OPENVDB)
@@ -80,8 +85,8 @@ endif()
 
 # install rules for external projects
 #install(DIRECTORY ${EXTERNAL_DIR}/include DESTINATION ${CMAKE_INSTALL_PREFIX})
-install(DIRECTORY ${EXTERNAL_DIR}/lib DESTINATION ${CMAKE_INSTALL_PREFIX})
-list(APPEND CMAKE_INSTALL_RPATH $ORIGIN $ORIGIN/.. $ORIGIN/../lib)
+#install(DIRECTORY ${EXTERNAL_DIR}/lib DESTINATION ${CMAKE_INSTALL_PREFIX})
+#list(APPEND CMAKE_INSTALL_RPATH $ORIGIN $ORIGIN/.. $ORIGIN/../lib)
 
 # ---------------------------------------------------------------------
 # compiler flags
@@ -95,7 +100,7 @@ add_compile_options(-Wall -Wno-unused-parameter -Wno-unused-variable -Wno-int-to
 # ---------------------------------------------------------------------
 # install shaders
 
-install(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/shader DESTINATION bin)
+#install(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/shader DESTINATION bin)
 
 # ---------------------------------------------------------------------
 # traverse source tree
