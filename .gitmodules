@@ -2,3 +2,6 @@
 	path = submodules/cppgl
 	url = git@git9.cs.fau.de:renderingframeworks/cppgl.git
 	branch = subm
+[submodule "submodules/pybind11"]
+	path = submodules/pybind11
+	url = https://github.com/pybind/pybind11
