@@ -13,7 +13,7 @@
 #include <dcmtk/dcmimgle/dcmimage.h>
 #endif
 
-VolumeImpl::VolumeImpl(const std::string& name) : name(name), model(1), absorbtion_coefficient(0.1), scattering_coefficient(0.5), phase_g(0), slice_thickness(1.f) {}
+VolumeImpl::VolumeImpl(const std::string& name) : name(name), model(1), albedo(0.5), phase_g(0), slice_thickness(1.f), majorant(0.f), density_scale(1.f) {}
 
 VolumeImpl::VolumeImpl(const std::string& name, size_t w, size_t h, size_t d, float density) : VolumeImpl(name) {
     std::vector<float> data(w * h * d, density);
@@ -89,6 +89,9 @@ VolumeImpl::VolumeImpl(const std::string& name, const fs::path& path) : VolumeIm
         // from z up to y up
         //std::swap(slice_thickness.y, slice_thickness.z);
         model = glm::rotate(glm::mat4(1), float(1.5 * M_PI), glm::vec3(1, 0, 0));
+        // compute majorant
+        for (uint8_t value : data)
+            majorant = std::max(majorant, value / 255.f);
     }
     else if (extension == ".raw") { // handle .raw
         std::ifstream raw(path, std::ios::binary);
@@ -146,9 +149,12 @@ VolumeImpl::VolumeImpl(const std::string& name, const fs::path& path) : VolumeIm
             std::cerr << "WARN: Unable to parse data type from raw file name: " << path << " -> falling back to uint8_t." << std::endl;
             texture = Texture3D(name, w, h, d, GL_R8, GL_RED, GL_UNSIGNED_BYTE, data.data(), false);
         }
+        // compute majorant
+        for (uint8_t value : data)
+            majorant = std::max(majorant, value / 255.f);
     }
 #if defined(WITH_OPENVDB)
-    else if (extension == ".vdb") { // handle .vdb TODO FIXME some .vdb are broken, possibly stride?
+    else if (extension == ".vdb") { // handle .vdb TODO FIXME some .vdb are broken, fix bbox
         // open file
         openvdb::initialize();
         openvdb::io::File vdb_file(path.string());
@@ -157,6 +163,7 @@ VolumeImpl::VolumeImpl(const std::string& name, const fs::path& path) : VolumeIm
         openvdb::GridBase::Ptr baseGrid = 0;
         for (openvdb::io::File::NameIterator nameIter = vdb_file.beginName();
                 nameIter != vdb_file.endName(); ++nameIter) {
+            std::cout << nameIter.gridName() << std::endl;
             if (nameIter.gridName() == "density")
                 baseGrid = vdb_file.readGrid(nameIter.gridName());
         }
@@ -175,6 +182,8 @@ VolumeImpl::VolumeImpl(const std::string& name, const fs::path& path) : VolumeIm
                 const float value = *iter;
                 const auto coord = iter.getCoord() - box.getStart();
                 data[coord.z() * dim.x() * dim.y() + coord.y() * dim.x() + coord.x()] = uint8_t(std::round(value * 255.f));
+                // compute majorant
+                majorant = std::max(majorant, value);
             }
         }
         // load into GL texture

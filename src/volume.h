@@ -1,6 +1,6 @@
 #pragma once
 
-#include <cppgl/texture.h>
+#include <cppgl.h>
 #include <glm/glm.hpp>
 
 class VolumeImpl {
@@ -19,11 +19,12 @@ public:
     // data
     const std::string name;
     glm::mat4 model;
-    float absorbtion_coefficient;
-    float scattering_coefficient;
+    glm::vec3 albedo;
     float phase_g;
     glm::vec3 slice_thickness;
     Texture3D texture;
+    float majorant;
+    float density_scale;
 };
 
 using Volume = NamedHandle<VolumeImpl>;

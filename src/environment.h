@@ -1,9 +1,8 @@
 #pragma once
 
 #include <vector>
+#include <cppgl.h>
 #include <glm/glm.hpp>
-#include <cppgl/buffer.h>
-#include <cppgl/texture.h>
 
 class EnvironmentImpl {
 public:

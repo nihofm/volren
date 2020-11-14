@@ -1,4 +1,4 @@
-#include <cppgl/cppgl.h>
+#include <cppgl.h>
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 
@@ -14,7 +14,7 @@
 
 static int sample = 0;
 static int sppx = 1000;
-static int bounces = 10;
+static int bounces = 100;
 static bool tonemapping = true;
 static float tonemap_exposure = 10.f;
 static float tonemap_gamma = 2.2f;
@@ -104,8 +104,7 @@ void keyboard_callback(int key, int scancode, int action, int mods) {
         glm::vec3 pos; glm::quat rot;
         current_camera()->store(pos, rot);
         const size_t i = animation->push_node(pos, rot);
-        animation->put_data("absorbtion_coefficient", i, volume->absorbtion_coefficient);
-        animation->put_data("scattering_coefficient", i, volume->scattering_coefficient);
+        animation->put_data("albedo", i, volume->albedo);
         animation->put_data("phase_g", i, volume->phase_g);
         animation->put_data("vol_bb_min", i, vol_bb_min);
         animation->put_data("vol_bb_max", i, vol_bb_max);
@@ -165,14 +164,11 @@ void gui_callback(void) {
         ImGui::DragFloat("Gamma", &tonemap_gamma, 0.01f);
         ImGui::Checkbox("Show convergence", &show_convergence);
         ImGui::Separator();
-        if (ImGui::DragFloat("Absorb", &volume->absorbtion_coefficient, 0.1f)) {
+        if (ImGui::DragFloat3("Albedo", &volume->albedo.x, 0.1f)) {
             sample = 0;
-            volume->absorbtion_coefficient = fmaxf(0.f, volume->absorbtion_coefficient);
+            volume->albedo = glm::clamp(volume->albedo, glm::vec3(0.f), glm::vec3(1.f));
         }
-        if (ImGui::DragFloat("Scatter", &volume->scattering_coefficient, 0.1f)) {
-            sample = 0;
-            volume->scattering_coefficient = fmaxf(0.f, volume->scattering_coefficient);
-        }
+        if (ImGui::SliderFloat("Density scale", &volume->density_scale, 0.01f, 100.f)) sample = 0;
         if (ImGui::SliderFloat("Phase g", &volume->phase_g, -.95f, .95f)) sample = 0;
         ImGui::Separator();
         if (ImGui::DragFloat("Window center", &transferfunc->window_center, 0.01f)) sample = 0;
@@ -319,8 +315,6 @@ int main(int argc, char** argv) {
     // test default setup
     current_camera()->pos = glm::vec3(.5, .5, .3);
     current_camera()->dir = glm::vec3(-.4, -.2, -.8);
-    volume->scattering_coefficient = 50;
-    volume->absorbtion_coefficient = 1;
     volume->phase_g = 0.0;
 
     // run
@@ -358,8 +352,9 @@ int main(int argc, char** argv) {
             trace_shader->uniform("vol_model", volume->model);
             trace_shader->uniform("vol_inv_model", glm::inverse(volume->model));
             trace_shader->uniform("vol_texture", volume->texture, 0);
-            trace_shader->uniform("vol_absorb", volume->absorbtion_coefficient);
-            trace_shader->uniform("vol_scatter", volume->scattering_coefficient);
+            trace_shader->uniform("vol_albedo", volume->albedo);
+            trace_shader->uniform("vol_inv_majorant", 1.f / (volume->majorant * volume->density_scale));
+            trace_shader->uniform("vol_density_scale", volume->density_scale);
             trace_shader->uniform("vol_phase_g", volume->phase_g);
             trace_shader->uniform("vol_bb_min", vol_bb_min);
             trace_shader->uniform("vol_bb_max", vol_bb_max);
@@ -418,8 +413,7 @@ int main(int argc, char** argv) {
             // advance animation
             animation->update(animation->ms_between_nodes / animation_frames_per_node);
             sample = 0;
-            volume->scattering_coefficient = animation->eval_float("scattering_coefficient");
-            volume->absorbtion_coefficient = animation->eval_float("absorbtion_coefficient");
+            volume->albedo = animation->eval_vec3("albedo");
             volume->phase_g = animation->eval_float("phase_g");
             vol_bb_min = animation->eval_vec3("vol_bb_min");
             vol_bb_max = animation->eval_vec3("vol_bb_max");

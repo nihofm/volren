@@ -196,15 +196,16 @@ vec3 sample_phase_henyey_greenstein(const vec3 dir, const float g, const vec2 ph
 uniform mat4 vol_model;
 uniform mat4 vol_inv_model;
 uniform sampler3D vol_texture;
-uniform float vol_absorb;
-uniform float vol_scatter;
+uniform float vol_inv_majorant;
+uniform float vol_density_scale;
+uniform vec3 vol_albedo;
 uniform float vol_phase_g;
 uniform vec3 vol_bb_min;
 uniform vec3 vol_bb_max;
 
 const ivec3 vol_size = textureSize(vol_texture, 0);
 
-float density(const vec3 tc) { return texture(vol_texture, tc).r; }
+float density(const vec3 tc) { return vol_density_scale * texture(vol_texture, tc).r; }
 vec3 world_to_vol(const vec4 world) { return vec3(vol_inv_model * world); } // position
 vec3 world_to_vol(const vec3 world) { return normalize(mat3(vol_inv_model) * world); } // direction
 vec3 vol_to_world(const vec4 model) { return vec3(vol_model * model); } // position
@@ -217,10 +218,9 @@ float transmittance(const vec3 pos, const vec3 dir, inout uint seed) {
     if (!intersect_box(pos, dir, vol_bb_min, vol_bb_max, near_far)) return 1.f;
     // ratio tracking
     float t = near_far.x, Tr = 1.f;
-    const float sigma_t = vol_absorb + vol_scatter;
     while (t < near_far.y) {
-        t -= log(1 - rng(seed)) / sigma_t;
-        Tr *= 1 - max(0.f, tf_lookup(density(pos + t * dir)).a);
+        t -= log(1 - rng(seed)) * vol_inv_majorant;
+        Tr *= max(0.f, 1 - tf_lookup(density(pos + t * dir) * vol_inv_majorant).a);
         // russian roulette
         const float rr_threshold = .1f;
         if (Tr < rr_threshold) {
@@ -240,12 +240,11 @@ bool sample_volume(const vec3 pos, const vec3 dir, inout uint seed, out float t,
     // delta tracking
     t = near_far.x;
     float Tr = 1.f;
-    const float sigma_t = vol_absorb + vol_scatter;
      while (t < near_far.y) {
-        t -= log(1 - rng(seed)) / sigma_t;
-        const vec4 rgba = tf_lookup(density(pos + t * dir));
-        if (rgba.a > rng(seed)) {
-            throughput *= rgba.rgb * vol_scatter / sigma_t;
+        t -= log(1 - rng(seed)) * vol_inv_majorant;
+        const vec4 rgba = tf_lookup(density(pos + t * dir) * vol_inv_majorant);
+        if (rng(seed) < rgba.a) {
+            throughput *= rgba.rgb * vol_albedo;
             return true;
         }
      }

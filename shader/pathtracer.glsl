@@ -31,15 +31,15 @@ vec3 trace_path(in vec3 pos, in vec3 dir, inout uint seed) {
             const vec3 to_light = world_to_vol(w_i);
             f_p = phase_henyey_greenstein(dot(-dir, to_light), vol_phase_g);
             const float weight = power_heuristic(Li_pdf.w, f_p);
-            radiance += throughput * weight * f_p * transmittance(pos, to_light, seed) * env_strength * Li_pdf.rgb / Li_pdf.w;
+            const float Tr = transmittance(pos, to_light, seed);
+            radiance += throughput * weight * f_p * Tr * env_strength * Li_pdf.rgb / Li_pdf.w;
         }
 
         // early out?
         if (++n_paths >= bounces) { free_path = false; break; }
         // russian roulette
-        const float rr_threshold = .1f;
         const float rr_val = luma(throughput);
-        if (rr_val < rr_threshold) {
+        if (rr_val < .1f) {
             const float prob = 1 - rr_val;
             if (rng(seed) < prob) { free_path = false; break; }
             throughput /= 1 - prob;
@@ -56,7 +56,7 @@ vec3 trace_path(in vec3 pos, in vec3 dir, inout uint seed) {
         dir = vol_to_world(dir);
         const vec3 Le = environment_lookup(dir);
         const float weight = n_paths > 0 ? power_heuristic(f_p, pdf_environment(Le, dir)) : 1.f;
-        radiance += throughput * weight * env_strength * Le;
+        //radiance += throughput * weight * env_strength * Le;
     }
 
     return radiance;

@@ -1,8 +1,8 @@
 #pragma once
 
 #include <vector>
+#include <cppgl.h>
 #include <glm/glm.hpp>
-#include <cppgl/texture.h>
 
 class TransferFunctionImpl {
 public:
