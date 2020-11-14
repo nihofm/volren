@@ -7,32 +7,29 @@ file(GLOB_RECURSE SOURCES "*.cpp" "*.cu")
 
 # define target
 add_executable(${TARGET} ${HEADERS} ${SOURCES})
+pybind11_add_module(volpy ${SOURCES})
 
 # install
 install(TARGETS ${TARGET} DESTINATION bin)
+install(DIRECTORY . DESTINATION include/${TARGET} FILES_MATCHING PATTERN "*.h")
 
 # ----------------------------------------------------------
 # dependencies
 
-# threads
-find_package(Threads REQUIRED)
-target_link_libraries(${TARGET} ${CMAKE_THREAD_LIBS_INIT})
+target_link_libraries(${TARGET} cppgl stdc++fs)
 
-# opengl
-set(OpenGL_GL_PREFERENCE "GLVND")
-find_package(OpenGL REQUIRED)
-target_include_directories(${TARGET} PUBLIC ${OPENGL_INCLUDE_DIR})
-target_link_libraries(${TARGET} ${OPENGL_LIBRARIES})
-
-# external libs and dependencies
-find_library(GLEW GLEW PATHS ${EXTERNAL_DIR}/lib NO_DEFAULT_PATH)
-find_library(GLFW glfw PATHS ${EXTERNAL_DIR}/lib NO_DEFAULT_PATH)
-find_library(ASSIMP assimp PATHS ${EXTERNAL_DIR}/lib NO_DEFAULT_PATH)
-target_link_libraries(${TARGET} stdc++fs cppgl)
+# pybind11
+find_package(Python3 COMPONENTS Development REQUIRED)
+target_include_directories(${TARGET} PUBLIC ${Python3_INCLUDE_DIRS})
 
 # CUDA
 find_package(CUDA REQUIRED)
 target_link_libraries(${TARGET} ${CUDA_LIBRARIES})
+
+# openvdb (optional)
+if (WITH_OPENVDB)
+    target_link_libraries(${TARGET} openvdb Half tbb)
+ENDIF()
 
 # pytorch (optional)
 if (WITH_TORCH)
@@ -40,15 +37,3 @@ if (WITH_TORCH)
     target_include_directories(${TARGET} PUBLIC ${TORCH_INCLUDE_DIRS})
     target_link_libraries(${TARGET} ${TORCH_LIBRARIES})
 endif()
-
-# openvdb (optional)
-if (WITH_OPENVDB)
-    add_dependencies(${TARGET} openvdb-ext)
-    target_link_libraries(${TARGET} openvdb Half tbb)
-ENDIF()
-
-# dcmtk (optional)
-if (WITH_DCMTK)
-    add_dependencies(${TARGET} dcmtk-ext)
-    target_link_libraries(${TARGET} dcmdata dcmimage dcmimgle oflog ofstd)
-ENDIF()
