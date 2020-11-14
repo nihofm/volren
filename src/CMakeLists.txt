@@ -21,6 +21,7 @@ target_link_libraries(${TARGET} cppgl stdc++fs)
 # pybind11
 find_package(Python3 COMPONENTS Development REQUIRED)
 target_include_directories(${TARGET} PUBLIC ${Python3_INCLUDE_DIRS})
+target_link_libraries(${TARGET} ${Python3_LIBRARIES})
 
 # CUDA
 find_package(CUDA REQUIRED)
