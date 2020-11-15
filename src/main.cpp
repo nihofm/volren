@@ -5,6 +5,8 @@
 #include <iostream>
 #include <fstream>
 
+#include <pybind11/embed.h>
+
 #include "volume.h"
 #include "environment.h"
 #include "transferfunc.h"
@@ -77,6 +79,16 @@ void reservoir_gather() {
     gather_shader->unbind();
     // flipflop
     std::swap(reservoir->id, reservoir_flipflop->id);
+}
+
+void run_script(const std::string& filename) {
+    try {
+        pybind11::scoped_interpreter guard{};
+        pybind11::eval_file(filename);
+    } catch (const std::exception& e) {
+        std::cerr << "Error running script " << filename << ":" << std::endl;
+        std::cerr << e.what() << std::endl;
+    }
 }
 
 void resize_callback(int w, int h) {
@@ -168,7 +180,7 @@ void gui_callback(void) {
             sample = 0;
             volume->albedo = glm::clamp(volume->albedo, glm::vec3(0.f), glm::vec3(1.f));
         }
-        if (ImGui::SliderFloat("Density scale", &volume->density_scale, 0.01f, 100.f)) sample = 0;
+        if (ImGui::DragFloat("Density scale", &volume->density_scale, 0.1f, 0.f, 1000.f)) sample = 0;
         if (ImGui::SliderFloat("Phase g", &volume->phase_g, -.95f, .95f)) sample = 0;
         ImGui::Separator();
         if (ImGui::DragFloat("Window center", &transferfunc->window_center, 0.01f)) sample = 0;
@@ -195,6 +207,7 @@ void gui_callback(void) {
         }
         if (ImGui::Checkbox("Gather always", &gather_always))
             sample = 0;
+        if (ImGui::Button("Run script")) run_script("test.py");
         ImGui::Separator();
         ImGui::Text("Model:");
         glm::mat4 row_maj = glm::transpose(volume->model);
