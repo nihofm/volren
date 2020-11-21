@@ -1,7 +1,11 @@
 [submodule "submodules/cppgl"]
 	path = submodules/cppgl
 	url = git@git9.cs.fau.de:renderingframeworks/cppgl.git
-	branch = subm
+	branch = master
 [submodule "submodules/pybind11"]
 	path = submodules/pybind11
 	url = https://github.com/pybind/pybind11
+[submodule "submodules/openvdb"]
+	path = submodules/openvdb
+	url = https://github.com/AcademySoftwareFoundation/openvdb/
+	branch = feature/nanovdb

@@ -5,8 +5,6 @@
 #include <iostream>
 #include <fstream>
 
-#include <pybind11/embed.h>
-
 #include "volume.h"
 #include "environment.h"
 #include "transferfunc.h"
@@ -79,16 +77,6 @@ void reservoir_gather() {
     gather_shader->unbind();
     // flipflop
     std::swap(reservoir->id, reservoir_flipflop->id);
-}
-
-void run_script(const std::string& filename) {
-    try {
-        pybind11::scoped_interpreter guard{};
-        pybind11::eval_file(filename);
-    } catch (const std::exception& e) {
-        std::cerr << "Error running script " << filename << ":" << std::endl;
-        std::cerr << e.what() << std::endl;
-    }
 }
 
 void resize_callback(int w, int h) {
@@ -207,7 +195,6 @@ void gui_callback(void) {
         }
         if (ImGui::Checkbox("Gather always", &gather_always))
             sample = 0;
-        if (ImGui::Button("Run script")) run_script("test.py");
         ImGui::Separator();
         ImGui::Text("Model:");
         glm::mat4 row_maj = glm::transpose(volume->model);
@@ -255,7 +242,7 @@ int main(int argc, char** argv) {
     Context::set_keyboard_callback(keyboard_callback);
     Context::set_mouse_button_callback(mouse_button_callback);
     Context::set_mouse_callback(mouse_callback);
-    Context::set_gui_callback(gui_callback);
+    gui_add_callback("vol_gui", gui_callback);
 
     // parse cmd line args
     for (int i = 1; i < argc; ++i) {
