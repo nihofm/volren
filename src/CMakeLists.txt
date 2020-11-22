@@ -23,9 +23,11 @@ install(DIRECTORY . DESTINATION include/${TARGET} FILES_MATCHING PATTERN "*.h")
 # dependencies
 
 target_link_libraries(${TARGET} cppgl stdc++fs)
+target_link_libraries(${TARGET_PY} PRIVATE cppgl stdc++fs)
 
 # CUDA
 find_package(CUDA REQUIRED)
+include_directories(${CUDA_INCLUDE_DIRS})
 target_link_libraries(${TARGET} ${CUDA_LIBRARIES})
 target_link_libraries(${TARGET_PY} PRIVATE ${CUDA_LIBRARIES})
 
