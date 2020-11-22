@@ -20,6 +20,8 @@ COPY setup.py CMakeLists.txt ./
 COPY src/ src/
 COPY submodules/ submodules/
 
-RUN mkdir -p build && cd build && cmake .. -DCMAKE_BUILD_TYPE=Release -Wno-dev && make -j16
+RUN cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -Wno-dev && cmake --build build --parallel
 
+# TODO: python package setup
+#COPY setup.py ./
 #RUN pip3 install . -v
