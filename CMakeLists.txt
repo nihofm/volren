@@ -22,34 +22,24 @@ else()
 endif()
 
 # ---------------------------------------------------------------------
-# submodules
-
-add_subdirectory(submodules/cppgl)
-add_subdirectory(submodules/pybind11)
-
-set(OPENVDB_BUILD_BINARIES OFF CACHE BOOL "disable openvdb binaries" FORCE)
-#set(OPENVDB_BUILD_PYTHON_MODULE ON CACHE BOOL "enable openvdb python module" FORCE)
-add_subdirectory(submodules/openvdb)
-
-set(NANOVDB_ALLOW_FETCHCONTENT OFF CACHE BOOL "disable nanovdb downloading stuff" FORCE)
-set(NANOVDB_BUILD_TOOLS OFF CACHE BOOL "disable building nanovdb tools" FORCE)
-set(NANOVDB_BUILD_UNITTESTS OFF CACHE BOOL "disable building nanovdb tests" FORCE)
-set(NANOVDB_BUILD_EXAMPLES OFF CACHE BOOL "disable building nanovdb examples" FORCE)
-set(NANOVDB_BUILD_BENCHMARK OFF CACHE BOOL "disable building nanovdb benchmarks" FORCE)
-add_subdirectory(submodules/openvdb/nanovdb)
-
-include_directories(submodules)
-include_directories(submodules/cppgl/src)
-include_directories(submodules/openvdb/nanovdb)
-
-# ---------------------------------------------------------------------
 # compiler flags
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 add_compile_options(-pthread -fopenmp -march=native)
-add_compile_options(-Wall -Wno-unused-parameter -Wno-unused-variable -Wno-int-to-pointer-cast)
+add_compile_options(-Wall -Wno-unused-parameter -Wno-unused-variable -Wno-deprecated-declarations)
+
+# ---------------------------------------------------------------------
+# submodules
+
+add_subdirectory(submodules/cppgl)
+include_directories(submodules/cppgl/src)
+
+add_subdirectory(submodules/voldata)
+include_directories(submodules/voldata)
+
+add_subdirectory(submodules/pybind11)
 
 # ---------------------------------------------------------------------
 # install shaders

@@ -1,7 +1,6 @@
 #include <pybind11/pybind11.h>
 #include <pybind11/operators.h>
 
-#include "grid.h"
 #include <glm/glm.hpp>
 #include <cuda_runtime.h>
 
@@ -176,5 +175,4 @@ PYBIND11_MODULE(volpy, m) {
     // ------------------------------------------------------------
     // TODO automatic collection of classes with bindings?
 
-    Grid::init_bindings(m);
 }

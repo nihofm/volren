@@ -5,6 +5,9 @@
 #include <iostream>
 #include <fstream>
 
+#include <voldata/voldata.h>
+//static voldata::Volume volume2; // TODO
+
 #include "volume.h"
 #include "environment.h"
 #include "transferfunc.h"
