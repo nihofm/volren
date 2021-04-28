@@ -6,7 +6,7 @@ EnvironmentImpl::EnvironmentImpl(const std::string& name, const Texture2D& textu
     std::vector<float> marginal;
     integral = build_cdf_2D(texture, conditional, marginal);
     // upload conditional
-    cdf_U = SSBO("TODO_env_conditional");
+    cdf_U = SSBO("env_conditional");
     cdf_U->resize(conditional[0].size() * conditional.size() * sizeof(float));
     float* gpu = (float*)cdf_U->map(GL_WRITE_ONLY);
     for (size_t y = 0; y < conditional.size(); ++y)
@@ -14,7 +14,7 @@ EnvironmentImpl::EnvironmentImpl(const std::string& name, const Texture2D& textu
             gpu[y * conditional[y].size() + x] = conditional[y][x];
     cdf_U->unmap();
     // upload marginal
-    cdf_V = SSBO("TODO_env_marginal");
+    cdf_V = SSBO("env_marginal");
     cdf_V->resize(marginal.size() * sizeof(float));
     gpu = (float*) cdf_V->map(GL_WRITE_ONLY);
     for (size_t y = 0; y < marginal.size(); ++y)

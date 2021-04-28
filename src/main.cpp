@@ -6,9 +6,8 @@
 #include <fstream>
 
 #include <voldata/voldata.h>
-static voldata::Volume volume2; // TODO
 
-#include "volume.h"
+//#include "volume.h"
 #include "environment.h"
 #include "transferfunc.h"
 
@@ -19,21 +18,17 @@ static int sample = 0;
 static int sppx = 1000;
 static int bounces = 100;
 static bool tonemapping = true;
-static float tonemap_exposure = 10.f;
+static float tonemap_exposure = 5.f;
 static float tonemap_gamma = 2.2f;
-static bool auto_exposure = false; // TODO
 static bool show_convergence = false;
-static bool show_environment = false;
-static Volume volume;
-static glm::vec3 vol_bb_min = glm::vec3(0), vol_bb_max = glm::vec3(1);
+static bool show_environment = true;
+static std::shared_ptr<voldata::Volume> volume;
+static Texture3D vol_indirection, vol_range, vol_atlas;
+//static glm::vec3 vol_bb_min = glm::vec3(0), vol_bb_max = glm::vec3(1);
 static TransferFunction transferfunc;
 static Environment environment;
 static Shader trace_shader;
 static Framebuffer fbo;
-static SSBO reservoir, reservoir_flipflop;
-static bool gather_always = false;
-static Animation animation;
-static float animation_frames_per_node = 100;
 static float shader_check_delay_ms = 1000;
 
 // ------------------------------------------
@@ -51,8 +46,7 @@ void tonemap(const Texture2D& tex) {
     static Shader tonemap_shader = Shader("tonemap", "shader/quad.vs", "shader/tonemap.fs");
     tonemap_shader->bind();
     tonemap_shader->uniform("tex", tex, 0);
-    tonemap_shader->uniform("auto_exposure", int(auto_exposure));
-    tonemap_shader->uniform("default_exposure", tonemap_exposure);
+    tonemap_shader->uniform("exposure", tonemap_exposure);
     tonemap_shader->uniform("gamma", tonemap_gamma);
     Quad::draw();
     tonemap_shader->unbind();
@@ -65,21 +59,6 @@ void convergence(const Texture2D& color, const Texture2D& even) {
     tonemap_shader->uniform("even", even, 1);
     Quad::draw();
     tonemap_shader->unbind();
-}
-
-void reservoir_gather() {
-    Shader gather_shader = Shader::find("gather") ? Shader::find("gather") : Shader("gather", "shader/reservoir_gather.glsl");
-    gather_shader->bind();
-    reservoir->bind_base(2);
-    reservoir_flipflop->bind_base(3);
-    gather_shader->uniform("current_sample", sample);
-    gather_shader->uniform("vol_texture", volume->texture, 0);
-    gather_shader->dispatch_compute(volume->texture->w, volume->texture->h, volume->texture->d);
-    reservoir_flipflop->unbind_base(3);
-    reservoir->unbind_base(2);
-    gather_shader->unbind();
-    // flipflop
-    std::swap(reservoir->id, reservoir_flipflop->id);
 }
 
 void resize_callback(int w, int h) {
@@ -102,25 +81,6 @@ void keyboard_callback(int key, int scancode, int action, int mods) {
         sample = 0;
     if (key == GLFW_KEY_ENTER && action == GLFW_PRESS)
         Context::screenshot("screenshot.png");
-
-    if (key == GLFW_KEY_O && action == GLFW_PRESS) {
-        glm::vec3 pos; glm::quat rot;
-        current_camera()->store(pos, rot);
-        const size_t i = animation->push_node(pos, rot);
-        animation->put_data("albedo", i, volume->albedo);
-        animation->put_data("phase_g", i, volume->phase_g);
-        animation->put_data("vol_bb_min", i, vol_bb_min);
-        animation->put_data("vol_bb_max", i, vol_bb_max);
-        animation->put_data("window_center", i, transferfunc->window_center);
-        animation->put_data("window_width", i, transferfunc->window_width);
-        std::cout << "curr anim length: " << i + 1 << std::endl;
-    }
-    if (key == GLFW_KEY_L && action == GLFW_PRESS)
-        animation->clear();
-    if (key == GLFW_KEY_P && action == GLFW_PRESS) {
-        animation->play();
-        sample = sppx;
-    }
 }
 
 void mouse_button_callback(int button, int action, int mods) {
@@ -161,61 +121,60 @@ void gui_callback(void) {
             environment->strength = fmaxf(0.f, environment->strength);
         }
         ImGui::Checkbox("Tonemapping", &tonemapping);
-        ImGui::Checkbox("Auto exposure", &auto_exposure);
         if (ImGui::DragFloat("Exposure", &tonemap_exposure, 0.01f))
             tonemap_exposure = fmaxf(0.f, tonemap_exposure);
         ImGui::DragFloat("Gamma", &tonemap_gamma, 0.01f);
         ImGui::Checkbox("Show convergence", &show_convergence);
         ImGui::Separator();
-        if (ImGui::DragFloat3("Albedo", &volume->albedo.x, 0.1f)) {
-            sample = 0;
-            volume->albedo = glm::clamp(volume->albedo, glm::vec3(0.f), glm::vec3(1.f));
-        }
-        if (ImGui::DragFloat("Density scale", &volume->density_scale, 0.1f, 0.f, 1000.f)) sample = 0;
-        if (ImGui::SliderFloat("Phase g", &volume->phase_g, -.95f, .95f)) sample = 0;
+        if (ImGui::DragFloat3("Albedo", &volume->get_albedo().x, 0.01f, 0.f, 1.f)) sample = 0;
+        if (ImGui::DragFloat("Density scale", &volume->get_density_scale(), 0.01f, 0.01f, 1000.f)) sample = 0;
+        if (ImGui::SliderFloat("Phase g", &volume->get_phase(), -.95f, .95f)) sample = 0;
         ImGui::Separator();
         if (ImGui::DragFloat("Window center", &transferfunc->window_center, 0.01f)) sample = 0;
         if (ImGui::DragFloat("Window width", &transferfunc->window_width, 0.01f)) sample = 0;
+        if (ImGui::Button("Neutral TF")) {
+            transferfunc->lut = std::vector<glm::vec4>({ glm::vec4(1) });
+            transferfunc->upload_gpu();
+            sample = 0;
+        }
+        if (ImGui::Button("Gradient TF")) {
+            transferfunc->lut = std::vector<glm::vec4>({ glm::vec4(0), glm::vec4(1) });
+            transferfunc->upload_gpu();
+            sample = 0;
+        }
+        if (ImGui::Button("Triangle TF")) {
+            transferfunc->lut = std::vector<glm::vec4>({ glm::vec4(0), glm::vec4(1), glm::vec4(0) });
+            transferfunc->upload_gpu();
+            sample = 0;
+        }
         ImGui::Separator();
-        if (ImGui::SliderFloat3("Vol bb min", &vol_bb_min.x, 0.f, 1.f)) sample = 0;
-        if (ImGui::SliderFloat3("Vol bb max", &vol_bb_max.x, 0.f, 1.f)) sample = 0;
+        //if (ImGui::SliderFloat3("Vol bb min", &vol_bb_min.x, 0.f, 1.f)) sample = 0;
+        //if (ImGui::SliderFloat3("Vol bb max", &vol_bb_max.x, 0.f, 1.f)) sample = 0;
         ImGui::Separator();
-        if (ImGui::Button("Use pathtracer")) {
-            trace_shader = Shader("trace", "shader/pathtracer.glsl");
-            sample = 0;
-        }
-        if (ImGui::Button("Use guided pathtracer")) {
-            trace_shader = Shader("trace", "shader/pathtracer_guided.glsl");
-            sample = 0;
-        }
-        if (ImGui::Button("Clear reservoirs")) {
-            reservoir->clear();
-            sample = 0;
-        }
-        if (ImGui::Button("Gather reservoirs")) {
-            reservoir_gather();
-            sample = 0;
-        }
-        if (ImGui::Checkbox("Gather always", &gather_always))
-            sample = 0;
-        ImGui::Separator();
-        ImGui::Text("Model:");
+        ImGui::Text("Modelmatrix:");
         glm::mat4 row_maj = glm::transpose(volume->model);
         bool modified = false;
-        if (ImGui::InputFloat4("row0", &row_maj[0][0], "%.1f")) modified = true;
-        if (ImGui::InputFloat4("row1", &row_maj[1][0], "%.1f")) modified = true;
-        if (ImGui::InputFloat4("row2", &row_maj[2][0], "%.1f")) modified = true;
-        if (ImGui::InputFloat4("row3", &row_maj[3][0], "%.1f")) modified = true;
+        if (ImGui::InputFloat4("row0", &row_maj[0][0], "%.2f")) modified = true;
+        if (ImGui::InputFloat4("row1", &row_maj[1][0], "%.2f")) modified = true;
+        if (ImGui::InputFloat4("row2", &row_maj[2][0], "%.2f")) modified = true;
+        if (ImGui::InputFloat4("row3", &row_maj[3][0], "%.2f")) modified = true;
         if (modified) {
             volume->model = glm::transpose(row_maj);
             sample = 0;
         }
         ImGui::Separator();
-        ImGui::Text("Animation time %.3f / %lu", animation->time, animation->camera_path.size());
-        ImGui::Checkbox("Animation running", &animation->running);
-        ImGui::InputFloat("Animation frames per node", &animation_frames_per_node);
-        if (ImGui::Button("ffmpeg"))
-            system("ffmpeg -f image2 -i anim_%5d.jpg output.mp4");
+        if (ImGui::Button("Rotate 90° X")) {
+            volume->model = glm::rotate(volume->model, 1.5f * float(M_PI), glm::vec3(1, 0, 0));
+            sample = 0;
+        }
+        if (ImGui::Button("Rotate 90° Y")) {
+            volume->model = glm::rotate(volume->model, 1.5f * float(M_PI), glm::vec3(0, 1, 0));
+            sample = 0;
+        }
+        if (ImGui::Button("Rotate 90° Z")) {
+            volume->model = glm::rotate(volume->model, 1.5f * float(M_PI), glm::vec3(0, 0, 1));
+            sample = 0;
+        }
         ImGui::PopStyleVar();
         ImGui::End();
     }
@@ -229,9 +188,9 @@ int main(int argc, char** argv) {
     ContextParameters params;
     params.width = 1920;
     params.height = 1080;
-    params.title = "VolGL";
+    params.title = "VolRen";
     params.floating = GLFW_TRUE;
-    params.resizable = GLFW_FALSE;
+    params.resizable = GLFW_FALSE;//GLFW_TRUE;
     params.swap_interval = 0;
     try  {
         Context::init(params);
@@ -277,22 +236,22 @@ int main(int argc, char** argv) {
         else if (arg == "-gamma")
             tonemap_gamma = std::stof(argv[++i]);
         else
-            volume = Volume(fs::path(argv[i]).filename(), argv[i]);
+            volume = std::make_shared<voldata::Volume>(argv[i]);
     }
 
     // setup fbo
     const glm::ivec2 res = Context::resolution();
     fbo = Framebuffer("fbo", res.x, res.y);
-    fbo->attach_depthbuffer(Texture2D("fbo/depth", res.x, res.y, GL_DEPTH_COMPONENT32F, GL_DEPTH_COMPONENT, GL_FLOAT));
+    fbo->attach_depthbuffer();
     fbo->attach_colorbuffer(Texture2D("fbo/col", res.x, res.y, GL_RGBA32F, GL_RGBA, GL_FLOAT));
     fbo->attach_colorbuffer(Texture2D("fbo/even", res.x, res.y, GL_RGBA32F, GL_RGBA, GL_FLOAT));
     fbo->check();
 
-    // setup trace shader and animation
+    // setup trace shader
     trace_shader = Shader("trace", "shader/pathtracer.glsl");
-    animation = Animation("animation");
 
     // load default envmap?
+    // TODO FIXME weird bug of wrong strides in the volume when using the default environment
     if (!environment) {
         glm::vec3 color(1);
         environment = Environment("white_background", Texture2D("white_background", 1, 1, GL_RGB32F, GL_RGB, GL_FLOAT, &color.x));
@@ -300,25 +259,50 @@ int main(int argc, char** argv) {
 
     // load default volume?
     if (!volume)
-        volume = Volume("head", "data/head_8bit.dat");
+        volume = std::make_shared<voldata::Volume>("data/head_8bit.dat");
 
-    // setup transfer function (LUT)
+    // load brick volume textures
+    std::cout << "grid: " << std::endl << volume->current_grid()->to_string() << std::endl;
+    const std::shared_ptr<voldata::BrickGrid>& bricks = std::make_shared<voldata::BrickGrid>(volume->current_grid());
+    std::cout << "brick grid: " << std::endl << bricks->to_string() << std::endl;
+    vol_indirection = Texture3D("brick indirection",
+            bricks->indirection.stride.x,
+            bricks->indirection.stride.y,
+            bricks->indirection.stride.z,
+            GL_RGBA8UI,
+            GL_RGBA_INTEGER,
+            GL_UNSIGNED_BYTE,
+            bricks->indirection.data.data());
+    vol_range = Texture3D("brick range",
+            bricks->range.stride.x,
+            bricks->range.stride.y,
+            bricks->range.stride.z,
+            GL_RG16F,
+            GL_RG,
+            GL_HALF_FLOAT,
+            bricks->range.data.data());
+    vol_atlas = Texture3D("brick atlas",
+            bricks->atlas.stride.x,
+            bricks->atlas.stride.y,
+            bricks->atlas.stride.z,
+            GL_RED,
+            GL_RED,
+            GL_UNSIGNED_BYTE,
+            bricks->atlas.data.data());
+
+    // load default transfer function
     if (!transferfunc)
-        transferfunc = TransferFunction("tf", "data/AbdShaded_c.txt");
-        //transferfunc = TransferFunction("tf", std::vector<glm::vec4>(1, glm::vec4(1)));
-
-    // reservoir buffer for path guiding
-    reservoir = SSBO("reservoir buffer");
-    reservoir->resize(volume->texture->w * volume->texture->h * volume->texture->d * sizeof(float)*4);
-    reservoir->clear();
-    reservoir_flipflop = SSBO("reservoir buffer flip flop");
-    reservoir_flipflop->resize(volume->texture->w * volume->texture->h * volume->texture->d * sizeof(float)*4);
-    reservoir_flipflop->clear();
+        transferfunc = TransferFunction("tf", std::vector<glm::vec4>({ glm::vec4(1) }));
 
     // test default setup
-    current_camera()->pos = glm::vec3(.5, .5, .3);
-    current_camera()->dir = glm::vec3(-.4, -.2, -.8);
-    volume->phase_g = 0.0;
+    const auto [bb_min, bb_max] = volume->AABB();
+    current_camera()->pos = bb_min;
+    current_camera()->dir = glm::normalize((bb_max + bb_min)*.5f - current_camera()->pos);
+    environment->strength = 1.f;
+    volume->set_albedo(glm::vec3(1.f));
+    volume->set_density_scale(1.f);
+    volume->set_phase(0.f);
+    //volume->model = glm::translate(volume->model, -glm::vec3(volume->current_grid()->transform[3]));
 
     // run
     float shader_timer = 0;
@@ -345,26 +329,29 @@ int main(int argc, char** argv) {
                 fbo->color_textures[i]->bind_image(i, GL_READ_WRITE, GL_RGBA32F);
             environment->cdf_U->bind_base(0);
             environment->cdf_V->bind_base(1);
-            reservoir->bind_base(2);
 
             // uniforms
             trace_shader->uniform("current_sample", ++sample);
             trace_shader->uniform("bounces", bounces);
             trace_shader->uniform("show_environment", show_environment ? 0 : 1);
             // volume
-            trace_shader->uniform("vol_model", volume->model);
-            trace_shader->uniform("vol_inv_model", glm::inverse(volume->model));
-            trace_shader->uniform("vol_texture", volume->texture, 0);
-            trace_shader->uniform("vol_albedo", volume->albedo);
-            trace_shader->uniform("vol_inv_majorant", 1.f / (volume->majorant * volume->density_scale));
-            trace_shader->uniform("vol_density_scale", volume->density_scale);
-            trace_shader->uniform("vol_phase_g", volume->phase_g);
-            trace_shader->uniform("vol_bb_min", vol_bb_min);
-            trace_shader->uniform("vol_bb_max", vol_bb_max);
+            trace_shader->uniform("vol_model", volume->get_transform());
+            trace_shader->uniform("vol_inv_model", glm::inverse(volume->get_transform()));
+            trace_shader->uniform("vol_indirection", vol_indirection, 5);
+            trace_shader->uniform("vol_range", vol_range, 6);
+            trace_shader->uniform("vol_atlas", vol_atlas, 7);
+            const auto [bb_min, bb_max] = volume->AABB();
+            trace_shader->uniform("vol_bb_min", bb_min);
+            trace_shader->uniform("vol_bb_max", bb_max);
+            const auto [min, maj] = volume->current_grid()->minorant_majorant();
+            trace_shader->uniform("vol_inv_majorant", 1.f / (maj * volume->get_density_scale()));
+            trace_shader->uniform("vol_albedo", volume->get_albedo());
+            trace_shader->uniform("vol_phase_g", volume->get_phase());
+            trace_shader->uniform("vol_density_scale", volume->get_density_scale());
             // transfer function
             trace_shader->uniform("tf_window_center", transferfunc->window_center);
             trace_shader->uniform("tf_window_width", transferfunc->window_width);
-            trace_shader->uniform("tf_lut_texture", transferfunc->texture, 1);
+            trace_shader->uniform("tf_texture", transferfunc->texture, fbo->color_textures.size() + 0);
             // camera
             trace_shader->uniform("cam_pos", current_camera()->pos);
             trace_shader->uniform("cam_fov", current_camera()->fov_degree);
@@ -373,7 +360,7 @@ int main(int argc, char** argv) {
             trace_shader->uniform("env_model", environment->model);
             trace_shader->uniform("env_inv_model", glm::inverse(environment->model));
             trace_shader->uniform("env_strength", environment->strength);
-            trace_shader->uniform("env_texture", environment->texture, 2);
+            trace_shader->uniform("env_texture", environment->texture, fbo->color_textures.size() + 1);
             trace_shader->uniform("env_integral", environment->integral);
 
             // trace
@@ -381,15 +368,11 @@ int main(int argc, char** argv) {
             trace_shader->dispatch_compute(size.x, size.y);
 
             // unbind
-            reservoir->unbind_base(2);
             environment->cdf_V->unbind_base(1);
             environment->cdf_U->unbind_base(0);
             for (uint32_t i = 0; i < fbo->color_textures.size(); ++i)
                 fbo->color_textures[i]->unbind_image(i);
             trace_shader->unbind();
-
-            if (gather_always)
-                reservoir_gather();
         } else
             glfwWaitEventsTimeout(1.f / 10); // 10fps idle
 
@@ -398,30 +381,10 @@ int main(int argc, char** argv) {
         if (show_convergence)
             convergence(fbo->color_textures[0], fbo->color_textures[1]);
         else {
-            if (tonemapping) {
-                if (false || auto_exposure) {
-                    // TODO compute min/max
-                }
+            if (tonemapping)
                 tonemap(fbo->color_textures[0]);
-            } else
+            else
                 blit(fbo->color_textures[0]);
-        }
-
-        // update animation
-        if (animation->running && sample >= sppx) {
-            // save rendering TODO skip first image?
-            std::stringstream ss;
-            ss << "anim_" << std::setw(5) << std::setfill('0') << int(std::round(animation->time * animation_frames_per_node)) << ".jpg";
-            Context::screenshot(ss.str());
-            // advance animation
-            animation->update(animation->ms_between_nodes / animation_frames_per_node);
-            sample = 0;
-            volume->albedo = animation->eval_vec3("albedo");
-            volume->phase_g = animation->eval_float("phase_g");
-            vol_bb_min = animation->eval_vec3("vol_bb_min");
-            vol_bb_max = animation->eval_vec3("vol_bb_max");
-            transferfunc->window_center = animation->eval_float("window_center");
-            transferfunc->window_width = animation->eval_float("window_width");
         }
 
         // finish frame

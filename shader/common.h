@@ -68,6 +68,7 @@ vec3 view_dir(const ivec2 xy, const ivec2 wh, const vec2 pixel_sample) {
 
 // --------------------------------------------------------------
 // environment helper (input vectors assumed in world space!)
+// TODO mipmap based sample warping scheme
 
 uniform mat4 env_model;
 uniform mat4 env_inv_model;
@@ -151,9 +152,9 @@ bool intersect_box(const vec3 pos, const vec3 dir, const vec3 bb_min, const vec3
     const vec3 lo = (bb_min - pos) * inv_dir;
     const vec3 hi = (bb_max - pos) * inv_dir;
     const vec3 tmin = min(lo, hi), tmax = max(lo, hi);
-    near_far.x = max(tmin.x, max(tmin.y, tmin.z));
+    near_far.x = max(0.f, max(tmin.x, max(tmin.y, tmin.z)));
     near_far.y = min(tmax.x, min(tmax.y, tmax.z));
-    return max(0.f, near_far.x) <= near_far.y;
+    return near_far.x <= near_far.y;
 }
 
 // --------------------------------------------------------------
@@ -161,10 +162,12 @@ bool intersect_box(const vec3 pos, const vec3 dir, const vec3 bb_min, const vec3
 
 uniform float tf_window_center;
 uniform float tf_window_width;
-uniform sampler2D tf_lut_texture;
+uniform sampler2D tf_texture;
 
+// TODO stochastic lookup
 vec4 tf_lookup(float d) {
-    return texture(tf_lut_texture, vec2((d - tf_window_center) / tf_window_width, 0));
+    const vec4 lut = texture(tf_texture, vec2((d - tf_window_center) / tf_window_width, 0));
+    return vec4(lut.rgb, d * lut.a);
 }
 
 // --------------------------------------------------------------
@@ -195,32 +198,53 @@ vec3 sample_phase_henyey_greenstein(const vec3 dir, const float g, const vec2 ph
 
 uniform mat4 vol_model;
 uniform mat4 vol_inv_model;
-uniform sampler3D vol_texture;
-uniform float vol_inv_majorant;
-uniform float vol_density_scale;
-uniform vec3 vol_albedo;
-uniform float vol_phase_g;
 uniform vec3 vol_bb_min;
 uniform vec3 vol_bb_max;
+uniform vec3 vol_albedo;
+uniform float vol_phase_g;
+uniform float vol_density_scale;
 
-const ivec3 vol_size = textureSize(vol_texture, 0);
+// dense grid
+//uniform sampler3D vol_texture;
+uniform float vol_inv_majorant;
 
-float density(const vec3 tc) { return vol_density_scale * texture(vol_texture, tc).r; }
-vec3 world_to_vol(const vec4 world) { return vec3(vol_inv_model * world); } // position
-vec3 world_to_vol(const vec3 world) { return normalize(mat3(vol_inv_model) * world); } // direction
-vec3 vol_to_world(const vec4 model) { return vec3(vol_model * model); } // position
-vec3 vol_to_world(const vec3 model) { return normalize(mat3(vol_model) * model); } // direction
+// brick grid
+uniform usampler3D vol_indirection;
+uniform sampler3D vol_range;
+uniform sampler3D vol_atlas;
+
+// brick voxel lookup
+float lookup_voxel(const vec3 ipos) {
+    const ivec3 brick = ivec3(ipos) >> 3;
+    const uvec3 ptr = texelFetch(vol_indirection, brick, 0).xyz;
+    const vec2 range = texelFetch(vol_range, brick, 0).xy;
+    const float value_unorm = texelFetch(vol_atlas, ivec3(ptr << 3) + (ivec3(ipos) & 7), 0).x;
+    return value_unorm * (range.y - range.x) + range.x;
+}
+
+// brick majorant lookup
+float lookup_majorant(const vec3 ipos) {
+    return vol_density_scale * texelFetch(vol_range, ivec3(ipos) >> 3, 0).y;
+}
+
+// density lookup with stochastic lerp
+float density(const vec3 ipos, inout uint seed) {
+    return vol_density_scale * lookup_voxel(ivec3((ipos + rng3(seed) - .5f)));
+}
 
 // pos and dir assumed in model (volume) space
-float transmittance(const vec3 pos, const vec3 dir, inout uint seed) {
+float transmittance(in vec3 pos, in vec3 dir, inout uint seed) {
     // clip volume
     vec2 near_far;
     if (!intersect_box(pos, dir, vol_bb_min, vol_bb_max, near_far)) return 1.f;
+    // to index-space
+    pos = vec3(vol_inv_model * vec4(pos, 1));
+    dir = vec3(vol_inv_model * vec4(dir, 0)); // non-normalized!
     // ratio tracking
     float t = near_far.x, Tr = 1.f;
     while (t < near_far.y) {
         t -= log(1 - rng(seed)) * vol_inv_majorant;
-        Tr *= max(0.f, 1 - tf_lookup(density(pos + t * dir) * vol_inv_majorant).a);
+        Tr *= max(0.f, 1 - tf_lookup(density(pos + t * dir, seed) * vol_inv_majorant).a);
         // russian roulette
         const float rr_threshold = .1f;
         if (Tr < rr_threshold) {
@@ -233,16 +257,19 @@ float transmittance(const vec3 pos, const vec3 dir, inout uint seed) {
 }
 
 // pos and dir assumed in model (volume) space
-bool sample_volume(const vec3 pos, const vec3 dir, inout uint seed, out float t, inout vec3 throughput) {
+bool sample_volume(in vec3 pos, in vec3 dir, out float t, inout vec3 throughput, inout uint seed) {
     // clip volume
     vec2 near_far;
     if (!intersect_box(pos, dir, vol_bb_min, vol_bb_max, near_far)) return false;
+    // to index-space
+    pos = vec3(vol_inv_model * vec4(pos, 1));
+    dir = vec3(vol_inv_model * vec4(dir, 0)); // non-normalized!
     // delta tracking
     t = near_far.x;
     float Tr = 1.f;
      while (t < near_far.y) {
         t -= log(1 - rng(seed)) * vol_inv_majorant;
-        const vec4 rgba = tf_lookup(density(pos + t * dir) * vol_inv_majorant);
+        const vec4 rgba = tf_lookup(density(pos + t * dir, seed) * vol_inv_majorant);
         if (rng(seed) < rgba.a) {
             throughput *= rgba.rgb * vol_albedo;
             return true;
@@ -251,41 +278,46 @@ bool sample_volume(const vec3 pos, const vec3 dir, inout uint seed, out float t,
      return false;
 }
 
-// ---------------------------------------------------
-// weighted reservoir sampling / resampled importance sampling
-
-struct Reservoir {
-    f16vec4 y_pt;   // the output sample (vec3) and the target pdf (float)
-    float w_sum;    // the sum of weights
-    uint M;         // the number of samples seen so far
-
-    float weight() { return w_sum / (float(y_pt.w) * M); }
-};
-layout(std430, binding = 2) buffer ReservoirBuffer {
-    Reservoir reservoirs[];
-};
-layout(std430, binding = 3) buffer ReservoirBufferFlipFlop {
-    Reservoir reservoirs_flipflop[];
-};
-
-void wrs_clear(inout Reservoir r) {
-    r.y_pt = f16vec4(0);
-    r.w_sum = 0;
-    r.M = 0;
+float stepDDA(in vec3 ro, in vec3 ri, in vec3 pos, in int mip) {
+    const float dim = 8 << mip;
+    const vec3 ofs = ri * (mix(vec3(-0.5f), vec3(dim + 0.5f), greaterThanEqual(ri, vec3(0))) - ro);
+    const vec3 tmax = floor(pos * (1.f / dim)) * dim * ri + ofs;
+    return min(tmax.x, min(tmax.y , tmax.z));
 }
 
-void wrs_update(inout Reservoir r, const vec3 xi, const float wi, const float pi, inout uint seed) {
-    const float w = pi / wi;
-    r.M += 1;
-    r.w_sum += w;
-    if (rng(seed) < w / r.w_sum)
-        r.y_pt = f16vec4(xi, pi);
-}
-
-void wrs_update_atomic(const uint ridx, const vec3 xi, const float wi, const float pi, inout uint seed) {
-    const float w = pi / wi;
-    atomicAdd(reservoirs[ridx].M, 1);
-    atomicAdd(reservoirs[ridx].w_sum, w);
-    if (rng(seed) < w / reservoirs[ridx].w_sum) // TODO possible race condition
-        atomicExchange(reservoirs[ridx].y_pt, f16vec4(xi, pi));
+// TODO debug DDA
+vec3 transmittanceDDA(in vec3 pos, in vec3 dir, inout uint seed) {
+    // clip volume
+    vec2 near_far;
+    if (!intersect_box(pos, dir, vol_bb_min, vol_bb_max, near_far)) return vec3(1.f);
+    // to index-space
+    pos = vec3(vol_inv_model * vec4(pos, 1));
+    dir = vec3(vol_inv_model * vec4(dir, 0)); // non-normalized!
+    const vec3 ri = 1.f / dir;
+    float t = near_far.x - 0.01f, Tr = 1.f, tau = -log(1.f - rng(seed));
+    while (t < near_far.y) {
+        const vec3 curr = pos + t * dir;
+        const float majorant = lookup_majorant(ivec3(curr));
+        const float next_t = stepDDA(pos, ri, curr, 0);
+        const float dt = next_t - t;
+        if (dt < 0.f) return vec3(1, 0, 0);
+        const float dtau = majorant * dt;
+        t = next_t;
+        tau -= dtau;
+        if (tau > 0) continue; // no collision, step ahead
+        t += dt * tau / dtau ; // step back to point of collision
+        const float d = density(pos + t * dir, seed);
+        if (d > majorant) return vec3(1, 1, 0);
+        if (rng(seed) * majorant < d) { // check if real or null collision
+            Tr *= 1.f - d / majorant;
+            // russian roulette
+            if (Tr < .1f) {
+                const float prob = 1 - Tr;
+                if (rng(seed) < prob) return vec3(0.f);
+                Tr /= 1 - prob;
+            }
+        }
+        tau = -log(1.f - rng(seed));
+    }
+    return vec3(Tr);
 }

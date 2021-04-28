@@ -1,8 +1,7 @@
 #version 130
 in vec2 tc;
 uniform sampler2D tex;
-uniform int auto_exposure;
-uniform float default_exposure;
+uniform float exposure;
 uniform float gamma;
 out vec4 out_col;
 
@@ -23,12 +22,6 @@ vec3 hable_tonemap(in vec3 rgb, in float exposure) {
 }
 
 void main() {
-    // compute exposure
-    float exposure = default_exposure;
-    if (auto_exposure > 0) {
-        // TODO
-    }
-
     // tonemap
     out_col = texture(tex, tc);
     out_col.rgb = pow(hable_tonemap(out_col.rgb, exposure), vec3(1.f / gamma));
