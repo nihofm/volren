@@ -11,6 +11,8 @@ public:
     TransferFunctionImpl(const std::string& name, const std::vector<glm::vec4>& lut);
     virtual ~TransferFunctionImpl();
 
+    void set_uniforms(const Shader& shader, uint32_t& texture_unit) const;
+
     // push cpu LUT data to GPU texture
     void upload_gpu();
 

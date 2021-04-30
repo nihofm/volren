@@ -31,7 +31,7 @@ vec3 trace_path(in vec3 pos, in vec3 dir, inout uint seed) {
             f_p = phase_henyey_greenstein(dot(-dir, w_i), vol_phase_g);
             const float weight = power_heuristic(Li_pdf.w, f_p);
             const float Tr = transmittance(pos, w_i, seed);
-            radiance += throughput * weight * f_p * Tr * env_strength * Li_pdf.rgb / Li_pdf.w;
+            radiance += throughput * weight * f_p * Tr * Li_pdf.rgb / Li_pdf.w;
         }
 
         // early out?
@@ -52,9 +52,9 @@ vec3 trace_path(in vec3 pos, in vec3 dir, inout uint seed) {
 
     // free path? -> add envmap contribution
     if (free_path && n_paths >= show_environment) {
-        const vec3 Le = environment_lookup(dir);
-        const float weight = n_paths > 0 ? power_heuristic(f_p, pdf_environment(Le, dir)) : 1.f;
-        radiance += throughput * weight * env_strength * Le;
+        const vec3 Le = lookup_environment(dir);
+        const float weight = n_paths > 0 ? power_heuristic(f_p, pdf_environment(dir)) : 1.f;
+        radiance += throughput * weight * Le;
     }
 
     return radiance;

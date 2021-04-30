@@ -26,6 +26,12 @@ TransferFunctionImpl::TransferFunctionImpl(const std::string& name, const std::v
 
 TransferFunctionImpl::~TransferFunctionImpl() {}
 
+void TransferFunctionImpl::set_uniforms(const Shader& shader, uint32_t& texture_unit) const {
+    shader->uniform("tf_window_center", window_center);
+    shader->uniform("tf_window_width", window_width);
+    shader->uniform("tf_texture", texture, texture_unit++);
+}
+
 void TransferFunctionImpl::upload_gpu() {
     // setup GL texture
     texture = Texture2D("transferfunc_lut", lut.size(), 1, GL_RGBA32F, GL_RGBA, GL_FLOAT, lut.data(), false);

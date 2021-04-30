@@ -76,7 +76,8 @@ void keyboard_callback(int key, int scancode, int action, int mods) {
     if (mods == GLFW_MOD_SHIFT && key == GLFW_KEY_T && action == GLFW_PRESS)
         tonemapping = !tonemapping;
     if (mods == GLFW_MOD_SHIFT && key == GLFW_KEY_R && action == GLFW_PRESS)
-        reload_modified_shaders();
+        if (reload_modified_shaders())
+            sample = 0;
     if (key == GLFW_KEY_SPACE && action == GLFW_PRESS)
         sample = 0;
     if (key == GLFW_KEY_ENTER && action == GLFW_PRESS)
@@ -163,6 +164,7 @@ void gui_callback(void) {
             sample = 0;
         }
         ImGui::Separator();
+        // TODO rotate envmap
         if (ImGui::Button("Rotate 90° X")) {
             volume->model = glm::rotate(volume->model, 1.5f * float(M_PI), glm::vec3(1, 0, 0));
             sample = 0;
@@ -190,7 +192,7 @@ int main(int argc, char** argv) {
     params.height = 1080;
     params.title = "VolRen";
     params.floating = GLFW_TRUE;
-    params.resizable = GLFW_FALSE;//GLFW_TRUE;
+    params.resizable = GLFW_FALSE;
     params.swap_interval = 0;
     try  {
         Context::init(params);
@@ -296,13 +298,12 @@ int main(int argc, char** argv) {
 
     // test default setup
     const auto [bb_min, bb_max] = volume->AABB();
-    current_camera()->pos = bb_min;
+    current_camera()->pos = bb_min + (bb_max - bb_min) * glm::vec3(-.5f, .5f, 0.f);
     current_camera()->dir = glm::normalize((bb_max + bb_min)*.5f - current_camera()->pos);
     environment->strength = 1.f;
-    volume->set_albedo(glm::vec3(1.f));
+    volume->set_albedo(glm::vec3(0.5f));
     volume->set_density_scale(1.f);
-    volume->set_phase(0.f);
-    //volume->model = glm::translate(volume->model, -glm::vec3(volume->current_grid()->transform[3]));
+    volume->set_phase(0.5f);
 
     // run
     float shader_timer = 0;
@@ -317,23 +318,27 @@ int main(int argc, char** argv) {
         // reload shaders?
         shader_timer -= Context::frame_time();
         if (shader_timer <= 0) {
-            reload_modified_shaders();
+            if (reload_modified_shaders())
+                sample = 0;
             shader_timer = shader_check_delay_ms;
         }
 
         // render
         if (sample < sppx) {
             // bind
+            uint32_t tex_unit = 0;
             trace_shader->bind();
-            for (uint32_t i = 0; i < fbo->color_textures.size(); ++i)
-                fbo->color_textures[i]->bind_image(i, GL_READ_WRITE, GL_RGBA32F);
-            environment->cdf_U->bind_base(0);
-            environment->cdf_V->bind_base(1);
+            for (auto tex : fbo->color_textures)
+                tex->bind_image(tex_unit++, GL_READ_WRITE, GL_RGBA32F);
 
             // uniforms
             trace_shader->uniform("current_sample", ++sample);
             trace_shader->uniform("bounces", bounces);
             trace_shader->uniform("show_environment", show_environment ? 0 : 1);
+            // camera
+            trace_shader->uniform("cam_pos", current_camera()->pos);
+            trace_shader->uniform("cam_fov", current_camera()->fov_degree);
+            trace_shader->uniform("cam_transform", glm::inverse(glm::mat3(current_camera()->view)));
             // volume
             trace_shader->uniform("vol_model", volume->get_transform());
             trace_shader->uniform("vol_inv_model", glm::inverse(volume->get_transform()));
@@ -349,27 +354,15 @@ int main(int argc, char** argv) {
             trace_shader->uniform("vol_phase_g", volume->get_phase());
             trace_shader->uniform("vol_density_scale", volume->get_density_scale());
             // transfer function
-            trace_shader->uniform("tf_window_center", transferfunc->window_center);
-            trace_shader->uniform("tf_window_width", transferfunc->window_width);
-            trace_shader->uniform("tf_texture", transferfunc->texture, fbo->color_textures.size() + 0);
-            // camera
-            trace_shader->uniform("cam_pos", current_camera()->pos);
-            trace_shader->uniform("cam_fov", current_camera()->fov_degree);
-            trace_shader->uniform("cam_transform", glm::inverse(glm::mat3(current_camera()->view)));
+            transferfunc->set_uniforms(trace_shader, tex_unit);
             // environment
-            trace_shader->uniform("env_model", environment->model);
-            trace_shader->uniform("env_inv_model", glm::inverse(environment->model));
-            trace_shader->uniform("env_strength", environment->strength);
-            trace_shader->uniform("env_texture", environment->texture, fbo->color_textures.size() + 1);
-            trace_shader->uniform("env_integral", environment->integral);
+            environment->set_uniforms(trace_shader, tex_unit);
 
             // trace
             const glm::ivec2 size = Context::resolution();
             trace_shader->dispatch_compute(size.x, size.y);
 
             // unbind
-            environment->cdf_V->unbind_base(1);
-            environment->cdf_U->unbind_base(0);
             for (uint32_t i = 0; i < fbo->color_textures.size(); ++i)
                 fbo->color_textures[i]->unbind_image(i);
             trace_shader->unbind();

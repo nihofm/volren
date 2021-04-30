@@ -5,12 +5,16 @@
 // --------------------------------------------------------------
 // constants and helper funcs
 
-#define PI float(3.14159265358979323846)
-#define inv_4PI 1.f / PI
+#define M_PI float(3.14159265358979323846)
+#define inv_PI (1.f / M_PI)
+#define inv_2PI (1.f / (2 * M_PI))
+#define inv_4PI (1.f / (4 * M_PI))
 
 float sqr(float x) { return x * x; }
 
 float luma(const vec3 col) { return dot(col, vec3(0.212671f, 0.715160f, 0.072169f)); }
+
+float saturate(const float x) { return clamp(x, 0.f, 1.f); }
 
 vec3 align(const vec3 N, const vec3 v) {
     // build tangent frame
@@ -62,86 +66,81 @@ uniform mat3 cam_transform;
 
 vec3 view_dir(const ivec2 xy, const ivec2 wh, const vec2 pixel_sample) {
     const vec2 pixel = (xy + pixel_sample - wh * .5f) / vec2(wh.y);
-    const float z = -.5f / tan(.5f * PI * cam_fov / 180.f);
+    const float z = -.5f / tan(.5f * M_PI * cam_fov / 180.f);
     return normalize(cam_transform * normalize(vec3(pixel.x, pixel.y, z)));
 }
 
 // --------------------------------------------------------------
 // environment helper (input vectors assumed in world space!)
-// TODO mipmap based sample warping scheme
 
-uniform mat4 env_model;
-uniform mat4 env_inv_model;
-uniform sampler2D env_texture;
-uniform float env_integral;
+uniform mat3 env_model;
+uniform mat3 env_inv_model;
 uniform float env_strength;
+//uniform float env_integral; // TODO precompute
+uniform vec2 env_imp_inv_dim;
+uniform int env_imp_base_mip;
+uniform sampler2D env_envmap;
+uniform sampler2D env_impmap;
 
-layout(std430, binding = 0) buffer env_cdf_U {
-    float cdf_U[];
-};
-layout(std430, binding = 1) buffer env_cdf_V {
-    float cdf_V[];
-};
-
-vec3 world_to_env(const vec4 world) { return vec3(env_inv_model * world); } // position
-vec3 world_to_env(const vec3 world) { return normalize(mat3(env_inv_model) * world); } // direction
-vec3 env_to_world(const vec4 model) { return vec3(env_model * model); } // position
-vec3 env_to_world(const vec3 model) { return normalize(mat3(env_model) * model); } // direction
-
-vec3 environment_lookup(const vec3 dir) {
-    const float u = atan(dir.z, dir.x) / (2 * PI);
-    const float v = -acos(dir.y) / PI;
-    return texture(env_texture, vec2(u, v)).rgb;
+vec3 lookup_environment(const vec3 dir) {
+    const vec3 idir = env_inv_model * dir;
+    const float u = atan(idir.z, idir.x) / (2 * M_PI) + 0.5f;
+    const float v = 1.f - acos(idir.y) / M_PI;
+    return env_strength * texture(env_envmap, vec2(u, v)).rgb;
 }
 
-vec4 sample_environment(const vec2 env_sample, out vec3 w_i) {
-    const ivec2 size = textureSize(env_texture, 0);
-    ivec2 index;
-    // sample V coordinate index (row) using binary search
-    int ilo = 0, ihi = size.y;
-    while (ilo != ihi - 1) {
-        const int i = (ilo + ihi) >> 1;
-        const float cdf = cdf_V[i];
-        if (env_sample.y < cdf)
-            ihi = i;
-        else
-            ilo = i;
+vec4 sample_environment(const vec2 rng, out vec3 w_i) {
+    ivec2 pos = ivec2(0);   // pixel position
+    vec2 p = rng;           // sub-pixel position
+    // warp sample over mip hierarchy
+    for (int mip = env_imp_base_mip - 1; mip >= 0; mip--) {
+        pos *= 2; // scale to mip
+        float w[4]; // four relevant texels
+        w[0] = texelFetch(env_impmap, pos + ivec2(0, 0), mip).r;
+        w[1] = texelFetch(env_impmap, pos + ivec2(1, 0), mip).r;
+        w[2] = texelFetch(env_impmap, pos + ivec2(0, 1), mip).r;
+        w[3] = texelFetch(env_impmap, pos + ivec2(1, 1), mip).r;
+        float q[2]; // bottom / top
+        q[0] = w[0] + w[2];
+        q[1] = w[1] + w[3];
+        // horizontal
+        int off_x;
+        const float d = q[0] / max(1e-8f, q[0] + q[1]);
+        if (p.x < d) { // left
+            off_x = 0;
+            p.x = p.x / d;
+        } else { // right
+            off_x = 1;
+            p.x = (p.x - d) / (1.f - d);
+        }
+        pos.x += off_x;
+        // vertical
+        float e = w[off_x] / q[off_x];
+        if (p.y < e) { // bottom
+            //pos.y += 0;
+            p.y = p.y / e;
+        } else { // top
+            pos.y += 1;
+            p.y = (p.y - e) / (1.f - e);
+        }
     }
-    index.y = ilo;
-    // sample U coordinate index (column) using binary search
-    ilo = 0, ihi = size.x;
-    while (ilo != ihi - 1) {
-        const int i = (ilo + ihi) >> 1;
-        const float cdf = cdf_U[index.y * (size.x + 1) + i];
-        if (env_sample.y < cdf)
-            ihi = i;
-        else
-            ilo = i;
-    }
-    index.x = ilo;
-    // continuous sampling of texture coordinates
-    const float cdf_U_lo = cdf_U[index.y * (size.x + 1) + index.x];
-    const float cdf_U_hi = cdf_U[index.y * (size.x + 1) + index.x + 1];
-    const float du = (env_sample.x - cdf_U_lo) / (cdf_U_hi - cdf_U_lo);
-    const float cdf_V_lo = cdf_V[index.y];
-    const float cdf_V_hi = cdf_V[index.y + 1];
-    const float dv = (env_sample.x - cdf_V_lo) / (cdf_V_hi - cdf_V_lo);
-    const float u = (index.x + du) / size.x;
-    const float v = (index.y + dv) / size.y;
-    // convert to direction
-    const float theta = v * PI;
-    const float phi   = u * 2.f * PI;
+    // compute sample uv coordinate and (world-space) direction
+    const vec2 uv = (vec2(pos) + p) * env_imp_inv_dim;
+    const float theta = saturate(1.f - uv.y) * M_PI;
+    const float phi   = (saturate(uv.x) * 2.f - 1.f) * M_PI;
     const float sin_t = sin(theta);
-    w_i = vec3(sin_t * cos(phi), sin_t * sin(phi), cos(theta));
-    // compute emission and pdf
-    const vec3 emission = environment_lookup(w_i);
-    const float pdf = (luma(emission) / env_integral) / (2.f * PI * PI * sin_t);
-    return vec4(emission, pdf);
+    w_i = env_model * vec3(sin_t * cos(phi), cos(theta), sin_t * sin(phi));
+    // sample envmap and compute pdf
+    const vec3 Le = env_strength * texture(env_envmap, uv).rgb;
+    const float avg_w = texelFetch(env_impmap, ivec2(0, 0), env_imp_base_mip).r; // TODO precompute (uniform)
+    const float pdf = texelFetch(env_impmap, pos, 0).r / avg_w;
+    return vec4(Le, pdf * inv_4PI);
 }
 
-float pdf_environment(const vec3 emission, const vec3 dir) {
-    const float theta = acos(dir.y);
-    return (luma(emission) / env_integral) / (2.f * PI * PI * sin(theta));
+float pdf_environment(const vec3 dir) {
+    const float avg_w = texelFetch(env_impmap, ivec2(0, 0), env_imp_base_mip).r; // TODO precompute (uniform)
+    const float pdf = luma(lookup_environment(dir)) / avg_w;
+    return pdf * inv_4PI;
 }
 
 // --------------------------------------------------------------
@@ -164,7 +163,7 @@ uniform float tf_window_center;
 uniform float tf_window_width;
 uniform sampler2D tf_texture;
 
-// TODO stochastic lookup
+// TODO stochastic lookup filter
 vec4 tf_lookup(float d) {
     const vec4 lut = texture(tf_texture, vec2((d - tf_window_center) / tf_window_width, 0));
     return vec4(lut.rgb, d * lut.a);
@@ -182,14 +181,14 @@ float phase_henyey_greenstein(const float cos_t, const float g) {
 vec3 sample_phase_isotropic(const vec2 phase_sample) {
     const float cos_t = 1.f - 2.f * phase_sample.x;
     const float sin_t = sqrt(max(0.f, 1.f - sqr(cos_t)));
-    const float phi = 2.f * PI * phase_sample.y;
+    const float phi = 2.f * M_PI * phase_sample.y;
     return normalize(vec3(sin_t * cos(phi), sin_t * sin(phi), cos_t));
 }
 vec3 sample_phase_henyey_greenstein(const vec3 dir, const float g, const vec2 phase_sample) {
     const float cos_t = abs(g) < 1e-4f ? 1.f - 2.f * phase_sample.x :
         (1 + sqr(g) - sqr((1 - sqr(g)) / (1 - g + 2 * g * phase_sample.x))) / (2 * g);
     const float sin_t = sqrt(max(0.f, 1.f - sqr(cos_t)));
-    const float phi = 2.f * PI * phase_sample.y;
+    const float phi = 2.f * M_PI * phase_sample.y;
     return align(dir, vec3(sin_t * cos(phi), sin_t * sin(phi), cos_t));
 }
 
@@ -203,9 +202,6 @@ uniform vec3 vol_bb_max;
 uniform vec3 vol_albedo;
 uniform float vol_phase_g;
 uniform float vol_density_scale;
-
-// dense grid
-//uniform sampler3D vol_texture;
 uniform float vol_inv_majorant;
 
 // brick grid
@@ -215,21 +211,22 @@ uniform sampler3D vol_atlas;
 
 // brick voxel lookup
 float lookup_voxel(const vec3 ipos) {
-    const ivec3 brick = ivec3(ipos) >> 3;
+    const ivec3 iipos = ivec3(floor(ipos));
+    const ivec3 brick = iipos >> 3;
     const uvec3 ptr = texelFetch(vol_indirection, brick, 0).xyz;
     const vec2 range = texelFetch(vol_range, brick, 0).xy;
-    const float value_unorm = texelFetch(vol_atlas, ivec3(ptr << 3) + (ivec3(ipos) & 7), 0).x;
+    const float value_unorm = texelFetch(vol_atlas, ivec3(ptr << 3) + (iipos & 7), 0).x;
     return value_unorm * (range.y - range.x) + range.x;
 }
 
 // brick majorant lookup
 float lookup_majorant(const vec3 ipos) {
-    return vol_density_scale * texelFetch(vol_range, ivec3(ipos) >> 3, 0).y;
+    return vol_density_scale * texelFetch(vol_range, ivec3(floor(ipos)) >> 3, 0).y;
 }
 
 // density lookup with stochastic lerp
 float density(const vec3 ipos, inout uint seed) {
-    return vol_density_scale * lookup_voxel(ivec3((ipos + rng3(seed) - .5f)));
+    return vol_density_scale * lookup_voxel(ipos + rng3(seed) - .5f);
 }
 
 // pos and dir assumed in model (volume) space
@@ -266,7 +263,6 @@ bool sample_volume(in vec3 pos, in vec3 dir, out float t, inout vec3 throughput,
     dir = vec3(vol_inv_model * vec4(dir, 0)); // non-normalized!
     // delta tracking
     t = near_far.x;
-    float Tr = 1.f;
      while (t < near_far.y) {
         t -= log(1 - rng(seed)) * vol_inv_majorant;
         const vec4 rgba = tf_lookup(density(pos + t * dir, seed) * vol_inv_majorant);
@@ -280,36 +276,36 @@ bool sample_volume(in vec3 pos, in vec3 dir, out float t, inout vec3 throughput,
 
 float stepDDA(in vec3 ro, in vec3 ri, in vec3 pos, in int mip) {
     const float dim = 8 << mip;
-    const vec3 ofs = ri * (mix(vec3(-0.5f), vec3(dim + 0.5f), greaterThanEqual(ri, vec3(0))) - ro);
+    const vec3 ofs = (mix(vec3(-0.5f), vec3(dim + 0.5f), greaterThanEqual(ri, vec3(0))) - ro) * ri;
     const vec3 tmax = floor(pos * (1.f / dim)) * dim * ri + ofs;
     return min(tmax.x, min(tmax.y , tmax.z));
 }
 
 // TODO debug DDA
-vec3 transmittanceDDA(in vec3 pos, in vec3 dir, inout uint seed) {
+vec3 transmittanceDDA(const vec3 wpos, const vec3 wdir, inout uint seed) {
     // clip volume
     vec2 near_far;
-    if (!intersect_box(pos, dir, vol_bb_min, vol_bb_max, near_far)) return vec3(1.f);
+    if (!intersect_box(wpos, wdir, vol_bb_min, vol_bb_max, near_far)) return vec3(1.f);
     // to index-space
-    pos = vec3(vol_inv_model * vec4(pos, 1));
-    dir = vec3(vol_inv_model * vec4(dir, 0)); // non-normalized!
-    const vec3 ri = 1.f / dir;
-    float t = near_far.x - 0.01f, Tr = 1.f, tau = -log(1.f - rng(seed));
+    const vec3 ipos = vec3(vol_inv_model * vec4(wpos, 1));
+    const vec3 idir = vec3(vol_inv_model * vec4(wdir, 0)); // non-normalized!
+    const vec3 ri = 1.f / idir;
+
+    float t = near_far.x, Tr = 1.f, tau = -log(1.f - rng(seed));
     while (t < near_far.y) {
-        const vec3 curr = pos + t * dir;
-        const float majorant = lookup_majorant(ivec3(curr));
-        const float next_t = stepDDA(pos, ri, curr, 0);
+        const vec3 curr = ipos + t * idir;
+        const float majorant = lookup_majorant(curr);
+        const float next_t = stepDDA(ipos, ri, curr, 0);
         const float dt = next_t - t;
-        if (dt < 0.f) return vec3(1, 0, 0);
-        const float dtau = majorant * dt;
+        return vec3(dt / near_far.y) * 100; // TODO FIXME floating point weirdness
         t = next_t;
-        tau -= dtau;
+        tau -= majorant * dt;
         if (tau > 0) continue; // no collision, step ahead
-        t += dt * tau / dtau ; // step back to point of collision
-        const float d = density(pos + t * dir, seed);
-        if (d > majorant) return vec3(1, 1, 0);
+        t += tau / majorant; // step back to point of collision
+        const float d = density(ipos + t * idir, seed);
+        if (d > majorant) return vec3(100, 100, 0);
         if (rng(seed) * majorant < d) { // check if real or null collision
-            Tr *= 1.f - d / majorant;
+            Tr *= max(0.f, 1.f - d / majorant);
             // russian roulette
             if (Tr < .1f) {
                 const float prob = 1 - Tr;

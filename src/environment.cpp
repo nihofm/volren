@@ -1,63 +1,64 @@
 #include "environment.h"
 
-EnvironmentImpl::EnvironmentImpl(const std::string& name, const Texture2D& texture) : name(name), model(1), texture(texture), strength(1) {
-    // build cdf
-    std::vector<std::vector<float>> conditional;
-    std::vector<float> marginal;
-    integral = build_cdf_2D(texture, conditional, marginal);
-    // upload conditional
-    cdf_U = SSBO("env_conditional");
-    cdf_U->resize(conditional[0].size() * conditional.size() * sizeof(float));
-    float* gpu = (float*)cdf_U->map(GL_WRITE_ONLY);
-    for (size_t y = 0; y < conditional.size(); ++y)
-        for (size_t x = 0; x < conditional[y].size(); ++x)
-            gpu[y * conditional[y].size() + x] = conditional[y][x];
-    cdf_U->unmap();
-    // upload marginal
-    cdf_V = SSBO("env_marginal");
-    cdf_V->resize(marginal.size() * sizeof(float));
-    gpu = (float*) cdf_V->map(GL_WRITE_ONLY);
-    for (size_t y = 0; y < marginal.size(); ++y)
-        gpu[y] = marginal[y];
-    cdf_V->unmap();
+// importance map parameters (power of two!)
+const uint32_t DIMENSION = 512;
+const uint32_t SAMPLES = 64;
+
+EnvironmentImpl::EnvironmentImpl(const std::string& name, const Texture2D& envmap) :
+    name(name),
+    model(1),
+    strength(1),
+    envmap(envmap),
+    impmap("env_importance", DIMENSION, DIMENSION, GL_R32F, GL_RED, GL_FLOAT)
+{
+    // build importance map
+    static Shader setup_shader = Shader("env_setup", "shader/env_setup.glsl");
+    const uint32_t n_samples = (uint32_t)std::sqrt(SAMPLES);
+    setup_shader->bind();
+    impmap->bind_image(0, GL_WRITE_ONLY, GL_R32F);
+    setup_shader->uniform("envmap", envmap, 0);
+    setup_shader->uniform("output_size", glm::ivec2(DIMENSION));
+    setup_shader->uniform("output_size_samples", glm::ivec2(DIMENSION * n_samples, DIMENSION * n_samples));
+    setup_shader->uniform("num_samples", glm::ivec2(n_samples, n_samples));
+    setup_shader->uniform("inv_samples", 1.f / (n_samples * n_samples));
+    setup_shader->dispatch_compute(DIMENSION, DIMENSION);
+    impmap->unbind_image(0);
+    setup_shader->unbind();
+    impmap->bind(0);
+    glGenerateMipmap(GL_TEXTURE_2D);
+    impmap->unbind();
+
+    /*
+    // TODO test envmap setup
+    static Shader test_shader = Shader("env_test", "shader/env_test.glsl");
+    Texture2D test_texture = Texture2D("env_test", DIMENSION, DIMENSION, GL_RGBA32F, GL_RGBA, GL_FLOAT);
+    test_shader->bind();
+    uint32_t tex_unit = 0;
+    set_uniforms(test_shader, tex_unit);
+    test_shader->uniform("global_seed", 42);
+    test_texture->bind_image(0, GL_WRITE_ONLY, GL_RGBA32F);
+    test_shader->dispatch_compute(DIMENSION, DIMENSION);
+    test_texture->unbind_image(0);
+    test_shader->unbind();
+    // write results
+    envmap->save_jpg("env_envmap.jpg");
+    impmap->save_jpg("env_impmap.jpg");
+    test_texture->save_jpg("env_testmap.jpg");
+    */
 }
 
 EnvironmentImpl::~EnvironmentImpl() {}
 
-float EnvironmentImpl::build_cdf_1D(const float* f, uint32_t N, std::vector<float>& cdf) {
-    cdf.resize(N + 1);
-    // build cdf and save integral
-    float integral = 0;
-    cdf[0] = 0;
-    for (uint32_t i = 1; i < N + 1; ++i)
-        cdf[i] = cdf[i - 1] + f[i - 1];
-    integral = cdf[N];
-    // ensure density
-    for (uint32_t i = 1; i < N + 1; ++i)
-        cdf[i] = integral != 0.f ? cdf[i] / integral : float(i) / float(N);
-    return integral / N; // unit integral
+int EnvironmentImpl::num_mip_levels() const {
+    return 1 + floor(log2(DIMENSION));
 }
 
-float EnvironmentImpl::build_cdf_2D(const Texture2D& tex, std::vector<std::vector<float>>& conditional, std::vector<float>& marginal) {
-    conditional.clear(); marginal.clear();
-    // download texture data
-    std::vector<glm::vec3> buf(tex->w * tex->h);
-    glBindTexture(GL_TEXTURE_2D, tex->id);
-    glGetTexImage(GL_TEXTURE_2D, 0, GL_RGB, GL_FLOAT, buf.data());
-    glBindTexture(GL_TEXTURE_2D, 0);
-    // compute luma per pixel and counter spherical distortion
-    std::vector<float> func(buf.size());
-    for (int y = 0; y < tex->h; ++y) {
-        const float sin_t = sinf(M_PI * float(y + .5f) / float(tex->h));
-        for (int x = 0; x < tex->w; ++x)
-            func[y * tex->w + x] = sin_t * glm::dot(glm::vec3(buf[y * tex->w + x]), glm::vec3(0.212671f, 0.715160f, 0.072169f));
-    }
-    // build conditional distributions
-    std::vector<float> conditional_integrals;
-    for (int y = 0; y < tex->h; ++y) {
-        conditional.push_back(std::vector<float>());
-        conditional_integrals.push_back(build_cdf_1D(&func[y * tex->w], tex->w, conditional[y]));
-    }
-    // build marginal distribution and return overall integral
-    return build_cdf_1D(&conditional_integrals[0], tex->h, marginal);
+void EnvironmentImpl::set_uniforms(const Shader& shader, uint32_t& texture_unit) const {
+    shader->uniform("env_model", model);
+    shader->uniform("env_inv_model", glm::inverse(model));
+    shader->uniform("env_strength", strength);
+    shader->uniform("env_imp_inv_dim", glm::vec2(1.f / DIMENSION));
+    shader->uniform("env_imp_base_mip", int(floor(log2(DIMENSION))));
+    shader->uniform("env_envmap", envmap, texture_unit++);
+    shader->uniform("env_impmap", impmap, texture_unit++);
 }
