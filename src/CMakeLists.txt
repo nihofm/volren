@@ -36,10 +36,6 @@ find_package(Python3 COMPONENTS Development REQUIRED)
 target_include_directories(${TARGET} PUBLIC ${Python3_INCLUDE_DIRS})
 target_link_libraries(${TARGET} ${Python3_LIBRARIES} pybind11::embed)
 
-# openvdb
-target_link_libraries(${TARGET} openvdb Half tbb)
-#target_link_libraries(${TARGET_PY} PRIVATE openvdb Half tbb)
-
 # pytorch (optional)
 if (WITH_TORCH)
     find_package(Torch REQUIRED)
