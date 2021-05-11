@@ -164,17 +164,35 @@ void gui_callback(void) {
             sample = 0;
         }
         ImGui::Separator();
-        // TODO rotate envmap
-        if (ImGui::Button("Rotate 90° X")) {
+        ImGui::Text("Rotate VOLUME");
+        if (ImGui::Button("90° X##V")) {
             volume->model = glm::rotate(volume->model, 1.5f * float(M_PI), glm::vec3(1, 0, 0));
             sample = 0;
         }
-        if (ImGui::Button("Rotate 90° Y")) {
+        ImGui::SameLine();
+        if (ImGui::Button("90° Y##V")) {
             volume->model = glm::rotate(volume->model, 1.5f * float(M_PI), glm::vec3(0, 1, 0));
             sample = 0;
         }
-        if (ImGui::Button("Rotate 90° Z")) {
+        ImGui::SameLine();
+        if (ImGui::Button("90° Z##V")) {
             volume->model = glm::rotate(volume->model, 1.5f * float(M_PI), glm::vec3(0, 0, 1));
+            sample = 0;
+        }
+        ImGui::Separator();
+        ImGui::Text("Rotate ENVMAP");
+        if (ImGui::Button("90° X##E")) {
+            environment->model = glm::mat3(glm::rotate(glm::mat4(environment->model), 1.5f * float(M_PI), glm::vec3(1, 0, 0)));
+            sample = 0;
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("90° Y##E")) {
+            environment->model = glm::mat3(glm::rotate(glm::mat4(environment->model), 1.5f * float(M_PI), glm::vec3(0, 1, 0)));
+            sample = 0;
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("90° Z##E")) {
+            environment->model = glm::mat3(glm::rotate(glm::mat4(environment->model), 1.5f * float(M_PI), glm::vec3(0, 0, 1)));
             sample = 0;
         }
         ImGui::PopStyleVar();

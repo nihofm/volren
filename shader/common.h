@@ -216,16 +216,16 @@ float lookup_voxel(const vec3 ipos) {
     const uvec3 ptr = texelFetch(vol_indirection, brick, 0).xyz;
     const vec2 range = texelFetch(vol_range, brick, 0).xy;
     const float value_unorm = texelFetch(vol_atlas, ivec3(ptr << 3) + (iipos & 7), 0).x;
-    return value_unorm * (range.y - range.x) + range.x;
+    return value_unorm * range.y - range.x + range.x;
 }
 
 // brick majorant lookup
-float lookup_majorant(const vec3 ipos) {
-    return vol_density_scale * texelFetch(vol_range, ivec3(floor(ipos)) >> 3, 0).y;
+float lookup_majorant(const vec3 ipos, int mip) {
+    return vol_density_scale * texelFetch(vol_range, ivec3(floor(ipos)) >> 3, mip).y;
 }
 
 // density lookup with stochastic lerp
-float density(const vec3 ipos, inout uint seed) {
+float lookup_density(const vec3 ipos, inout uint seed) {
     return vol_density_scale * lookup_voxel(ipos + rng3(seed) - .5f);
 }
 
@@ -241,10 +241,9 @@ float transmittance(in vec3 pos, in vec3 dir, inout uint seed) {
     float t = near_far.x, Tr = 1.f;
     while (t < near_far.y) {
         t -= log(1 - rng(seed)) * vol_inv_majorant;
-        Tr *= max(0.f, 1 - tf_lookup(density(pos + t * dir, seed) * vol_inv_majorant).a);
+        Tr *= max(0.f, 1 - tf_lookup(lookup_density(pos + t * dir, seed) * vol_inv_majorant).a);
         // russian roulette
-        const float rr_threshold = .1f;
-        if (Tr < rr_threshold) {
+        if (Tr < 1.f) {
             const float prob = 1 - Tr;
             if (rng(seed) < prob) return 0.f;
             Tr /= 1 - prob;
@@ -265,7 +264,7 @@ bool sample_volume(in vec3 pos, in vec3 dir, out float t, inout vec3 throughput,
     t = near_far.x;
      while (t < near_far.y) {
         t -= log(1 - rng(seed)) * vol_inv_majorant;
-        const vec4 rgba = tf_lookup(density(pos + t * dir, seed) * vol_inv_majorant);
+        const vec4 rgba = tf_lookup(lookup_density(pos + t * dir, seed) * vol_inv_majorant);
         if (rng(seed) < rgba.a) {
             throughput *= rgba.rgb * vol_albedo;
             return true;
@@ -274,14 +273,14 @@ bool sample_volume(in vec3 pos, in vec3 dir, out float t, inout vec3 throughput,
      return false;
 }
 
-float stepDDA(in vec3 ro, in vec3 ri, in vec3 pos, in int mip) {
+float stepDDA(const vec3 pos, const vec3 ri, const int mip) {
     const float dim = 8 << mip;
-    const vec3 ofs = (mix(vec3(-0.5f), vec3(dim + 0.5f), greaterThanEqual(ri, vec3(0))) - ro) * ri;
-    const vec3 tmax = floor(pos * (1.f / dim)) * dim * ri + ofs;
+    const vec3 ofs = mix(vec3(-0.5f), vec3(dim + 0.5f), greaterThanEqual(ri, vec3(0)));
+    const vec3 tmax = (floor(pos * (1.f / dim)) * dim + ofs - pos) * ri;
     return min(tmax.x, min(tmax.y , tmax.z));
 }
 
-// TODO debug DDA
+// TODO debug DDA-based transmittance
 vec3 transmittanceDDA(const vec3 wpos, const vec3 wdir, inout uint seed) {
     // clip volume
     vec2 near_far;
@@ -290,28 +289,29 @@ vec3 transmittanceDDA(const vec3 wpos, const vec3 wdir, inout uint seed) {
     const vec3 ipos = vec3(vol_inv_model * vec4(wpos, 1));
     const vec3 idir = vec3(vol_inv_model * vec4(wdir, 0)); // non-normalized!
     const vec3 ri = 1.f / idir;
-
-    float t = near_far.x, Tr = 1.f, tau = -log(1.f - rng(seed));
+    // march brick grid
+    float t = near_far.x + 1e-4f, Tr = 1.f, tau = -log(1.f - rng(seed));
     while (t < near_far.y) {
         const vec3 curr = ipos + t * idir;
-        const float majorant = lookup_majorant(curr);
-        const float next_t = stepDDA(ipos, ri, curr, 0);
-        const float dt = next_t - t;
-        return vec3(dt / near_far.y) * 100; // TODO FIXME floating point weirdness
-        t = next_t;
+        const float majorant = lookup_majorant(curr, 0);
+        const float dt = stepDDA(curr, ri, 0);
+        t += dt;
         tau -= majorant * dt;
         if (tau > 0) continue; // no collision, step ahead
         t += tau / majorant; // step back to point of collision
-        const float d = density(ipos + t * idir, seed);
-        if (d > majorant) return vec3(100, 100, 0);
+        const float d = lookup_density(ipos + t * idir, seed);
+        if (d > lookup_majorant(ipos + t * idir, 0)) return vec3(0, 100, 0); // TODO debug/fix green shit
+        if (d > majorant) return vec3(100, 100, 0); // TODO debug/fix yellow shit
         if (rng(seed) * majorant < d) { // check if real or null collision
             Tr *= max(0.f, 1.f - d / majorant);
             // russian roulette
+            /*
             if (Tr < .1f) {
                 const float prob = 1 - Tr;
                 if (rng(seed) < prob) return vec3(0.f);
                 Tr /= 1 - prob;
             }
+            */
         }
         tau = -log(1.f - rng(seed));
     }

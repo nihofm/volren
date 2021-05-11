@@ -1,6 +1,5 @@
 all:
-	mkdir -p build && cd build && cmake .. -DCMAKE_BUILD_TYPE=Release -Wno-dev && ${MAKE}
+	cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -Wno-dev && cmake --build build --parallel
 
 clean:
-	if [ -d "build" ]; then ${MAKE} clean -C build; fi
 	rm -rf build
