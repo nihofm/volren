@@ -27,24 +27,6 @@ EnvironmentImpl::EnvironmentImpl(const std::string& name, const Texture2D& envma
     impmap->bind(0);
     glGenerateMipmap(GL_TEXTURE_2D);
     impmap->unbind();
-
-    /*
-    // TODO test envmap setup
-    static Shader test_shader = Shader("env_test", "shader/env_test.glsl");
-    Texture2D test_texture = Texture2D("env_test", DIMENSION, DIMENSION, GL_RGBA32F, GL_RGBA, GL_FLOAT);
-    test_shader->bind();
-    uint32_t tex_unit = 0;
-    set_uniforms(test_shader, tex_unit);
-    test_shader->uniform("global_seed", 42);
-    test_texture->bind_image(0, GL_WRITE_ONLY, GL_RGBA32F);
-    test_shader->dispatch_compute(DIMENSION, DIMENSION);
-    test_texture->unbind_image(0);
-    test_shader->unbind();
-    // write results
-    envmap->save_jpg("env_envmap.jpg");
-    impmap->save_jpg("env_impmap.jpg");
-    test_texture->save_jpg("env_testmap.jpg");
-    */
 }
 
 EnvironmentImpl::~EnvironmentImpl() {}

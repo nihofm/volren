@@ -7,7 +7,6 @@
 
 #include <voldata/voldata.h>
 
-//#include "volume.h"
 #include "environment.h"
 #include "transferfunc.h"
 
@@ -271,7 +270,6 @@ int main(int argc, char** argv) {
     trace_shader = Shader("trace", "shader/pathtracer.glsl");
 
     // load default envmap?
-    // TODO FIXME weird bug of wrong strides in the volume when using the default environment
     if (!environment) {
         glm::vec3 color(1);
         environment = Environment("white_background", Texture2D("white_background", 1, 1, GL_RGB32F, GL_RGB, GL_FLOAT, &color.x));
