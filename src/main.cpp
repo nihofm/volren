@@ -24,7 +24,7 @@ static bool show_environment = true;
 static std::shared_ptr<voldata::Volume> volume;
 static Texture3D vol_dense;
 static Texture3D vol_indirection, vol_range, vol_atlas;
-//static glm::vec3 vol_bb_min = glm::vec3(0), vol_bb_max = glm::vec3(1); // TODO crop
+static glm::vec3 vol_crop_min = glm::vec3(0), vol_crop_max = glm::vec3(1);
 static TransferFunction transferfunc;
 static Environment environment;
 static Shader trace_shader;
@@ -150,8 +150,8 @@ void gui_callback(void) {
             sample = 0;
         }
         ImGui::Separator();
-        //if (ImGui::SliderFloat3("Vol bb min", &vol_bb_min.x, 0.f, 1.f)) sample = 0;
-        //if (ImGui::SliderFloat3("Vol bb max", &vol_bb_max.x, 0.f, 1.f)) sample = 0;
+        if (ImGui::SliderFloat3("Vol crop min", &vol_crop_min.x, 0.f, 1.f)) sample = 0;
+        if (ImGui::SliderFloat3("Vol crop max", &vol_crop_max.x, 0.f, 1.f)) sample = 0;
         ImGui::Separator();
         ImGui::Text("Modelmatrix:");
         glm::mat4 row_maj = glm::transpose(volume->model);
@@ -382,8 +382,8 @@ int main(int argc, char** argv) {
             trace_shader->uniform("vol_range", vol_range, tex_unit++);
             trace_shader->uniform("vol_atlas", vol_atlas, tex_unit++);
             const auto [bb_min, bb_max] = volume->AABB();
-            trace_shader->uniform("vol_bb_min", bb_min);
-            trace_shader->uniform("vol_bb_max", bb_max);
+            trace_shader->uniform("vol_bb_min", bb_min + vol_crop_min * (bb_max - bb_min));
+            trace_shader->uniform("vol_bb_max", bb_min + vol_crop_max * (bb_max - bb_min));
             trace_shader->uniform("vol_inv_majorant", 1.f / (maj * volume->get_density_scale()));
             trace_shader->uniform("vol_albedo", volume->get_albedo());
             trace_shader->uniform("vol_phase_g", volume->get_phase());
