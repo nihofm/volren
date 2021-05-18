@@ -74,10 +74,9 @@ void main() {
     const vec3 dir = view_dir(pixel, size, rng2(seed));
 
     // trace ray
-    //const vec3 Tr = vec3(transmittance(pos, dir, seed));
-    //const vec3 Tr_DDA = vec3(transmittanceDDA(pos, dir, seed));
-    //const vec3 radiance = abs(Tr - Tr_DDA);
-    //const vec3 radiance = Tr_DDA;
+    //const float Tr = transmittance(pos, dir, seed);
+    //const float Tr_DDA = transmittanceDDA(pos, dir, seed);
+    //const vec3 radiance = vec3(Tr_DDA);
     const vec3 radiance = trace_path(pos, dir, seed);
 
     // write output
