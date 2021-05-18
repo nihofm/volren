@@ -22,8 +22,9 @@ static float tonemap_gamma = 2.2f;
 static bool show_convergence = false;
 static bool show_environment = true;
 static std::shared_ptr<voldata::Volume> volume;
+static Texture3D vol_dense;
 static Texture3D vol_indirection, vol_range, vol_atlas;
-//static glm::vec3 vol_bb_min = glm::vec3(0), vol_bb_max = glm::vec3(1);
+//static glm::vec3 vol_bb_min = glm::vec3(0), vol_bb_max = glm::vec3(1); // TODO crop
 static TransferFunction transferfunc;
 static Environment environment;
 static Shader trace_shader;
@@ -68,15 +69,14 @@ void resize_callback(int w, int h) {
 void keyboard_callback(int key, int scancode, int action, int mods) {
     if (ImGui::GetIO().WantCaptureKeyboard) return;
 
-    if (mods == GLFW_MOD_SHIFT && key == GLFW_KEY_E && action == GLFW_PRESS)
+    if (/*mods == GLFW_MOD_SHIFT && */key == GLFW_KEY_B && action == GLFW_PRESS) {
         show_environment = !show_environment;
-    if (mods == GLFW_MOD_SHIFT && key == GLFW_KEY_C && action == GLFW_PRESS)
+        sample = 0;
+    }
+    if (/*mods == GLFW_MOD_SHIFT && */key == GLFW_KEY_C && action == GLFW_PRESS)
         show_convergence = !show_convergence;
-    if (mods == GLFW_MOD_SHIFT && key == GLFW_KEY_T && action == GLFW_PRESS)
+    if (/*mods == GLFW_MOD_SHIFT && */key == GLFW_KEY_T && action == GLFW_PRESS)
         tonemapping = !tonemapping;
-    if (mods == GLFW_MOD_SHIFT && key == GLFW_KEY_R && action == GLFW_PRESS)
-        if (reload_modified_shaders())
-            sample = 0;
     if (key == GLFW_KEY_SPACE && action == GLFW_PRESS)
         sample = 0;
     if (key == GLFW_KEY_ENTER && action == GLFW_PRESS)
@@ -95,8 +95,10 @@ void mouse_callback(double xpos, double ypos) {
         old_ypos = ypos;
     }
     if (Context::mouse_button_pressed(GLFW_MOUSE_BUTTON_RIGHT)) {
-        transferfunc->window_center += (xpos - old_xpos) * 0.001;
-        transferfunc->window_width += (old_ypos - ypos) * 0.001;
+        if (Context::key_pressed(GLFW_KEY_LEFT_SHIFT))
+            transferfunc->window_width += (xpos - old_xpos) * 0.001;
+        else
+            transferfunc->window_left += (xpos - old_xpos) * 0.001;
         sample = 0;
     }
     old_xpos = xpos;
@@ -130,7 +132,7 @@ void gui_callback(void) {
         if (ImGui::DragFloat("Density scale", &volume->get_density_scale(), 0.01f, 0.01f, 1000.f)) sample = 0;
         if (ImGui::SliderFloat("Phase g", &volume->get_phase(), -.95f, .95f)) sample = 0;
         ImGui::Separator();
-        if (ImGui::DragFloat("Window center", &transferfunc->window_center, 0.01f)) sample = 0;
+        if (ImGui::DragFloat("Window left", &transferfunc->window_left, 0.01f)) sample = 0;
         if (ImGui::DragFloat("Window width", &transferfunc->window_width, 0.01f)) sample = 0;
         if (ImGui::Button("Neutral TF")) {
             transferfunc->lut = std::vector<glm::vec4>({ glm::vec4(1) });
@@ -281,6 +283,16 @@ int main(int argc, char** argv) {
 
     // load brick volume textures
     std::cout << "grid: " << std::endl << volume->current_grid()->to_string() << std::endl;
+    const std::shared_ptr<voldata::DenseGrid>& dense = std::make_shared<voldata::DenseGrid>(volume->current_grid());
+    std::cout << "dense grid: " << std::endl << dense->to_string() << std::endl;
+    vol_dense = Texture3D("vol dense",
+            dense->n_voxels.x,
+            dense->n_voxels.y,
+            dense->n_voxels.z,
+            GL_RED,
+            GL_RED,
+            GL_UNSIGNED_BYTE,
+            dense->voxel_data.data());
     const std::shared_ptr<voldata::BrickGrid>& bricks = std::make_shared<voldata::BrickGrid>(volume->current_grid());
     std::cout << "brick grid: " << std::endl << bricks->to_string() << std::endl;
     vol_indirection = Texture3D("brick indirection",
@@ -312,14 +324,19 @@ int main(int argc, char** argv) {
     if (!transferfunc)
         transferfunc = TransferFunction("tf", std::vector<glm::vec4>({ glm::vec4(1) }));
 
-    // test default setup
-    const auto [bb_min, bb_max] = volume->AABB();
-    current_camera()->pos = bb_min + (bb_max - bb_min) * glm::vec3(-.5f, .5f, 0.f);
-    current_camera()->dir = glm::normalize((bb_max + bb_min)*.5f - current_camera()->pos);
-    environment->strength = 1.f;
-    volume->set_albedo(glm::vec3(0.5f));
-    volume->set_density_scale(1.f);
-    volume->set_phase(0.5f);
+    // default setup
+    {
+        const auto [bb_min, bb_max] = volume->AABB();
+        current_camera()->pos = bb_min + (bb_max - bb_min) * glm::vec3(-.5f, .5f, 0.f);
+        current_camera()->dir = glm::normalize((bb_max + bb_min)*.5f - current_camera()->pos);
+        environment->strength = 1.f;
+        volume->set_albedo(glm::vec3(1.f));
+        volume->set_density_scale(1.f);
+        volume->set_phase(0.5f);
+        const auto [min, maj] = volume->current_grid()->minorant_majorant();
+        transferfunc->window_left = min;
+        transferfunc->window_width = maj - min;
+    }
 
     // run
     float shader_timer = 0;
@@ -358,13 +375,15 @@ int main(int argc, char** argv) {
             // volume
             trace_shader->uniform("vol_model", volume->get_transform());
             trace_shader->uniform("vol_inv_model", glm::inverse(volume->get_transform()));
-            trace_shader->uniform("vol_indirection", vol_indirection, 5);
-            trace_shader->uniform("vol_range", vol_range, 6);
-            trace_shader->uniform("vol_atlas", vol_atlas, 7);
+            const auto [min, maj] = volume->current_grid()->minorant_majorant();
+            trace_shader->uniform("vol_min_maj", glm::vec2(min, maj));
+            trace_shader->uniform("vol_dense", vol_dense, tex_unit++);
+            trace_shader->uniform("vol_indirection", vol_indirection, tex_unit++);
+            trace_shader->uniform("vol_range", vol_range, tex_unit++);
+            trace_shader->uniform("vol_atlas", vol_atlas, tex_unit++);
             const auto [bb_min, bb_max] = volume->AABB();
             trace_shader->uniform("vol_bb_min", bb_min);
             trace_shader->uniform("vol_bb_max", bb_max);
-            const auto [min, maj] = volume->current_grid()->minorant_majorant();
             trace_shader->uniform("vol_inv_majorant", 1.f / (maj * volume->get_density_scale()));
             trace_shader->uniform("vol_albedo", volume->get_albedo());
             trace_shader->uniform("vol_phase_g", volume->get_phase());

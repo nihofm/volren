@@ -159,13 +159,14 @@ bool intersect_box(const vec3 pos, const vec3 dir, const vec3 bb_min, const vec3
 // --------------------------------------------------------------
 // transfer function helper
 
-uniform float tf_window_center;
+uniform float tf_window_left;
 uniform float tf_window_width;
 uniform sampler2D tf_texture;
+const ivec2 tf_size = textureSize(tf_texture, 0);
 
 // TODO stochastic lookup filter
 vec4 tf_lookup(float d) {
-    const vec4 lut = texture(tf_texture, vec2((d - tf_window_center) / tf_window_width, 0));
+    const vec4 lut = texture(tf_texture, vec2((d - tf_window_left) / tf_window_width, 0));
     return vec4(lut.rgb, d * lut.a);
 }
 
@@ -204,6 +205,9 @@ uniform float vol_phase_g;
 uniform float vol_density_scale;
 uniform float vol_inv_majorant;
 
+// dense grid
+uniform vec2 vol_min_maj;
+uniform sampler3D vol_dense;
 // brick grid
 uniform usampler3D vol_indirection;
 uniform sampler3D vol_range;
@@ -211,12 +215,13 @@ uniform sampler3D vol_atlas;
 
 // brick voxel lookup
 float lookup_voxel(const vec3 ipos) {
+    //return vol_min_maj.x + texelFetch(vol_dense, ivec3(ipos), 0).x * (vol_min_maj.y - vol_min_maj.x);
     const ivec3 iipos = ivec3(floor(ipos));
     const ivec3 brick = iipos >> 3;
     const uvec3 ptr = texelFetch(vol_indirection, brick, 0).xyz;
     const vec2 range = texelFetch(vol_range, brick, 0).xy;
     const float value_unorm = texelFetch(vol_atlas, ivec3(ptr << 3) + (iipos & 7), 0).x;
-    return value_unorm * range.y - range.x + range.x;
+    return range.x + value_unorm * (range.y - range.x);
 }
 
 // brick majorant lookup

@@ -18,7 +18,7 @@ public:
 
     // data
     const std::string name;
-    float window_center, window_width;
+    float window_left, window_width;
     std::vector<glm::vec4> lut;
     Texture2D texture;
 };
