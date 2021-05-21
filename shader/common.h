@@ -157,20 +157,6 @@ bool intersect_box(const vec3 pos, const vec3 dir, const vec3 bb_min, const vec3
 }
 
 // --------------------------------------------------------------
-// transfer function helper
-
-uniform float tf_window_left;
-uniform float tf_window_width;
-uniform sampler2D tf_texture;
-const ivec2 tf_size = textureSize(tf_texture, 0);
-
-// TODO stochastic lookup filter
-vec4 tf_lookup(float d) {
-    const vec4 lut = texture(tf_texture, vec2((d - tf_window_left) / tf_window_width, 0));
-    return vec4(lut.rgb, d * lut.a);
-}
-
-// --------------------------------------------------------------
 // phase function helpers
 
 float phase_isotropic() { return inv_4PI; }
@@ -194,6 +180,20 @@ vec3 sample_phase_henyey_greenstein(const vec3 dir, const float g, const vec2 ph
 }
 
 // --------------------------------------------------------------
+// transfer function helper
+
+uniform float tf_window_left;
+uniform float tf_window_width;
+uniform sampler2D tf_texture;
+const ivec2 tf_size = textureSize(tf_texture, 0);
+
+// TODO stochastic lookup filter
+vec4 tf_lookup(float d) {
+    const vec4 lut = texture(tf_texture, vec2((d - tf_window_left) / tf_window_width, 0));
+    return vec4(lut.rgb, d * lut.a);
+}
+
+// --------------------------------------------------------------
 // volume sampling helpers (input vectors assumed in model space!)
 
 uniform mat4 vol_model;
@@ -208,6 +208,7 @@ uniform float vol_inv_majorant;
 // dense grid
 uniform vec2 vol_min_maj;
 uniform sampler3D vol_dense;
+const vec3 vol_size = textureSize(vol_dense, 0);
 // brick grid
 uniform usampler3D vol_indirection;
 uniform sampler3D vol_range;
@@ -233,9 +234,11 @@ float lookup_majorant(const vec3 ipos, int mip) {
     return vol_density_scale * texelFetch(vol_range, ivec3(floor(ipos)) >> 3, mip).y;
 }
 
-// density lookup with stochastic lerp
+// density lookup
 float lookup_density(const vec3 ipos, inout uint seed) {
-    return vol_density_scale * lookup_voxel_dense(ipos + rng3(seed) - .5f);
+    return vol_density_scale * (vol_min_maj.x + texture(vol_dense, ipos / vol_size).x * (vol_min_maj.y - vol_min_maj.x));
+    // TODO stochastic lookup filter (transfer function aliasing)
+    //return vol_density_scale * lookup_voxel_dense(ipos + rng3(seed) - .5f);
     return vol_density_scale * lookup_voxel_brick(ipos + rng3(seed) - .5f);
 }
 
@@ -287,40 +290,60 @@ float stepDDA(const vec3 pos, const vec3 ri, const int mip) {
     const vec3 tmax = (floor(pos * (1.f / dim)) * dim + ofs - pos) * ri;
     return min(tmax.x, min(tmax.y , tmax.z));
 }
+float stepDDA_old(const vec3 ro, const vec3 ri, const vec3 pos, int mip) {
+    const float dim = 8 << mip ;
+    const vec3 ofs = ri * (mix(vec3(-0.5f), vec3(dim + 0.5f), greaterThanEqual(ri, vec3(0))) - ro);
+    const vec3 tmax = floor(pos * (1.f / dim )) * dim * ri + ofs;
+    return min(tmax.x, min(tmax.y, tmax.z)) ;
+}
 
 // TODO debug DDA-based transmittance
-float transmittanceDDA(const vec3 wpos, const vec3 wdir, inout uint seed) {
+vec3 transmittanceDDA(const vec3 wpos, const vec3 wdir, inout uint seed) {
     // clip volume
     vec2 near_far;
-    if (!intersect_box(wpos, wdir, vol_bb_min, vol_bb_max, near_far)) return 1.f;
+    if (!intersect_box(wpos, wdir, vol_bb_min, vol_bb_max, near_far)) return vec3(1.f);
     // to index-space
     const vec3 ipos = vec3(vol_inv_model * vec4(wpos, 1));
-    const vec3 idir = vec3(vol_inv_model * vec4(wdir, 0)); // non-normalized!
+    const vec3 idir = (vec3(vol_inv_model * vec4(wdir, 0))); // non-normalized!
     const vec3 ri = 1.f / idir;
     // march brick grid
     float t = near_far.x + 1e-4f, Tr = 1.f, tau = -log(1.f - rng(seed));
     while (t < near_far.y) {
         const vec3 curr = ipos + t * idir;
+        const float majorant = lookup_majorant(curr, 0);
+        if (lookup_density(curr, seed) > majorant) return vec3(100, 0, 0);
+
         const float dt = stepDDA(curr, ri, 0);
         t += dt;
-        const float majorant = lookup_majorant(curr, 0);
+        //const float next_t = stepDDA_old(ipos, ri, curr, 0);
+        //const float dt = next_t - t;
+        //t = next_t;
+ 
+        if (lookup_density(ipos + t * idir, seed) > lookup_majorant(ipos + t * idir, 0)) return vec3(100, 0, 0); // TODO debug red shit (stochastic jitter)
+        if (lookup_density(ipos + t * idir, seed) > majorant) return vec3(0, 100, 0); // TODO debug green shit
+
         tau -= majorant * dt;
         if (tau > 0) continue; // no collision, step ahead
         t += tau / majorant; // step back to point of collision
         if (t >= near_far.y) break;
         const float d = lookup_density(ipos + t * idir, seed);
+
+        if (d > majorant) return vec3(100, 100, 0); // TODO debug yellow shit
+        //return vec3(t - near_far.x) / (near_far.y - near_far.x);
+        //return vec3(d / majorant);
+
         if (rng(seed) * majorant < d) { // check if real or null collision
             Tr *= max(0.f, 1.f - d / majorant);
             // russian roulette
             if (Tr < .1f) {
                 const float prob = 1 - Tr;
-                if (rng(seed) < prob) return 0.f;
+                if (rng(seed) < prob) return vec3(0.f);
                 Tr /= 1 - prob;
             }
         }
         tau = -log(1.f - rng(seed));
     }
-    return Tr;
+    return vec3(Tr);
 }
 
 // TODO debug DDA-based volume sampling

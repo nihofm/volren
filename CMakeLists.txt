@@ -1,4 +1,4 @@
-project(vol LANGUAGES C CXX CUDA)
+project(vol LANGUAGES C CXX)# CUDA)
 cmake_minimum_required(VERSION 3.10)
 
 # ---------------------------------------------------------------------

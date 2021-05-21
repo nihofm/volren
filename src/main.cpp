@@ -17,7 +17,7 @@ static int sample = 0;
 static int sppx = 1000;
 static int bounces = 100;
 static bool tonemapping = true;
-static float tonemap_exposure = 5.f;
+static float tonemap_exposure = 10.f;
 static float tonemap_gamma = 2.2f;
 static bool show_convergence = false;
 static bool show_environment = true;
@@ -95,10 +95,11 @@ void mouse_callback(double xpos, double ypos) {
         old_ypos = ypos;
     }
     if (Context::mouse_button_pressed(GLFW_MOUSE_BUTTON_RIGHT)) {
+        const auto [min, maj] = volume->current_grid()->minorant_majorant();
         if (Context::key_pressed(GLFW_KEY_LEFT_SHIFT))
-            transferfunc->window_width += (xpos - old_xpos) * 0.001;
+            transferfunc->window_width += (xpos - old_xpos) * (maj - min) * 0.001;
         else
-            transferfunc->window_left += (xpos - old_xpos) * 0.001;
+            transferfunc->window_left += (xpos - old_xpos) * (maj - min) * 0.001;
         sample = 0;
     }
     old_xpos = xpos;
@@ -147,6 +148,11 @@ void gui_callback(void) {
         if (ImGui::Button("Triangle TF")) {
             transferfunc->lut = std::vector<glm::vec4>({ glm::vec4(0), glm::vec4(1), glm::vec4(0) });
             transferfunc->upload_gpu();
+            sample = 0;
+        }
+        if (ImGui::Button("White background")) {
+            glm::vec3 color(1);
+            environment = Environment("white_background", Texture2D("white_background", 1, 1, GL_RGB32F, GL_RGB, GL_FLOAT, &color.x));
             sample = 0;
         }
         ImGui::Separator();
@@ -293,8 +299,10 @@ int main(int argc, char** argv) {
             GL_RED,
             GL_UNSIGNED_BYTE,
             dense->voxel_data.data());
+    /*
     const std::shared_ptr<voldata::BrickGrid>& bricks = std::make_shared<voldata::BrickGrid>(volume->current_grid());
     std::cout << "brick grid: " << std::endl << bricks->to_string() << std::endl;
+    // indirection texture
     vol_indirection = Texture3D("brick indirection",
             bricks->indirection.stride.x,
             bricks->indirection.stride.y,
@@ -303,6 +311,14 @@ int main(int argc, char** argv) {
             GL_RGBA_INTEGER,
             GL_UNSIGNED_BYTE,
             bricks->indirection.data.data());
+    vol_indirection->bind(0);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_R, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    vol_indirection->unbind();
+    // range texture
     vol_range = Texture3D("brick range",
             bricks->range.stride.x,
             bricks->range.stride.y,
@@ -311,6 +327,14 @@ int main(int argc, char** argv) {
             GL_RG,
             GL_HALF_FLOAT,
             bricks->range.data.data());
+    vol_range->bind(0);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_R, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    vol_range->unbind();
+    // atlas texture
     vol_atlas = Texture3D("brick atlas",
             bricks->atlas.stride.x,
             bricks->atlas.stride.y,
@@ -319,6 +343,14 @@ int main(int argc, char** argv) {
             GL_RED,
             GL_UNSIGNED_BYTE,
             bricks->atlas.data.data());
+    vol_atlas->bind(0);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_R, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    vol_atlas->unbind();
+    */
 
     // load default transfer function
     if (!transferfunc)
@@ -327,13 +359,13 @@ int main(int argc, char** argv) {
     // default setup
     {
         const auto [bb_min, bb_max] = volume->AABB();
+        const auto [min, maj] = volume->current_grid()->minorant_majorant();
         current_camera()->pos = bb_min + (bb_max - bb_min) * glm::vec3(-.5f, .5f, 0.f);
         current_camera()->dir = glm::normalize((bb_max + bb_min)*.5f - current_camera()->pos);
         environment->strength = 1.f;
         volume->set_albedo(glm::vec3(1.f));
-        volume->set_density_scale(1.f);
+        volume->set_density_scale(2.f / maj);
         volume->set_phase(0.5f);
-        const auto [min, maj] = volume->current_grid()->minorant_majorant();
         transferfunc->window_left = min;
         transferfunc->window_width = maj - min;
     }
@@ -378,9 +410,11 @@ int main(int argc, char** argv) {
             const auto [min, maj] = volume->current_grid()->minorant_majorant();
             trace_shader->uniform("vol_min_maj", glm::vec2(min, maj));
             trace_shader->uniform("vol_dense", vol_dense, tex_unit++);
+            /*
             trace_shader->uniform("vol_indirection", vol_indirection, tex_unit++);
             trace_shader->uniform("vol_range", vol_range, tex_unit++);
             trace_shader->uniform("vol_atlas", vol_atlas, tex_unit++);
+            */
             const auto [bb_min, bb_max] = volume->AABB();
             trace_shader->uniform("vol_bb_min", bb_min + vol_crop_min * (bb_max - bb_min));
             trace_shader->uniform("vol_bb_max", bb_min + vol_crop_max * (bb_max - bb_min));
