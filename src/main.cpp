@@ -286,11 +286,11 @@ int main(int argc, char** argv) {
     // load default volume?
     if (!volume)
         volume = std::make_shared<voldata::Volume>("data/head_8bit.dat");
+    std::cout << "Volume: " << std::endl << volume->to_string() << std::endl;
 
-    // load brick volume textures
-    std::cout << "grid: " << std::endl << volume->current_grid()->to_string() << std::endl;
-    const std::shared_ptr<voldata::DenseGrid>& dense = std::make_shared<voldata::DenseGrid>(volume->current_grid());
-    std::cout << "dense grid: " << std::endl << dense->to_string() << std::endl;
+    // load dense volume texture
+    std::shared_ptr<voldata::DenseGrid> dense = std::dynamic_pointer_cast<voldata::DenseGrid>(volume->current_grid()); // check type
+    if (!dense) dense = std::make_shared<voldata::DenseGrid>(volume->current_grid()); // type not matching, convert grid
     vol_dense = Texture3D("vol dense",
             dense->n_voxels.x,
             dense->n_voxels.y,
@@ -300,8 +300,9 @@ int main(int argc, char** argv) {
             GL_UNSIGNED_BYTE,
             dense->voxel_data.data());
     /*
-    const std::shared_ptr<voldata::BrickGrid>& bricks = std::make_shared<voldata::BrickGrid>(volume->current_grid());
-    std::cout << "brick grid: " << std::endl << bricks->to_string() << std::endl;
+    // load brick volume textures
+    std::shared_ptr<voldata::BrickGrid> bricks = std::dynamic_pointer_cast<voldata::BrickGrid>(volume->current_grid()); // check type
+    if (!bricks) bricks = std::make_shared<voldata::BrickGrid>(volume->current_grid()); // type not matching, convert grid
     // indirection texture
     vol_indirection = Texture3D("brick indirection",
             bricks->indirection.stride.x,
