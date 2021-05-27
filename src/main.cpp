@@ -15,7 +15,7 @@
 
 static int sample = 0;
 static int sppx = 1000;
-static int bounces = 100;
+static int bounces = 3;
 static bool tonemapping = true;
 static float tonemap_exposure = 10.f;
 static float tonemap_gamma = 2.2f;
@@ -291,6 +291,7 @@ int main(int argc, char** argv) {
     // load dense volume texture
     std::shared_ptr<voldata::DenseGrid> dense = std::dynamic_pointer_cast<voldata::DenseGrid>(volume->current_grid()); // check type
     if (!dense) dense = std::make_shared<voldata::DenseGrid>(volume->current_grid()); // type not matching, convert grid
+    std::cout << "dense grid:" << std::endl << dense->to_string() << std::endl;
     vol_dense = Texture3D("vol dense",
             dense->n_voxels.x,
             dense->n_voxels.y,
@@ -299,10 +300,11 @@ int main(int argc, char** argv) {
             GL_RED,
             GL_UNSIGNED_BYTE,
             dense->voxel_data.data());
-    /*
+    ///*
     // load brick volume textures
     std::shared_ptr<voldata::BrickGrid> bricks = std::dynamic_pointer_cast<voldata::BrickGrid>(volume->current_grid()); // check type
     if (!bricks) bricks = std::make_shared<voldata::BrickGrid>(volume->current_grid()); // type not matching, convert grid
+    std::cout << "brick grid:" << std::endl << bricks->to_string() << std::endl;
     // indirection texture
     vol_indirection = Texture3D("brick indirection",
             bricks->indirection.stride.x,
@@ -311,6 +313,10 @@ int main(int argc, char** argv) {
             GL_RGBA8UI,
             GL_RGBA_INTEGER,
             GL_UNSIGNED_BYTE,
+            // TODO 10/10/10/2 layout
+            //GL_RGB10_A2,
+            //GL_RGBA,
+            //GL_UNSIGNED_INT_2_10_10_10_REV,
             bricks->indirection.data.data());
     vol_indirection->bind(0);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
@@ -334,6 +340,19 @@ int main(int argc, char** argv) {
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_R, GL_CLAMP_TO_EDGE);
     glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
     glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    // upload min/max mipmaps
+    for (uint32_t i = 0; i < bricks->range_mipmaps.size(); ++i) {
+        glTexImage3D(GL_TEXTURE_3D,
+                i + 1,
+                vol_range->internal_format,
+                bricks->range_mipmaps[i].stride.x,
+                bricks->range_mipmaps[i].stride.y,
+                bricks->range_mipmaps[i].stride.z,
+                0,
+                vol_range->format,
+                vol_range->type,
+                bricks->range_mipmaps[i].data.data());
+    }
     vol_range->unbind();
     // atlas texture
     vol_atlas = Texture3D("brick atlas",
@@ -351,7 +370,7 @@ int main(int argc, char** argv) {
     glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
     glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
     vol_atlas->unbind();
-    */
+    //*/
 
     // load default transfer function
     if (!transferfunc)
@@ -364,7 +383,7 @@ int main(int argc, char** argv) {
         current_camera()->pos = bb_min + (bb_max - bb_min) * glm::vec3(-.5f, .5f, 0.f);
         current_camera()->dir = glm::normalize((bb_max + bb_min)*.5f - current_camera()->pos);
         environment->strength = 1.f;
-        volume->set_albedo(glm::vec3(1.f));
+        volume->set_albedo(glm::vec3(0.5f));
         volume->set_density_scale(2.f / maj);
         volume->set_phase(0.5f);
         transferfunc->window_left = min;
@@ -406,23 +425,24 @@ int main(int argc, char** argv) {
             trace_shader->uniform("cam_fov", current_camera()->fov_degree);
             trace_shader->uniform("cam_transform", glm::inverse(glm::mat3(current_camera()->view)));
             // volume
+            const auto [bb_min, bb_max] = volume->AABB();
+            const auto [min, maj] = volume->current_grid()->minorant_majorant();
             trace_shader->uniform("vol_model", volume->get_transform());
             trace_shader->uniform("vol_inv_model", glm::inverse(volume->get_transform()));
-            const auto [min, maj] = volume->current_grid()->minorant_majorant();
-            trace_shader->uniform("vol_min_maj", glm::vec2(min, maj));
-            trace_shader->uniform("vol_dense", vol_dense, tex_unit++);
-            /*
-            trace_shader->uniform("vol_indirection", vol_indirection, tex_unit++);
-            trace_shader->uniform("vol_range", vol_range, tex_unit++);
-            trace_shader->uniform("vol_atlas", vol_atlas, tex_unit++);
-            */
-            const auto [bb_min, bb_max] = volume->AABB();
             trace_shader->uniform("vol_bb_min", bb_min + vol_crop_min * (bb_max - bb_min));
             trace_shader->uniform("vol_bb_max", bb_min + vol_crop_max * (bb_max - bb_min));
+            trace_shader->uniform("vol_majorant", maj * volume->get_density_scale());
             trace_shader->uniform("vol_inv_majorant", 1.f / (maj * volume->get_density_scale()));
             trace_shader->uniform("vol_albedo", volume->get_albedo());
             trace_shader->uniform("vol_phase_g", volume->get_phase());
             trace_shader->uniform("vol_density_scale", volume->get_density_scale());
+            // dense grid data
+            trace_shader->uniform("vol_min_maj", glm::vec2(min, maj));
+            trace_shader->uniform("vol_dense", vol_dense, tex_unit++);
+            // brick grid data
+            trace_shader->uniform("vol_indirection", vol_indirection, tex_unit++);
+            trace_shader->uniform("vol_range", vol_range, tex_unit++);
+            trace_shader->uniform("vol_atlas", vol_atlas, tex_unit++);
             // transfer function
             transferfunc->set_uniforms(trace_shader, tex_unit);
             // environment

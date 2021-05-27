@@ -45,7 +45,7 @@ uint tea(const uint val0, const uint val1, const uint N) { // tiny encryption al
 
 float rng(inout uint previous) { // return a random sample in the range [0, 1) with a simple linear congruential generator
     previous = previous * 1664525u + 1013904223u;
-    return float(previous & 0x00FFFFFF) / float(0x01000000u);
+    return float(previous & 0x00FFFFFFu) / float(0x01000000u);
 }
 vec2 rng2(inout uint previous) {
     return vec2(rng(previous), rng(previous));
@@ -200,24 +200,26 @@ uniform mat4 vol_model;
 uniform mat4 vol_inv_model;
 uniform vec3 vol_bb_min;
 uniform vec3 vol_bb_max;
+uniform float vol_majorant;
+uniform float vol_inv_majorant;
 uniform vec3 vol_albedo;
 uniform float vol_phase_g;
 uniform float vol_density_scale;
-uniform float vol_inv_majorant;
 
 // dense grid
 uniform vec2 vol_min_maj;
 uniform sampler3D vol_dense;
 const vec3 vol_size = textureSize(vol_dense, 0);
-// brick grid
-uniform usampler3D vol_indirection;
-uniform sampler3D vol_range;
-uniform sampler3D vol_atlas;
 
 // dense grid voxel lookup
 float lookup_voxel_dense(const vec3 ipos) {
     return vol_min_maj.x + texelFetch(vol_dense, ivec3(floor(ipos)), 0).x * (vol_min_maj.y - vol_min_maj.x);
 }
+
+// brick grid
+uniform usampler3D vol_indirection;
+uniform sampler3D vol_range;
+uniform sampler3D vol_atlas;
 
 // brick grid voxel lookup
 float lookup_voxel_brick(const vec3 ipos) {
@@ -231,13 +233,13 @@ float lookup_voxel_brick(const vec3 ipos) {
 
 // brick majorant lookup
 float lookup_majorant(const vec3 ipos, int mip) {
-    return vol_density_scale * texelFetch(vol_range, ivec3(floor(ipos)) >> 3, mip).y;
+    const ivec3 iipos = ivec3(floor(ipos));
+    const ivec3 brick = iipos >> (3 + mip); // TODO mipmaps
+    return vol_density_scale * texelFetch(vol_range, brick, mip).y;
 }
 
 // density lookup
 float lookup_density(const vec3 ipos, inout uint seed) {
-    return vol_density_scale * (vol_min_maj.x + texture(vol_dense, ipos / vol_size).x * (vol_min_maj.y - vol_min_maj.x));
-    // TODO stochastic lookup filter (transfer function aliasing)
     //return vol_density_scale * lookup_voxel_dense(ipos + rng3(seed) - .5f);
     return vol_density_scale * lookup_voxel_brick(ipos + rng3(seed) - .5f);
 }
@@ -284,24 +286,19 @@ bool sample_volume(const vec3 wpos, const vec3 wdir, out float t, inout vec3 thr
      return false;
 }
 
+// perform DDA step on given mip level
 float stepDDA(const vec3 pos, const vec3 ri, const int mip) {
     const float dim = 8 << mip;
-    const vec3 ofs = mix(vec3(-0.5f), vec3(dim + 0.5f), greaterThanEqual(ri, vec3(0)));
-    const vec3 tmax = (floor(pos * (1.f / dim)) * dim + ofs - pos) * ri;
+    const vec3 offs = mix(vec3(-0.5f), vec3(dim + 0.5f), greaterThanEqual(ri, vec3(0)));
+    const vec3 tmax = (floor(pos * (1.f / dim)) * dim + offs - pos) * ri;
     return min(tmax.x, min(tmax.y , tmax.z));
 }
-float stepDDA_old(const vec3 ro, const vec3 ri, const vec3 pos, int mip) {
-    const float dim = 8 << mip ;
-    const vec3 ofs = ri * (mix(vec3(-0.5f), vec3(dim + 0.5f), greaterThanEqual(ri, vec3(0))) - ro);
-    const vec3 tmax = floor(pos * (1.f / dim )) * dim * ri + ofs;
-    return min(tmax.x, min(tmax.y, tmax.z)) ;
-}
 
-// TODO debug DDA-based transmittance
-vec3 transmittanceDDA(const vec3 wpos, const vec3 wdir, inout uint seed) {
+// DDA-based transmittance
+float transmittanceDDA(const vec3 wpos, const vec3 wdir, inout uint seed) {
     // clip volume
     vec2 near_far;
-    if (!intersect_box(wpos, wdir, vol_bb_min, vol_bb_max, near_far)) return vec3(1.f);
+    if (!intersect_box(wpos, wdir, vol_bb_min, vol_bb_max, near_far)) return 1.f;
     // to index-space
     const vec3 ipos = vec3(vol_inv_model * vec4(wpos, 1));
     const vec3 idir = (vec3(vol_inv_model * vec4(wdir, 0))); // non-normalized!
@@ -310,43 +307,30 @@ vec3 transmittanceDDA(const vec3 wpos, const vec3 wdir, inout uint seed) {
     float t = near_far.x + 1e-4f, Tr = 1.f, tau = -log(1.f - rng(seed));
     while (t < near_far.y) {
         const vec3 curr = ipos + t * idir;
+        // TODO range mipmaps
         const float majorant = lookup_majorant(curr, 0);
-        if (lookup_density(curr, seed) > majorant) return vec3(100, 0, 0);
-
         const float dt = stepDDA(curr, ri, 0);
         t += dt;
-        //const float next_t = stepDDA_old(ipos, ri, curr, 0);
-        //const float dt = next_t - t;
-        //t = next_t;
- 
-        if (lookup_density(ipos + t * idir, seed) > lookup_majorant(ipos + t * idir, 0)) return vec3(100, 0, 0); // TODO debug red shit (stochastic jitter)
-        if (lookup_density(ipos + t * idir, seed) > majorant) return vec3(0, 100, 0); // TODO debug green shit
-
         tau -= majorant * dt;
         if (tau > 0) continue; // no collision, step ahead
         t += tau / majorant; // step back to point of collision
         if (t >= near_far.y) break;
-        const float d = lookup_density(ipos + t * idir, seed);
-
-        if (d > majorant) return vec3(100, 100, 0); // TODO debug yellow shit
-        //return vec3(t - near_far.x) / (near_far.y - near_far.x);
-        //return vec3(d / majorant);
-
+        const float d = lookup_density(ipos + t * idir, seed); // TODO transferfunc
         if (rng(seed) * majorant < d) { // check if real or null collision
-            Tr *= max(0.f, 1.f - d / majorant);
+            Tr *= max(0.f, 1.f - vol_majorant / majorant); // adjust by ratio of global to local majorant
             // russian roulette
             if (Tr < .1f) {
                 const float prob = 1 - Tr;
-                if (rng(seed) < prob) return vec3(0.f);
+                if (rng(seed) < prob) return 0.f;
                 Tr /= 1 - prob;
             }
         }
         tau = -log(1.f - rng(seed));
     }
-    return vec3(Tr);
+    return Tr;
 }
 
-// TODO debug DDA-based volume sampling
+// DDA-based volume sampling
 bool sample_volumeDDA(const vec3 wpos, const vec3 wdir, out float t, inout vec3 throughput, inout uint seed) {
     // clip volume
     vec2 near_far;
@@ -360,14 +344,15 @@ bool sample_volumeDDA(const vec3 wpos, const vec3 wdir, out float t, inout vec3 
     float tau = -log(1.f - rng(seed));
     while (t < near_far.y) {
         const vec3 curr = ipos + t * idir;
+        // TODO range mipmaps
+        const float majorant = lookup_majorant(curr, 0);
         const float dt = stepDDA(curr, ri, 0);
         t += dt;
-        const float majorant = lookup_majorant(curr, 0);
         tau -= majorant * dt;
         if (tau > 0) continue; // no collision, step ahead
         t += tau / majorant; // step back to point of collision
         if (t >= near_far.y) break;
-        const float d = lookup_density(ipos + t * idir, seed);
+        const float d = lookup_density(ipos + t * idir, seed); // TODO transferfunc
         if (rng(seed) * majorant < d) { // check if real or null collision
             throughput *= vol_albedo;
             return true;
