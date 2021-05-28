@@ -15,12 +15,13 @@
 
 static int sample = 0;
 static int sppx = 1000;
-static int bounces = 3;
+static int bounces = 100;
 static bool tonemapping = true;
 static float tonemap_exposure = 10.f;
 static float tonemap_gamma = 2.2f;
 static bool show_convergence = false;
 static bool show_environment = true;
+static bool use_vsync = false;
 static std::shared_ptr<voldata::Volume> volume;
 static Texture3D vol_dense;
 static Texture3D vol_indirection, vol_range, vol_atlas;
@@ -69,13 +70,17 @@ void resize_callback(int w, int h) {
 void keyboard_callback(int key, int scancode, int action, int mods) {
     if (ImGui::GetIO().WantCaptureKeyboard) return;
 
-    if (/*mods == GLFW_MOD_SHIFT && */key == GLFW_KEY_B && action == GLFW_PRESS) {
+    if (key == GLFW_KEY_B && action == GLFW_PRESS) {
         show_environment = !show_environment;
         sample = 0;
     }
-    if (/*mods == GLFW_MOD_SHIFT && */key == GLFW_KEY_C && action == GLFW_PRESS)
+    if (key == GLFW_KEY_V && action == GLFW_PRESS) {
+        use_vsync = !use_vsync;
+        Context::set_swap_interval(use_vsync ? 1 : 0);
+    }
+    if (key == GLFW_KEY_C && action == GLFW_PRESS)
         show_convergence = !show_convergence;
-    if (/*mods == GLFW_MOD_SHIFT && */key == GLFW_KEY_T && action == GLFW_PRESS)
+    if (key == GLFW_KEY_T && action == GLFW_PRESS)
         tonemapping = !tonemapping;
     if (key == GLFW_KEY_SPACE && action == GLFW_PRESS)
         sample = 0;
@@ -117,6 +122,7 @@ void gui_callback(void) {
         ImGui::Text("Sample: %i/%i (est: %um, %us)", sample, sppx, uint32_t(est_ravg) / 60, uint32_t(est_ravg) % 60);
         if (ImGui::InputInt("Sppx", &sppx)) sample = 0;
         if (ImGui::InputInt("Bounces", &bounces)) sample = 0;
+        if (ImGui::Checkbox("Vsync", &use_vsync)) Context::set_swap_interval(use_vsync ? 1 : 0);
         ImGui::Separator();
         if (ImGui::Checkbox("Environment", &show_environment)) sample = 0;
         if (ImGui::DragFloat("Env strength", &environment->strength, 0.1f)) {
@@ -218,7 +224,7 @@ int main(int argc, char** argv) {
     params.title = "VolRen";
     params.floating = GLFW_TRUE;
     params.resizable = GLFW_FALSE;
-    params.swap_interval = 0;
+    params.swap_interval = use_vsync ? 1 : 0;
     try  {
         Context::init(params);
     } catch (std::runtime_error& e) {
@@ -300,7 +306,6 @@ int main(int argc, char** argv) {
             GL_RED,
             GL_UNSIGNED_BYTE,
             dense->voxel_data.data());
-    ///*
     // load brick volume textures
     std::shared_ptr<voldata::BrickGrid> bricks = std::dynamic_pointer_cast<voldata::BrickGrid>(volume->current_grid()); // check type
     if (!bricks) bricks = std::make_shared<voldata::BrickGrid>(volume->current_grid()); // type not matching, convert grid
@@ -314,9 +319,11 @@ int main(int argc, char** argv) {
             GL_RGBA_INTEGER,
             GL_UNSIGNED_BYTE,
             // TODO 10/10/10/2 layout
-            //GL_RGB10_A2,
+            //GL_RGB10_A2UI,
             //GL_RGBA,
+            //GL_BGRA,
             //GL_UNSIGNED_INT_2_10_10_10_REV,
+            //GL_UNSIGNED_INT_10_10_10_2,
             bricks->indirection.data.data());
     vol_indirection->bind(0);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
@@ -341,16 +348,18 @@ int main(int argc, char** argv) {
     glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
     glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
     // upload min/max mipmaps
+    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_BASE_LEVEL, 0);
+    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MAX_LEVEL, bricks->range_mipmaps.size());
     for (uint32_t i = 0; i < bricks->range_mipmaps.size(); ++i) {
         glTexImage3D(GL_TEXTURE_3D,
                 i + 1,
-                vol_range->internal_format,
+                GL_RG16F,
                 bricks->range_mipmaps[i].stride.x,
                 bricks->range_mipmaps[i].stride.y,
                 bricks->range_mipmaps[i].stride.z,
                 0,
-                vol_range->format,
-                vol_range->type,
+                GL_RG,
+                GL_HALF_FLOAT,
                 bricks->range_mipmaps[i].data.data());
     }
     vol_range->unbind();
@@ -359,7 +368,8 @@ int main(int argc, char** argv) {
             bricks->atlas.stride.x,
             bricks->atlas.stride.y,
             bricks->atlas.stride.z,
-            GL_RED,
+            //GL_RED,
+            GL_COMPRESSED_RED,
             GL_RED,
             GL_UNSIGNED_BYTE,
             bricks->atlas.data.data());
@@ -370,7 +380,6 @@ int main(int argc, char** argv) {
     glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
     glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
     vol_atlas->unbind();
-    //*/
 
     // load default transfer function
     if (!transferfunc)
@@ -383,8 +392,8 @@ int main(int argc, char** argv) {
         current_camera()->pos = bb_min + (bb_max - bb_min) * glm::vec3(-.5f, .5f, 0.f);
         current_camera()->dir = glm::normalize((bb_max + bb_min)*.5f - current_camera()->pos);
         environment->strength = 1.f;
-        volume->set_albedo(glm::vec3(0.5f));
-        volume->set_density_scale(2.f / maj);
+        volume->set_albedo(glm::vec3(0.75f));
+        volume->set_density_scale(1.f / maj);
         volume->set_phase(0.5f);
         transferfunc->window_left = min;
         transferfunc->window_width = maj - min;

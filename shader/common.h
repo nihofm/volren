@@ -47,12 +47,15 @@ float rng(inout uint previous) { // return a random sample in the range [0, 1) w
     previous = previous * 1664525u + 1013904223u;
     return float(previous & 0x00FFFFFFu) / float(0x01000000u);
 }
+
 vec2 rng2(inout uint previous) {
     return vec2(rng(previous), rng(previous));
 }
+
 vec3 rng3(inout uint previous) {
     return vec3(rng(previous), rng(previous), rng(previous));
 }
+
 vec4 rng4(inout uint previous) {
     return vec4(rng(previous), rng(previous), rng(previous), rng(previous));
 }
@@ -160,6 +163,7 @@ bool intersect_box(const vec3 pos, const vec3 dir, const vec3 bb_min, const vec3
 // phase function helpers
 
 float phase_isotropic() { return inv_4PI; }
+
 float phase_henyey_greenstein(const float cos_t, const float g) {
     const float denom = 1 + sqr(g) + 2 * g * cos_t;
     return inv_4PI * (1 - sqr(g)) / (denom * sqrt(denom));
@@ -171,6 +175,7 @@ vec3 sample_phase_isotropic(const vec2 phase_sample) {
     const float phi = 2.f * M_PI * phase_sample.y;
     return normalize(vec3(sin_t * cos(phi), sin_t * sin(phi), cos_t));
 }
+
 vec3 sample_phase_henyey_greenstein(const vec3 dir, const float g, const vec2 phase_sample) {
     const float cos_t = abs(g) < 1e-4f ? 1.f - 2.f * phase_sample.x :
         (1 + sqr(g) - sqr((1 - sqr(g)) / (1 - g + 2 * g * phase_sample.x))) / (2 * g);
@@ -187,7 +192,7 @@ uniform float tf_window_width;
 uniform sampler2D tf_texture;
 const ivec2 tf_size = textureSize(tf_texture, 0);
 
-// TODO stochastic lookup filter
+// TODO stochastic lookup filter for transferfunc
 vec4 tf_lookup(float d) {
     const vec4 lut = texture(tf_texture, vec2((d - tf_window_left) / tf_window_width, 0));
     return vec4(lut.rgb, d * lut.a);
@@ -233,8 +238,7 @@ float lookup_voxel_brick(const vec3 ipos) {
 
 // brick majorant lookup
 float lookup_majorant(const vec3 ipos, int mip) {
-    const ivec3 iipos = ivec3(floor(ipos));
-    const ivec3 brick = iipos >> (3 + mip); // TODO mipmaps
+    const ivec3 brick = ivec3(floor(ipos)) >> (3 + mip);
     return vol_density_scale * texelFetch(vol_range, brick, mip).y;
 }
 
@@ -286,6 +290,9 @@ bool sample_volume(const vec3 wpos, const vec3 wdir, out float t, inout vec3 thr
      return false;
 }
 
+// TODO range mipmaps without cutoff
+#define MIP 0
+
 // perform DDA step on given mip level
 float stepDDA(const vec3 pos, const vec3 ri, const int mip) {
     const float dim = 8 << mip;
@@ -307,9 +314,8 @@ float transmittanceDDA(const vec3 wpos, const vec3 wdir, inout uint seed) {
     float t = near_far.x + 1e-4f, Tr = 1.f, tau = -log(1.f - rng(seed));
     while (t < near_far.y) {
         const vec3 curr = ipos + t * idir;
-        // TODO range mipmaps
-        const float majorant = lookup_majorant(curr, 0);
-        const float dt = stepDDA(curr, ri, 0);
+        const float majorant = lookup_majorant(curr, MIP);
+        const float dt = stepDDA(curr, ri, MIP);
         t += dt;
         tau -= majorant * dt;
         if (tau > 0) continue; // no collision, step ahead
@@ -344,9 +350,8 @@ bool sample_volumeDDA(const vec3 wpos, const vec3 wdir, out float t, inout vec3 
     float tau = -log(1.f - rng(seed));
     while (t < near_far.y) {
         const vec3 curr = ipos + t * idir;
-        // TODO range mipmaps
-        const float majorant = lookup_majorant(curr, 0);
-        const float dt = stepDDA(curr, ri, 0);
+        const float majorant = lookup_majorant(curr, MIP);
+        const float dt = stepDDA(curr, ri, MIP);
         t += dt;
         tau -= majorant * dt;
         if (tau > 0) continue; // no collision, step ahead
