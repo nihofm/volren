@@ -37,7 +37,7 @@ add_subdirectory(submodules/cppgl)
 include_directories(submodules/cppgl/src)
 
 add_subdirectory(submodules/voldata)
-include_directories(submodules/voldata)
+include_directories(submodules/voldata/src)
 
 add_subdirectory(submodules/pybind11)
 

@@ -1,8 +1,6 @@
 #include <pybind11/pybind11.h>
 #include <pybind11/operators.h>
-
 #include <glm/glm.hpp>
-#include <cuda_runtime.h>
 
 // ------------------------------------------------------------------------
 // python bindings
@@ -148,29 +146,6 @@ PYBIND11_MODULE(volpy, m) {
             .def("__repr__", [](const glm::uvec4& v) {
                 return "(" + std::to_string(v.x) + ", " + std::to_string(v.y) + ", " + std::to_string(v.z) + ", " + std::to_string(v.w) + ")";
             }));
-
-    // ------------------------------------------------------------
-    // cuda vector types TODO operators
-
-    py::class_<float3>(m, "float3")
-        .def(py::init<>())
-        .def(py::init(&make_float3))
-        .def_readwrite("x", &float3::x)
-        .def_readwrite("y", &float3::y)
-        .def_readwrite("z", &float3::z)
-        .def("__repr__", [](const float3& v) {
-            return "(" + std::to_string(v.x) + ", " + std::to_string(v.y) + ", " + std::to_string(v.z) + ")";
-        });
-
-    py::class_<int3>(m, "int3")
-        .def(py::init<>())
-        .def(py::init(&make_int3))
-        .def_readwrite("x", &int3::x)
-        .def_readwrite("y", &int3::y)
-        .def_readwrite("z", &int3::z)
-        .def("__repr__", [](const int3& v) {
-            return "(" + std::to_string(v.x) + ", " + std::to_string(v.y) + ", " + std::to_string(v.z) + ")";
-        });
 
     // ------------------------------------------------------------
     // TODO automatic collection of classes with bindings?
