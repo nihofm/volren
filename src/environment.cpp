@@ -4,8 +4,9 @@
 const uint32_t DIMENSION = 512;
 const uint32_t SAMPLES = 64;
 
-EnvironmentImpl::EnvironmentImpl(const std::string& name, const Texture2D& envmap) :
-    name(name),
+Environment::Environment(const std::string& path) : Environment(Texture2D("environment", path)) {}
+
+Environment::Environment(const Texture2D& envmap) :
     model(1),
     strength(1),
     envmap(envmap),
@@ -29,13 +30,13 @@ EnvironmentImpl::EnvironmentImpl(const std::string& name, const Texture2D& envma
     impmap->unbind();
 }
 
-EnvironmentImpl::~EnvironmentImpl() {}
+Environment::~Environment() {}
 
-int EnvironmentImpl::num_mip_levels() const {
+int Environment::num_mip_levels() const {
     return 1 + floor(log2(DIMENSION));
 }
 
-void EnvironmentImpl::set_uniforms(const Shader& shader, uint32_t& texture_unit) const {
+void Environment::set_uniforms(const Shader& shader, uint32_t& texture_unit) const {
     shader->uniform("env_model", model);
     shader->uniform("env_inv_model", glm::inverse(model));
     shader->uniform("env_strength", strength);

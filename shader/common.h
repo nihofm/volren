@@ -211,16 +211,6 @@ uniform vec3 vol_albedo;
 uniform float vol_phase_g;
 uniform float vol_density_scale;
 
-// dense grid
-uniform vec2 vol_min_maj;
-uniform sampler3D vol_dense;
-const vec3 vol_size = textureSize(vol_dense, 0);
-
-// dense grid voxel lookup
-float lookup_voxel_dense(const vec3 ipos) {
-    return vol_min_maj.x + texelFetch(vol_dense, ivec3(floor(ipos)), 0).x * (vol_min_maj.y - vol_min_maj.x);
-}
-
 // brick grid
 uniform usampler3D vol_indirection;
 uniform sampler3D vol_range;

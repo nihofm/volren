@@ -10,7 +10,7 @@ file(GLOB_RECURSE SOURCES "*.cpp")
 add_executable(${TARGET} ${HEADERS} ${SOURCES})
 set_target_properties(${TARGET} PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_SOURCE_DIR}")
 
-pybind11_add_module(${TARGET_PY} EXCLUDE_FROM_ALL ${HEADERS} ${SOURCES})
+pybind11_add_module(${TARGET_PY} ${HEADERS} ${SOURCES})
 set_target_properties(${TARGET_PY} PROPERTIES LIBRARY_OUTPUT_DIRECTORY "${CMAKE_SOURCE_DIR}")
 
 # install

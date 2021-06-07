@@ -4,6 +4,7 @@
 int Renderer::sample = 0;
 int Renderer::sppx = 1000;
 int Renderer::bounces = 100;
+int Renderer::seed = 42;
 float Renderer::tonemap_exposure = 10.f;
 float Renderer::tonemap_gamma = 2.2f;
 bool Renderer::tonemapping = true;
@@ -11,8 +12,8 @@ bool Renderer::show_convergence = false;
 bool Renderer::show_environment = true;
 
 // Scene data
-Environment Renderer::environment;
-TransferFunction Renderer::transferfunc;
+std::shared_ptr<Environment> Renderer::environment;
+std::shared_ptr<TransferFunction> Renderer::transferfunc;
 std::shared_ptr<voldata::Volume> Renderer::volume;
 glm::vec3 Renderer::vol_crop_min = glm::vec3(0);
 glm::vec3 Renderer::vol_crop_max = glm::vec3(1);
@@ -20,7 +21,6 @@ glm::vec3 Renderer::vol_crop_max = glm::vec3(1);
 // OpenGL data
 Framebuffer Renderer::fbo;
 Shader Renderer::trace_shader;
-Texture3D Renderer::vol_dense;
 Texture3D Renderer::vol_indirection, Renderer::vol_range, Renderer::vol_atlas;
 
 // -----------------------------------------------------------
@@ -57,6 +57,9 @@ void convergence(const Texture2D& color, const Texture2D& even) {
 // init
 
 void Renderer::init(uint32_t w, uint32_t h, bool vsync, bool pinned, bool visible) {
+    static bool is_init = false;
+    if (is_init) return;
+
     // init GL
     ContextParameters params;
     params.width = w;
@@ -87,39 +90,26 @@ void Renderer::init(uint32_t w, uint32_t h, bool vsync, bool pinned, bool visibl
     trace_shader = Shader("trace", "shader/pathtracer.glsl");
 
     // load default envmap
-    glm::vec3 color(1);
-    environment = Environment("white_background", Texture2D("white_background", 1, 1, GL_RGB32F, GL_RGB, GL_FLOAT, &color.x));
+    glm::vec3 color(.5f);
+    environment = std::make_shared<Environment>(Texture2D("background", 1, 1, GL_RGB32F, GL_RGB, GL_FLOAT, &color.x));
 
     // load default transfer function
-    transferfunc = TransferFunction("tf", std::vector<glm::vec4>({ glm::vec4(1) }));
+    transferfunc = std::make_shared<TransferFunction>(std::vector<glm::vec4>({ glm::vec4(1) }));
 
-    // load default volume 
-    // TODO interface for openvdb generated shapes?
+    // load default volume
     volume = std::make_shared<voldata::Volume>();
-}
 
+    // run initialization only once
+    is_init = true;
+}
 
 // -----------------------------------------------------------
 // upload volume grid data to OpenGL textures
 
 void Renderer::commit() {
-    std::cout << "Volume: " << std::endl << volume->to_string() << std::endl;
-    // load dense volume texture
-    std::shared_ptr<voldata::DenseGrid> dense = std::dynamic_pointer_cast<voldata::DenseGrid>(volume->current_grid()); // check type
-    if (!dense) dense = std::make_shared<voldata::DenseGrid>(volume->current_grid()); // type not matching, convert grid
-    //std::cout << "dense grid:" << std::endl << dense->to_string() << std::endl;
-    vol_dense = Texture3D("vol dense",
-            dense->n_voxels.x,
-            dense->n_voxels.y,
-            dense->n_voxels.z,
-            GL_RED,
-            GL_RED,
-            GL_UNSIGNED_BYTE,
-            dense->voxel_data.data());
     // load brick volume textures
     std::shared_ptr<voldata::BrickGrid> bricks = std::dynamic_pointer_cast<voldata::BrickGrid>(volume->current_grid()); // check type
     if (!bricks) bricks = std::make_shared<voldata::BrickGrid>(volume->current_grid()); // type not matching, convert grid
-    //std::cout << "brick grid:" << std::endl << bricks->to_string() << std::endl;
     // indirection texture
     vol_indirection = Texture3D("brick indirection",
             bricks->indirection.stride.x,
@@ -205,6 +195,7 @@ void Renderer::trace() {
     // uniforms
     trace_shader->uniform("current_sample", ++sample);
     trace_shader->uniform("bounces", bounces);
+    trace_shader->uniform("seed", seed);
     trace_shader->uniform("show_environment", show_environment ? 0 : 1);
     // camera
     trace_shader->uniform("cam_pos", current_camera()->pos);
@@ -212,23 +203,20 @@ void Renderer::trace() {
     trace_shader->uniform("cam_transform", glm::inverse(glm::mat3(current_camera()->view)));
     // volume
     const auto [bb_min, bb_max] = volume->AABB();
-    const auto [min, maj] = volume->current_grid()->minorant_majorant();
+    const auto [min, maj] = volume->minorant_majorant();
     trace_shader->uniform("vol_model", volume->get_transform());
     trace_shader->uniform("vol_inv_model", glm::inverse(volume->get_transform()));
     trace_shader->uniform("vol_bb_min", bb_min + vol_crop_min * (bb_max - bb_min));
     trace_shader->uniform("vol_bb_max", bb_min + vol_crop_max * (bb_max - bb_min));
-    trace_shader->uniform("vol_majorant", maj * volume->get_density_scale());
-    trace_shader->uniform("vol_inv_majorant", 1.f / (maj * volume->get_density_scale()));
-    trace_shader->uniform("vol_albedo", volume->get_albedo());
-    trace_shader->uniform("vol_phase_g", volume->get_phase());
-    trace_shader->uniform("vol_density_scale", volume->get_density_scale());
-    // dense grid data
-    trace_shader->uniform("vol_min_maj", glm::vec2(min, maj));
-    trace_shader->uniform("vol_dense", vol_dense, tex_unit++);
+    trace_shader->uniform("vol_majorant", maj * volume->density_scale);
+    trace_shader->uniform("vol_inv_majorant", 1.f / (maj * volume->density_scale));
+    trace_shader->uniform("vol_albedo", volume->albedo);
+    trace_shader->uniform("vol_phase_g", volume->phase);
+    trace_shader->uniform("vol_density_scale", volume->density_scale);
     // brick grid data
-    trace_shader->uniform("vol_indirection", vol_indirection, tex_unit++);
-    trace_shader->uniform("vol_range", vol_range, tex_unit++);
-    trace_shader->uniform("vol_atlas", vol_atlas, tex_unit++);
+    if (vol_indirection) trace_shader->uniform("vol_indirection", vol_indirection, tex_unit++);
+    if (vol_range) trace_shader->uniform("vol_range", vol_range, tex_unit++);
+    if (vol_atlas) trace_shader->uniform("vol_atlas", vol_atlas, tex_unit++);
     // transfer function
     transferfunc->set_uniforms(trace_shader, tex_unit);
     // environment

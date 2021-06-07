@@ -12,6 +12,7 @@ layout (binding = 1, rgba32f) uniform image2D even;
 
 uniform int current_sample;
 uniform int bounces;
+uniform int seed;
 uniform int show_environment;
 
 vec3 trace_path(in vec3 pos, in vec3 dir, inout uint seed) {
@@ -70,15 +71,12 @@ void main() {
     const ivec2 size = imageSize(color);
 	if (any(greaterThanEqual(pixel, size))) return;
 
-    // setup random seed and camera ray (in model space!)
-    uint seed = tea(pixel.y * size.x + pixel.x, current_sample, 8);
+    // setup random seed and camera ray
+    uint seed = tea(seed * (pixel.y * size.x + pixel.x), current_sample, 32);
     const vec3 pos = cam_pos;
     const vec3 dir = view_dir(pixel, size, rng2(seed));
 
     // trace ray
-    //const vec3 Tr = vec3(transmittance(pos, dir, seed));
-    //const vec3 Tr = vec3(transmittanceDDA(pos, dir, seed));
-    //const vec3 radiance = Tr;
     const vec3 radiance = trace_path(pos, dir, seed);
 
     // write output

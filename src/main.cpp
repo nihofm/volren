@@ -1,11 +1,17 @@
 #include <iostream>
 #include <fstream>
+#include <filesystem>
+namespace fs = std::filesystem;
 
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 
 #include <cppgl.h>
 #include <voldata.h>
+
+#include <pybind11/embed.h>
+#include <pybind11/eval.h>
+namespace py = pybind11;
 
 #include "renderer.h"
 
@@ -14,6 +20,61 @@
 
 static bool use_vsync = false;
 static float shader_check_delay_ms = 1000;
+
+// ------------------------------------------
+// helper funcs
+
+void load_volume(const std::string& path) {
+    try {
+        Renderer::volume = std::make_shared<voldata::Volume>(path);
+        const auto [bb_min, bb_max] = Renderer::volume->AABB();
+        const auto extent = glm::abs(bb_max - bb_min);
+        Renderer::volume->model = glm::translate(glm::mat4(1), current_camera()->pos - .5f * extent + current_camera()->dir * .5f * glm::length(extent));
+        Renderer::commit();
+        Renderer::sample = 0;
+    } catch (std::runtime_error& e) {
+        std::cerr << "Unable to load volume from " << path << ": " << e.what() << std::endl;
+    }
+}
+
+void load_envmap(const std::string& path) {
+    try {
+        Renderer::environment = std::make_shared<Environment>(path);
+        Renderer::sample = 0;
+    } catch (std::runtime_error& e) {
+        std::cerr << "Unable to load envmap from " << path << ": " << e.what() << std::endl;
+    }
+}
+
+void load_transferfunc(const std::string& path) {
+    try {
+        Renderer::transferfunc = std::make_shared<TransferFunction>(path);
+        Renderer::sample = 0;
+    } catch (std::runtime_error& e) {
+        std::cerr << "Unable to load transferfunc from " << path << ": " << e.what() << std::endl;
+    }
+}
+
+void run_script(const std::string& path) {
+    try {
+        py::scoped_interpreter guard{};
+        py::eval_file(path);
+        Renderer::sample = 0;
+    } catch (pybind11::error_already_set& e) {
+        std::cerr << "Error executing python script " << path << ": " << e.what() << std::endl;
+    }
+}
+
+void handle_path(const std::string& path) {
+    if (fs::path(path).extension() == ".py")
+        run_script(path);
+    else if (fs::path(path).extension() == ".hdr")
+        load_envmap(path);
+    else if (fs::path(path).extension() == ".txt")
+        load_transferfunc(path);
+    else
+        load_volume(path);
+}
 
 // ------------------------------------------
 // callbacks
@@ -67,10 +128,16 @@ void mouse_callback(double xpos, double ypos) {
     old_ypos = ypos;
 }
 
+void drag_drop_callback(GLFWwindow* window, int path_count, const char* paths[]) {
+    for (int i = 0; i < path_count; ++i) {
+        handle_path(paths[i]);
+    }
+}
+
 void gui_callback(void) {
     const glm::ivec2 size = Context::resolution();
     ImGui::SetNextWindowPos(ImVec2(size.x-260, 20));
-    ImGui::SetNextWindowSize(ImVec2(250, -1));
+    ImGui::SetNextWindowSize(ImVec2(300, -1));
     if (ImGui::Begin("Stuff", 0, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoBackground | ImGuiWindowFlags_NoFocusOnAppearing)) {
         ImGui::PushStyleVar(ImGuiStyleVar_Alpha, .9f);
         static float est_ravg = 0.f;
@@ -91,9 +158,9 @@ void gui_callback(void) {
         ImGui::DragFloat("Gamma", &Renderer::tonemap_gamma, 0.01f);
         ImGui::Checkbox("Show convergence", &Renderer::show_convergence);
         ImGui::Separator();
-        if (ImGui::DragFloat3("Albedo", &Renderer::volume->get_albedo().x, 0.01f, 0.f, 1.f)) Renderer::sample = 0;
-        if (ImGui::DragFloat("Density scale", &Renderer::volume->get_density_scale(), 0.01f, 0.01f, 1000.f)) Renderer::sample = 0;
-        if (ImGui::SliderFloat("Phase g", &Renderer::volume->get_phase(), -.95f, .95f)) Renderer::sample = 0;
+        if (ImGui::DragFloat3("Albedo", &Renderer::volume->albedo.x, 0.01f, 0.f, 1.f)) Renderer::sample = 0;
+        if (ImGui::DragFloat("Density scale", &Renderer::volume->density_scale, 0.01f, 0.01f, 1000.f)) Renderer::sample = 0;
+        if (ImGui::SliderFloat("Phase g", &Renderer::volume->phase, -.95f, .95f)) Renderer::sample = 0;
         ImGui::Separator();
         if (ImGui::DragFloat("Window left", &Renderer::transferfunc->window_left, 0.01f)) Renderer::sample = 0;
         if (ImGui::DragFloat("Window width", &Renderer::transferfunc->window_width, 0.01f)) Renderer::sample = 0;
@@ -102,19 +169,27 @@ void gui_callback(void) {
             Renderer::transferfunc->upload_gpu();
             Renderer::sample = 0;
         }
+        ImGui::SameLine();
         if (ImGui::Button("Gradient TF")) {
             Renderer::transferfunc->lut = std::vector<glm::vec4>({ glm::vec4(0), glm::vec4(1) });
             Renderer::transferfunc->upload_gpu();
             Renderer::sample = 0;
         }
+        ImGui::SameLine();
         if (ImGui::Button("Triangle TF")) {
             Renderer::transferfunc->lut = std::vector<glm::vec4>({ glm::vec4(0), glm::vec4(1), glm::vec4(0) });
             Renderer::transferfunc->upload_gpu();
             Renderer::sample = 0;
         }
+        if (ImGui::Button("Gray background")) {
+            glm::vec3 color(.5f);
+            Renderer::environment = std::make_shared<Environment>(Texture2D("gray_background", 1, 1, GL_RGB32F, GL_RGB, GL_FLOAT, &color.x));
+            Renderer::sample = 0;
+        }
+        ImGui::SameLine();
         if (ImGui::Button("White background")) {
             glm::vec3 color(1);
-            Renderer::environment = Environment("white_background", Texture2D("white_background", 1, 1, GL_RGB32F, GL_RGB, GL_FLOAT, &color.x));
+            Renderer::environment = std::make_shared<Environment>(Texture2D("white_background", 1, 1, GL_RGB32F, GL_RGB, GL_FLOAT, &color.x));
             Renderer::sample = 0;
         }
         ImGui::Separator();
@@ -180,14 +255,10 @@ static void parse_cmd(int argc, char** argv) {
             Context::resize(std::stoi(argv[++i]), Context::resolution().y);
         else if (arg == "-h")
             Context::resize(Context::resolution().x, std::stoi(argv[++i]));
-        else if (arg == "-sppx")
+        else if (arg == "-spp")
             Renderer::sppx = std::stoi(argv[++i]);
-        else if (arg == "-d")
+        else if (arg == "-b")
             Renderer::bounces = std::stoi(argv[++i]);
-        else if (arg == "-env")
-            Renderer::environment = Environment("environment", Texture2D("environment", argv[++i]));
-        else if (arg == "-lut")
-            Renderer::transferfunc = TransferFunction("transferfunction", argv[++i]);
         else if (arg == "-pos") {
             current_camera()->pos.x = std::stof(argv[++i]);
             current_camera()->pos.y = std::stof(argv[++i]);
@@ -203,15 +274,8 @@ static void parse_cmd(int argc, char** argv) {
         else if (arg == "-gamma")
             Renderer::tonemap_gamma = std::stof(argv[++i]);
         else
-            Renderer::volume->load_grid(argv[i]);
+            handle_path(argv[i]);
     }
-}
-
-static void render_offline() {
-    while (Renderer::sample < Renderer::sppx)
-        Renderer::trace();
-    Renderer::draw();
-    Context::screenshot("out.png");
 }
 
 // ------------------------------------------
@@ -227,24 +291,17 @@ int main(int argc, char** argv) {
     Context::set_mouse_button_callback(mouse_button_callback);
     Context::set_mouse_callback(mouse_callback);
     gui_add_callback("vol_gui", gui_callback);
+    glfwSetDropCallback(Context::instance().glfw_window, drag_drop_callback);
 
     // parse command line arguments
     parse_cmd(argc, argv);
 
-    // prepare for rendering
-    if (Renderer::volume->grids.size() == 0) throw std::runtime_error("can not render empty volume, load grid first!");
-    Renderer::commit();
-
-    // set some defaults
-    {
+    // set some defaults if volume has been loaded
+    if (Renderer::volume->grids.size() > 0) {
         const auto [bb_min, bb_max] = Renderer::volume->AABB();
         const auto [min, maj] = Renderer::volume->current_grid()->minorant_majorant();
         current_camera()->pos = bb_min + (bb_max - bb_min) * glm::vec3(-.5f, .5f, 0.f);
         current_camera()->dir = glm::normalize((bb_max + bb_min)*.5f - current_camera()->pos);
-        Renderer::environment->strength = 1.f;
-        Renderer::volume->set_albedo(glm::vec3(0.75f));
-        Renderer::volume->set_density_scale(1.f / maj);
-        Renderer::volume->set_phase(0.5f);
         Renderer::transferfunc->window_left = min;
         Renderer::transferfunc->window_width = maj - min;
     }

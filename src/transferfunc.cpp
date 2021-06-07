@@ -2,9 +2,9 @@
 #include <fstream>
 #include <iostream>
 
-TransferFunctionImpl::TransferFunctionImpl(const std::string& name) : name(name), window_left(0), window_width(1) {}
+TransferFunction::TransferFunction() : window_left(0), window_width(1) {}
 
-TransferFunctionImpl::TransferFunctionImpl(const std::string& name, const fs::path& path) : TransferFunctionImpl(name) {
+TransferFunction::TransferFunction(const fs::path& path) : TransferFunction() {
     // load lut from file (format: %f, %f, %f, %f)
     std::ifstream lut_file(path);
     if (!lut_file.is_open())
@@ -19,20 +19,20 @@ TransferFunctionImpl::TransferFunctionImpl(const std::string& name, const fs::pa
     upload_gpu();
 }
 
-TransferFunctionImpl::TransferFunctionImpl(const std::string& name, const std::vector<glm::vec4>& lut) : TransferFunctionImpl(name) {
+TransferFunction::TransferFunction(const std::vector<glm::vec4>& lut) : TransferFunction() {
     this->lut = lut;
     upload_gpu();
 }
 
-TransferFunctionImpl::~TransferFunctionImpl() {}
+TransferFunction::~TransferFunction() {}
 
-void TransferFunctionImpl::set_uniforms(const Shader& shader, uint32_t& texture_unit) const {
+void TransferFunction::set_uniforms(const Shader& shader, uint32_t& texture_unit) const {
     shader->uniform("tf_window_left", window_left);
     shader->uniform("tf_window_width", window_width);
     shader->uniform("tf_texture", texture, texture_unit++);
 }
 
-void TransferFunctionImpl::upload_gpu() {
+void TransferFunction::upload_gpu() {
     // setup GL texture
     texture = Texture2D("transferfunc_lut", lut.size(), 1, GL_RGBA32F, GL_RGBA, GL_FLOAT, lut.data(), false);
     texture->bind(0);

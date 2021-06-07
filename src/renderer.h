@@ -16,6 +16,7 @@ struct Renderer {
     // Settings
     static int sample;
     static int sppx;
+    static int seed;
     static int bounces;
     static float tonemap_exposure;
     static float tonemap_gamma;
@@ -24,14 +25,13 @@ struct Renderer {
     static bool show_environment;
 
     // Scene data
-    static Environment environment;
-    static TransferFunction transferfunc;
+    static std::shared_ptr<Environment> environment;
+    static std::shared_ptr<TransferFunction> transferfunc;
     static std::shared_ptr<voldata::Volume> volume;
     static glm::vec3 vol_crop_min, vol_crop_max;
 
     // OpenGL data
     static Framebuffer fbo;
     static Shader trace_shader;
-    static Texture3D vol_dense;
     static Texture3D vol_indirection, vol_range, vol_atlas;
 };

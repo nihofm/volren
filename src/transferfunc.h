@@ -4,12 +4,12 @@
 #include <cppgl.h>
 #include <glm/glm.hpp>
 
-class TransferFunctionImpl {
+class TransferFunction {
 public:
-    TransferFunctionImpl(const std::string& name);
-    TransferFunctionImpl(const std::string& name, const fs::path& path);
-    TransferFunctionImpl(const std::string& name, const std::vector<glm::vec4>& lut);
-    virtual ~TransferFunctionImpl();
+    TransferFunction();
+    TransferFunction(const fs::path& path);
+    TransferFunction(const std::vector<glm::vec4>& lut);
+    virtual ~TransferFunction();
 
     void set_uniforms(const Shader& shader, uint32_t& texture_unit) const;
 
@@ -17,10 +17,7 @@ public:
     void upload_gpu();
 
     // data
-    const std::string name;
     float window_left, window_width;
     std::vector<glm::vec4> lut;
     Texture2D texture;
 };
-
-using TransferFunction = NamedHandle<TransferFunctionImpl>;
