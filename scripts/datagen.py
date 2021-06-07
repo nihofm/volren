@@ -7,7 +7,7 @@ from PIL import Image
 from volpy import *
 
 # SETTINGS
-N_IMAGES = 100
+N_IMAGES = 25#100
 N_SAMPLES_TARGET = 4096
 WIDTH = 1024
 HEIGHT = 1024
@@ -16,8 +16,10 @@ ENVPATH = '/home/niko/render-data/envmaps'
 VOLPATH = '/home/niko/render-data/volumetric'
 
 # init renderer
-Renderer.init(w = WIDTH, h = HEIGHT)#, vsync=False, pinned=True, visible=True)
+# Renderer.init(w = WIDTH, h = HEIGHT, vsync=False, pinned=True, visible=False)
+Renderer.resize(WIDTH, HEIGHT)
 Renderer.tonemap = False
+Renderer.draw()
 # random.seed(42)
 
 # collect envmaps and volumes
@@ -83,9 +85,11 @@ for i, params in enumerate([randomize_parameters() for i in range(N_IMAGES)]):
     Renderer.seed = params['seed_input']
     Renderer.render(params['samples'])
     data_input = np.flip(np.array(Renderer.fbo_data(0)), axis=0)
-    dataset_input[i] = np.transpose(data_input.astype(np.float16), [2, 0, 1])
+    dataset_input[i] = np.transpose(data_input.astype(np.float16), [2, 1, 0])
     # render converged
     Renderer.seed = params['seed_target']
     Renderer.render(N_SAMPLES_TARGET)
     data_target = np.flip(np.array(Renderer.fbo_data(0)), axis=0)
-    dataset_target[i] = np.transpose(data_target.astype(np.float16), [2, 0, 1])
+    dataset_target[i] = np.transpose(data_target.astype(np.float16), [2, 1, 0])
+
+Renderer.shutdown()

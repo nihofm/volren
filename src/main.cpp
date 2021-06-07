@@ -57,6 +57,7 @@ void load_transferfunc(const std::string& path) {
 
 void run_script(const std::string& path) {
     try {
+        // TODO regular vs embedded module (either or)
         py::scoped_interpreter guard{};
         py::eval_file(path);
         Renderer::sample = 0;
@@ -283,7 +284,7 @@ static void parse_cmd(int argc, char** argv) {
 
 int main(int argc, char** argv) {
     // initialize the renderer
-    Renderer::init(1920, 1080, use_vsync, /*pinned = */false, /*visible = */true);
+    Renderer::init(1920, 1080, use_vsync, /*pinned = */true, /*visible = */true);
 
     // install callbacks for interactive mode
     Context::set_resize_callback(resize_callback);
@@ -310,7 +311,6 @@ int main(int argc, char** argv) {
     float shader_timer = 0;
     while (Context::running()) {
         // handle input
-        glfwPollEvents();
         if (CameraImpl::default_input_handler(Context::frame_time()))
             Renderer::sample = 0; // restart rendering
 

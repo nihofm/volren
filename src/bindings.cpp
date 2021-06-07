@@ -42,6 +42,7 @@ py::class_<VecT> register_vector_operators(py::class_<VecT>& pyclass) {
         .def(-py::self);
 }
 
+//PYBIND11_MODULE(volpy, m) {
 PYBIND11_EMBEDDED_MODULE(volpy, m) {
 
     // ------------------------------------------------------------
@@ -111,11 +112,13 @@ PYBIND11_EMBEDDED_MODULE(volpy, m) {
             Renderer::draw();
             Context::swap_buffers();
         })
+        .def_static("resolution", []() {
+            return Context::resolution();
+        })
         .def_static("resize", [](int w, int h) {
             Context::resize(w, h);
         })
         .def_static("render", [](int spp) {
-            Renderer::init(1920, 1080, false, false, false);
             Renderer::commit();
             current_camera()->update();
             Renderer::sample = 0;
@@ -156,7 +159,8 @@ PYBIND11_EMBEDDED_MODULE(volpy, m) {
         .def_readwrite_static("show_convergence", &Renderer::show_convergence)
         .def_readwrite_static("show_environment", &Renderer::show_environment)
         .def_readwrite_static("vol_crop_min", &Renderer::vol_crop_min)
-        .def_readwrite_static("vol_crop_max", &Renderer::vol_crop_max);
+        .def_readwrite_static("vol_crop_max", &Renderer::vol_crop_max)
+        .def_static("shutdown", []() { exit(0); });
 
     // ------------------------------------------------------------
     // glm vector bindings
