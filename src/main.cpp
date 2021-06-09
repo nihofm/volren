@@ -96,8 +96,6 @@ void keyboard_callback(int key, int scancode, int action, int mods) {
         use_vsync = !use_vsync;
         Context::set_swap_interval(use_vsync ? 1 : 0);
     }
-    if (key == GLFW_KEY_C && action == GLFW_PRESS)
-        Renderer::show_convergence = !Renderer::show_convergence;
     if (key == GLFW_KEY_T && action == GLFW_PRESS)
         Renderer::tonemapping = !Renderer::tonemapping;
     if (key == GLFW_KEY_SPACE && action == GLFW_PRESS)
@@ -157,7 +155,6 @@ void gui_callback(void) {
         if (ImGui::DragFloat("Exposure", &Renderer::tonemap_exposure, 0.01f))
             Renderer::tonemap_exposure = fmaxf(0.f, Renderer::tonemap_exposure);
         ImGui::DragFloat("Gamma", &Renderer::tonemap_gamma, 0.01f);
-        ImGui::Checkbox("Show convergence", &Renderer::show_convergence);
         ImGui::Separator();
         if (ImGui::DragFloat3("Albedo", &Renderer::volume->albedo.x, 0.01f, 0.f, 1.f)) Renderer::sample = 0;
         if (ImGui::DragFloat("Density scale", &Renderer::volume->density_scale, 0.01f, 0.01f, 1000.f)) Renderer::sample = 0;

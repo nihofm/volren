@@ -1,6 +1,19 @@
-#extension GL_NV_gpu_shader5 : enable
-#extension GL_NV_shader_atomic_float : enable
-#extension GL_NV_shader_atomic_fp16_vector : enable
+// --------------------------------------------------------------
+// common ray state struct
+
+struct ray_state {
+    vec3 pos;
+    float near;
+    vec3 dir;
+    float far;
+    ivec2 pixel;
+    uint seed;
+    uint n_paths;
+    vec3 feature1;
+    vec3 feature2;
+    vec3 feature3;
+    vec3 feature4;
+};
 
 // --------------------------------------------------------------
 // constants and helper funcs
@@ -195,7 +208,7 @@ const ivec2 tf_size = textureSize(tf_texture, 0);
 // TODO stochastic lookup filter for transferfunc
 vec4 tf_lookup(float d) {
     const vec4 lut = texture(tf_texture, vec2((d - tf_window_left) / tf_window_width, 0));
-    return vec4(lut.rgb, d * lut.a);
+    return vec4(lut.rgb, lut.a);
 }
 
 // --------------------------------------------------------------
@@ -260,7 +273,7 @@ float transmittance(const vec3 wpos, const vec3 wdir, inout uint seed) {
     return Tr;
 }
 
-bool sample_volume(const vec3 wpos, const vec3 wdir, out float t, inout vec3 throughput, inout uint seed) {
+bool sample_volume(const vec3 wpos, const vec3 wdir, out float t, inout vec3 throughput, inout uint seed, inout vec3 vol_features) {
     // clip volume
     vec2 near_far;
     if (!intersect_box(wpos, wdir, vol_bb_min, vol_bb_max, near_far)) return false;
@@ -269,13 +282,18 @@ bool sample_volume(const vec3 wpos, const vec3 wdir, out float t, inout vec3 thr
     const vec3 idir = vec3(vol_inv_model * vec4(wdir, 0)); // non-normalized!
     // delta tracking
     t = near_far.x;
+    float Tr = 1.f;
      while (t < near_far.y) {
         t -= log(1 - rng(seed)) * vol_inv_majorant;
         const vec4 rgba = tf_lookup(lookup_density(ipos + t * idir, seed) * vol_inv_majorant);
         if (rng(seed) < rgba.a) {
             throughput *= rgba.rgb * vol_albedo;
+            vol_features.r = (t - near_far.x) / (near_far.y - near_far.x);
+            vol_features.g = rgba.a;
+            vol_features.b = Tr;
             return true;
         }
+        Tr *= 1.f - rgba.a * vol_inv_majorant;
      }
      return false;
 }
@@ -311,7 +329,7 @@ float transmittanceDDA(const vec3 wpos, const vec3 wdir, inout uint seed) {
         if (tau > 0) continue; // no collision, step ahead
         t += tau / majorant; // step back to point of collision
         if (t >= near_far.y) break;
-        const float d = lookup_density(ipos + t * idir, seed); // TODO transferfunc
+        const float d = lookup_density(ipos + t * idir, seed);
         if (rng(seed) * majorant < d) { // check if real or null collision
             Tr *= max(0.f, 1.f - vol_majorant / majorant); // adjust by ratio of global to local majorant
             // russian roulette
@@ -327,7 +345,7 @@ float transmittanceDDA(const vec3 wpos, const vec3 wdir, inout uint seed) {
 }
 
 // DDA-based volume sampling
-bool sample_volumeDDA(const vec3 wpos, const vec3 wdir, out float t, inout vec3 throughput, inout uint seed) {
+bool sample_volumeDDA(const vec3 wpos, const vec3 wdir, out float t, inout vec3 throughput, inout uint seed, inout vec3 vol_features) {
     // clip volume
     vec2 near_far;
     if (!intersect_box(wpos, wdir, vol_bb_min, vol_bb_max, near_far)) return false;
@@ -337,7 +355,7 @@ bool sample_volumeDDA(const vec3 wpos, const vec3 wdir, out float t, inout vec3 
     const vec3 ri = 1.f / idir;
     // march brick grid
     t = near_far.x + 1e-4f;
-    float tau = -log(1.f - rng(seed));
+    float tau = -log(1.f - rng(seed)), Tr = 1.f;
     while (t < near_far.y) {
         const vec3 curr = ipos + t * idir;
         const float majorant = lookup_majorant(curr, MIP);
@@ -347,11 +365,15 @@ bool sample_volumeDDA(const vec3 wpos, const vec3 wdir, out float t, inout vec3 
         if (tau > 0) continue; // no collision, step ahead
         t += tau / majorant; // step back to point of collision
         if (t >= near_far.y) break;
-        const float d = lookup_density(ipos + t * idir, seed); // TODO transferfunc
+        const float d = lookup_density(ipos + t * idir, seed);
         if (rng(seed) * majorant < d) { // check if real or null collision
             throughput *= vol_albedo;
+            vol_features.r = (t - near_far.x) / (near_far.y - near_far.x);
+            vol_features.g = d * vol_inv_majorant;
+            vol_features.b = Tr;
             return true;
         }
+        Tr *= 1.f - d * vol_inv_majorant;
         tau = -log(1.f - rng(seed));
     }
     return false;

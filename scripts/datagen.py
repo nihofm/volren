@@ -7,7 +7,7 @@ from PIL import Image
 from volpy import *
 
 # SETTINGS
-N_IMAGES = 25#100
+N_IMAGES = 100
 N_SAMPLES_TARGET = 4096
 WIDTH = 1024
 HEIGHT = 1024
@@ -40,7 +40,12 @@ filename_target = H5_NAME + '_target.h5'
 if os.path.isfile(filename_input): os.remove(filename_input)
 if os.path.isfile(filename_target): os.remove(filename_target)
 file_input = h5py.File(filename_input, 'w')
-dataset_input = file_input.create_dataset('color', shape=(N_IMAGES, 3, HEIGHT, WIDTH), dtype=np.float16)
+datasets_input = []
+datasets_input.append(file_input.create_dataset('color', shape=(N_IMAGES, 3, HEIGHT, WIDTH), dtype=np.float16))
+datasets_input.append(file_input.create_dataset('feature1', shape=(N_IMAGES, 3, HEIGHT, WIDTH), dtype=np.float16))
+datasets_input.append(file_input.create_dataset('feature2', shape=(N_IMAGES, 3, HEIGHT, WIDTH), dtype=np.float16))
+datasets_input.append(file_input.create_dataset('feature3', shape=(N_IMAGES, 3, HEIGHT, WIDTH), dtype=np.float16))
+datasets_input.append(file_input.create_dataset('feature4', shape=(N_IMAGES, 3, HEIGHT, WIDTH), dtype=np.float16))
 file_target = h5py.File(filename_target, 'w')
 dataset_target = file_target.create_dataset('color', shape=(N_IMAGES, 3, HEIGHT, WIDTH), dtype=np.float16)
 
@@ -52,7 +57,7 @@ def uniform_sample_sphere():
 
 def randomize_parameters():
     params = {}
-    params['samples'] = random.randint(1, 8) 
+    params['samples'] = random.randint(1, 9)
     params['max_bounces'] = random.randint(1, 128) 
     params['seed_input'] = random.randint(0, 2**31) 
     params['seed_target'] = random.randint(0, 2**31) 
@@ -84,8 +89,9 @@ for i, params in enumerate([randomize_parameters() for i in range(N_IMAGES)]):
     # render noisy
     Renderer.seed = params['seed_input']
     Renderer.render(params['samples'])
-    data_input = np.flip(np.array(Renderer.fbo_data(0)), axis=0)
-    dataset_input[i] = np.transpose(data_input.astype(np.float16), [2, 1, 0])
+    for f, dataset in enumerate(datasets_input):
+        data = np.flip(np.array(Renderer.fbo_data(f)), axis=0)
+        dataset[i] = np.transpose(data.astype(np.float16), [2, 1, 0])
     # render converged
     Renderer.seed = params['seed_target']
     Renderer.render(N_SAMPLES_TARGET)

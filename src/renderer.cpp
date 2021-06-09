@@ -8,7 +8,6 @@ int Renderer::seed = 42;
 float Renderer::tonemap_exposure = 10.f;
 float Renderer::tonemap_gamma = 2.2f;
 bool Renderer::tonemapping = true;
-bool Renderer::show_convergence = false;
 bool Renderer::show_environment = true;
 
 // Scene data
@@ -44,15 +43,6 @@ void tonemap(const Texture2D& tex, float exposure, float gamma) {
     tonemap_shader->unbind();
 }
 
-void convergence(const Texture2D& color, const Texture2D& even) {
-    static Shader conv_shader = Shader("convergence", "shader/quad.vs", "shader/convergence.fs");
-    conv_shader->bind();
-    conv_shader->uniform("color", color, 0);
-    conv_shader->uniform("even", even, 1);
-    Quad::draw();
-    conv_shader->unbind();
-}
-
 // -----------------------------------------------------------
 // init
 
@@ -82,8 +72,11 @@ void Renderer::init(uint32_t w, uint32_t h, bool vsync, bool pinned, bool visibl
     const glm::ivec2 res = Context::resolution();
     fbo = Framebuffer("fbo", res.x, res.y);
     fbo->attach_depthbuffer();
-    fbo->attach_colorbuffer(Texture2D("fbo/col", res.x, res.y, GL_RGBA32F, GL_RGBA, GL_FLOAT));
-    fbo->attach_colorbuffer(Texture2D("fbo/even", res.x, res.y, GL_RGBA32F, GL_RGBA, GL_FLOAT));
+    fbo->attach_colorbuffer(Texture2D("fbo_color", res.x, res.y, GL_RGBA32F, GL_RGBA, GL_FLOAT));
+    fbo->attach_colorbuffer(Texture2D("fbo_features1", res.x, res.y, GL_RGBA32F, GL_RGBA, GL_FLOAT));
+    fbo->attach_colorbuffer(Texture2D("fbo_features2", res.x, res.y, GL_RGBA32F, GL_RGBA, GL_FLOAT));
+    fbo->attach_colorbuffer(Texture2D("fbo_features3", res.x, res.y, GL_RGBA32F, GL_RGBA, GL_FLOAT));
+    fbo->attach_colorbuffer(Texture2D("fbo_features4", res.x, res.y, GL_RGBA32F, GL_RGBA, GL_FLOAT));
     fbo->check();
 
     // compile trace shader
@@ -115,15 +108,9 @@ void Renderer::commit() {
             bricks->indirection.stride.x,
             bricks->indirection.stride.y,
             bricks->indirection.stride.z,
-            GL_RGBA8UI,
+            GL_RGB10_A2UI,
             GL_RGBA_INTEGER,
-            GL_UNSIGNED_BYTE,
-            // TODO 10/10/10/2 layout
-            //GL_RGB10_A2UI,
-            //GL_RGBA,
-            //GL_BGRA,
-            //GL_UNSIGNED_INT_2_10_10_10_REV,
-            //GL_UNSIGNED_INT_10_10_10_2,
+            GL_UNSIGNED_INT_2_10_10_10_REV,
             bricks->indirection.data.data());
     vol_indirection->bind(0);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
@@ -236,12 +223,8 @@ void Renderer::trace() {
 // draw results on screen
 
 void Renderer::draw() {
-    if (show_convergence)
-        convergence(fbo->color_textures[0], fbo->color_textures[1]);
-    else {
-        if (tonemapping)
-            tonemap(fbo->color_textures[0], tonemap_exposure, tonemap_gamma);
-        else
-            blit(fbo->color_textures[0]);
-    }
+    if (tonemapping)
+        tonemap(fbo->color_textures[0], tonemap_exposure, tonemap_gamma);
+    else
+        blit(fbo->color_textures[0]);
 }

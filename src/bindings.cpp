@@ -156,7 +156,6 @@ PYBIND11_EMBEDDED_MODULE(volpy, m) {
         .def_readwrite_static("tonemap_exposure", &Renderer::tonemap_exposure)
         .def_readwrite_static("tonemap_gamma", &Renderer::tonemap_gamma)
         .def_readwrite_static("tonemapping", &Renderer::tonemapping)
-        .def_readwrite_static("show_convergence", &Renderer::show_convergence)
         .def_readwrite_static("show_environment", &Renderer::show_environment)
         .def_readwrite_static("vol_crop_min", &Renderer::vol_crop_min)
         .def_readwrite_static("vol_crop_max", &Renderer::vol_crop_max)
