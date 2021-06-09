@@ -18,9 +18,7 @@ uniform int bounces;
 uniform int seed;
 uniform int show_environment;
 
-vec3 sanitize(const vec3 data) {
-    return mix(data, vec3(0), isnan(data) || isinf(data));
-}
+vec3 sanitize(const vec3 data) { return mix(data, vec3(0), isnan(data) || isinf(data)); }
 
 //#define USE_TRANSFERFUNC
 
@@ -49,15 +47,17 @@ vec3 trace_path(inout ray_state ray) {
             const float Tr = transmittanceDDA(ray.pos, w_i, ray.seed);
 #endif
             radiance += throughput * weight * f_p * Tr * Li_pdf.rgb / Li_pdf.w;
-            if (ray.n_paths == 0) ray.feature4 = f_p * Tr * Li_pdf.rgb / (Li_pdf.w  * env_strength);
         }
 
         // save features from first bounce
         if (ray.n_paths == 0) {
-            ray.feature1 = (ray.pos - vol_bb_min) / (vol_bb_max - vol_bb_min);
-            ray.feature2 = vol_features;
-            ray.feature3 = radiance;
-            //ray.feature4 = throughput; // albedo and transferfunc
+            ray.feature1 = radiance;
+            ray.feature2 = (ray.pos - vol_bb_min) / (vol_bb_max - vol_bb_min);
+            ray.feature3 = vol_features;
+        }
+        if (ray.n_paths == 1) {
+            ray.feature4.r = 10 * distance(ray.feature2, (ray.pos - vol_bb_min) / (vol_bb_max - vol_bb_min));
+            ray.feature4.g = vol_features.g;
         }
 
         // early out?
@@ -83,7 +83,7 @@ vec3 trace_path(inout ray_state ray) {
         radiance += throughput * weight * Le;
     }
 
-    // check for nan/inf
+    ray.feature4.b = ray.n_paths / 10.f;
     return radiance;
 }
 

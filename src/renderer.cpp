@@ -222,9 +222,10 @@ void Renderer::trace() {
 // ------------------------------------------
 // draw results on screen
 
-void Renderer::draw() {
+void Renderer::draw(uint32_t buffer_idx) {
+    const auto tex = fbo->color_textures[buffer_idx % fbo->color_textures.size()];
     if (tonemapping)
-        tonemap(fbo->color_textures[0], tonemap_exposure, tonemap_gamma);
+        tonemap(tex, tonemap_exposure, tonemap_gamma);
     else
-        blit(fbo->color_textures[0]);
+        blit(tex);
 }

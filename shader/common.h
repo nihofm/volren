@@ -298,8 +298,9 @@ bool sample_volume(const vec3 wpos, const vec3 wdir, out float t, inout vec3 thr
      return false;
 }
 
-// TODO range mipmaps without cutoff
-#define MIP 0
+#define MIP_START 3
+#define MIP_SPEED_UP 0.25
+#define MIP_SPEED_DOWN 2
 
 // perform DDA step on given mip level
 float stepDDA(const vec3 pos, const vec3 ri, const int mip) {
@@ -319,13 +320,14 @@ float transmittanceDDA(const vec3 wpos, const vec3 wdir, inout uint seed) {
     const vec3 idir = (vec3(vol_inv_model * vec4(wdir, 0))); // non-normalized!
     const vec3 ri = 1.f / idir;
     // march brick grid
-    float t = near_far.x + 1e-4f, Tr = 1.f, tau = -log(1.f - rng(seed));
+    float t = near_far.x + 1e-4f, Tr = 1.f, tau = -log(1.f - rng(seed)), mip = MIP_START;
     while (t < near_far.y) {
         const vec3 curr = ipos + t * idir;
-        const float majorant = lookup_majorant(curr, MIP);
-        const float dt = stepDDA(curr, ri, MIP);
+        const float majorant = lookup_majorant(curr, int(round(mip)));
+        const float dt = stepDDA(curr, ri, int(round(mip)));
         t += dt;
         tau -= majorant * dt;
+        mip = min(mip + MIP_SPEED_UP, 3.f);
         if (tau > 0) continue; // no collision, step ahead
         t += tau / majorant; // step back to point of collision
         if (t >= near_far.y) break;
@@ -340,6 +342,7 @@ float transmittanceDDA(const vec3 wpos, const vec3 wdir, inout uint seed) {
             }
         }
         tau = -log(1.f - rng(seed));
+        mip = max(0.f, mip - MIP_SPEED_DOWN);
     }
     return Tr;
 }
@@ -355,13 +358,14 @@ bool sample_volumeDDA(const vec3 wpos, const vec3 wdir, out float t, inout vec3 
     const vec3 ri = 1.f / idir;
     // march brick grid
     t = near_far.x + 1e-4f;
-    float tau = -log(1.f - rng(seed)), Tr = 1.f;
+    float tau = -log(1.f - rng(seed)), Tr = 1.f, mip = MIP_START;
     while (t < near_far.y) {
         const vec3 curr = ipos + t * idir;
-        const float majorant = lookup_majorant(curr, MIP);
-        const float dt = stepDDA(curr, ri, MIP);
+        const float majorant = lookup_majorant(curr, int(round(mip)));
+        const float dt = stepDDA(curr, ri, int(round(mip)));
         t += dt;
         tau -= majorant * dt;
+        mip = min(mip + MIP_SPEED_UP, 3.f);
         if (tau > 0) continue; // no collision, step ahead
         t += tau / majorant; // step back to point of collision
         if (t >= near_far.y) break;
@@ -375,6 +379,7 @@ bool sample_volumeDDA(const vec3 wpos, const vec3 wdir, out float t, inout vec3 
         }
         Tr *= 1.f - d * vol_inv_majorant;
         tau = -log(1.f - rng(seed));
+        mip = max(0.f, mip - MIP_SPEED_DOWN);
     }
     return false;
 }

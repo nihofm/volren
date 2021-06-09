@@ -11,7 +11,7 @@ struct Renderer {
     static void init(uint32_t w = 1920, uint32_t h = 1080, bool vsync = false, bool pinned = false, bool visible = true);
     static void commit();
     static void trace();
-    static void draw();
+    static void draw(uint32_t buffer_idx = 0);
 
     // Settings
     static int sample;

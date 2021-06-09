@@ -19,6 +19,7 @@ namespace py = pybind11;
 // settings
 
 static bool use_vsync = false;
+static int draw_buffer_idx = 0;
 static float shader_check_delay_ms = 1000;
 
 // ------------------------------------------
@@ -135,7 +136,7 @@ void drag_drop_callback(GLFWwindow* window, int path_count, const char* paths[])
 
 void gui_callback(void) {
     const glm::ivec2 size = Context::resolution();
-    ImGui::SetNextWindowPos(ImVec2(size.x-260, 20));
+    ImGui::SetNextWindowPos(ImVec2(size.x-300, 20));
     ImGui::SetNextWindowSize(ImVec2(300, -1));
     if (ImGui::Begin("Stuff", 0, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoBackground | ImGuiWindowFlags_NoFocusOnAppearing)) {
         ImGui::PushStyleVar(ImGuiStyleVar_Alpha, .9f);
@@ -155,6 +156,7 @@ void gui_callback(void) {
         if (ImGui::DragFloat("Exposure", &Renderer::tonemap_exposure, 0.01f))
             Renderer::tonemap_exposure = fmaxf(0.f, Renderer::tonemap_exposure);
         ImGui::DragFloat("Gamma", &Renderer::tonemap_gamma, 0.01f);
+        ImGui::SliderInt("Draw Buffer", &draw_buffer_idx, 0, Renderer::fbo->color_textures.size() - 1);
         ImGui::Separator();
         if (ImGui::DragFloat3("Albedo", &Renderer::volume->albedo.x, 0.01f, 0.f, 1.f)) Renderer::sample = 0;
         if (ImGui::DragFloat("Density scale", &Renderer::volume->density_scale, 0.01f, 0.01f, 1000.f)) Renderer::sample = 0;
@@ -329,7 +331,7 @@ int main(int argc, char** argv) {
 
         // draw
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-        Renderer::draw();
+        Renderer::draw(draw_buffer_idx);
 
         // finish frame
         Context::swap_buffers();
