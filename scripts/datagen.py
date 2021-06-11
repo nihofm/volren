@@ -14,6 +14,7 @@ HEIGHT = 1024
 H5_NAME = 'test'
 ENVPATH = '/home/niko/render-data/envmaps'
 VOLPATH = '/home/niko/render-data/volumetric'
+LUTPATH = '/home/niko/dev/volren/data'
 
 # init renderer
 # Renderer.init(w = WIDTH, h = HEIGHT, vsync=False, pinned=True, visible=False)
@@ -33,6 +34,7 @@ def glob_directory(root, ext='.hdr'):
 
 envmaps = glob_directory(ENVPATH, '.hdr')
 volumes = glob_directory(VOLPATH, '.vdb')
+# luts = glob_directory(LUTPATH, '.txt')
 
 # init h5 datasets
 filename_input = H5_NAME + '_input.h5'
@@ -41,11 +43,11 @@ if os.path.isfile(filename_input): os.remove(filename_input)
 if os.path.isfile(filename_target): os.remove(filename_target)
 file_input = h5py.File(filename_input, 'w')
 datasets_input = []
-datasets_input.append(file_input.create_dataset('color', shape=(N_IMAGES, 3, HEIGHT, WIDTH), dtype=np.float16))
-datasets_input.append(file_input.create_dataset('feature1', shape=(N_IMAGES, 3, HEIGHT, WIDTH), dtype=np.float16))
-datasets_input.append(file_input.create_dataset('feature2', shape=(N_IMAGES, 3, HEIGHT, WIDTH), dtype=np.float16))
-datasets_input.append(file_input.create_dataset('feature3', shape=(N_IMAGES, 3, HEIGHT, WIDTH), dtype=np.float16))
-datasets_input.append(file_input.create_dataset('feature4', shape=(N_IMAGES, 3, HEIGHT, WIDTH), dtype=np.float16))
+for i in range(Renderer.fbo_num_buffers()):
+    if i == 0:
+        datasets_input.append(file_input.create_dataset('color', shape=(N_IMAGES, 3, HEIGHT, WIDTH), dtype=np.float16))
+    else:
+        datasets_input.append(file_input.create_dataset(f'feature{i}', shape=(N_IMAGES, 3, HEIGHT, WIDTH), dtype=np.float16))
 file_target = h5py.File(filename_target, 'w')
 dataset_target = file_target.create_dataset('color', shape=(N_IMAGES, 3, HEIGHT, WIDTH), dtype=np.float16)
 
@@ -57,43 +59,60 @@ def uniform_sample_sphere():
 
 def randomize_parameters():
     params = {}
-    params['samples'] = random.randint(1, 9)
-    params['max_bounces'] = random.randint(1, 128) 
+    params['samples'] = random.randint(1, 8+1)
+    params['max_bounces'] = random.randint(1, 128+1)
     params['seed_input'] = random.randint(0, 2**31) 
     params['seed_target'] = random.randint(0, 2**31) 
-    params['environment'] = Environment(random.choice(envmaps))
-    params['environment'].strength = 0.5 + random.random() * 10
-    params['show_environment'] = random.random() < 0.05
-    params['volume'] = Volume(random.choice(volumes))
-    params['volume'].albedo = vec3(random.random(), random.random(), random.random())
-    params['volume'].phase = -0.9 + (random.random() * 1.8)
-    params['volume'].density_scale = 0.1 + random.random() * 10
-    bb_min, bb_max = params['volume'].AABB()
-    center = bb_min + (bb_max - bb_min) * 0.5
-    radius = (bb_max - center).length()
-    params['cam_pos'] = center + uniform_sample_sphere() * radius
-    target = center + uniform_sample_sphere() * radius * 0.1
-    params['cam_dir'] = (target - params['cam_pos']).normalize()
+    params['env_path'] = random.choice(envmaps)
+    params['env_strength'] = 0.5 + random.random() * 10
+    params['env_show'] = random.random() < 0.05
+    # params['tf_lo'] = vec4(random.random(), random.random(), random.random(), 0.0)
+    # params['tf_hi'] = vec4(random.random(), random.random(), random.random(), 1.0)
+    # params['tf_path'] = random.choice(luts)
+    # params['tf_left'] = random.random() * 0.5
+    # params['tf_width'] = 0.1 + random.random() * 0.9
+    params['vol_path'] = random.choice(volumes)
+    params['vol_albedo'] = vec3(random.random(), random.random(), random.random())
+    params['vol_phase'] = -0.9 + (random.random() * 1.8)
+    params['vol_scale'] = 0.1 + random.random() * 10
+    params['cam_pos_sample'] = uniform_sample_sphere()
+    params['cam_dir_sample'] = uniform_sample_sphere()
     params['cam_fov'] = 25 + (random.random() * 70)
     return params
 
 for i, params in enumerate([randomize_parameters() for i in range(N_IMAGES)]):
     print(f'rendering {i+1}/{N_IMAGES}..')
-    Renderer.volume = params['volume']
-    Renderer.environment = params['environment']
-    Renderer.show_environment = params['show_environment']
-    Renderer.bounces = params['max_bounces']
-    Renderer.cam_pos = params['cam_pos'] 
-    Renderer.cam_dir = params['cam_dir']
+    # load volume
+    Renderer.volume = Volume(params['vol_path'])
+    Renderer.volume.albedo = params['vol_albedo']
+    Renderer.volume.phase = params['vol_phase']
+    Renderer.volume.density_scale = params['vol_scale']
+    # load envmap
+    Renderer.environment = Environment(params['env_path'])
+    Renderer.environment.strength = params['env_strength']
+    Renderer.show_environment = params['env_show']
+    # load transferfunc
+    # Renderer.transferfunc = TransferFunction(params['tf_path'])
+    # Renderer.transferfunc = TransferFunction([params['tf_lo'], params['tf_hi']])
+    # Renderer.transferfunc.window_left = params['tf_left']
+    # Renderer.transferfunc.window_width = params['tf_width']
+    # setup camera
+    bb_min, bb_max = Renderer.volume.AABB()
+    center = bb_min + (bb_max - bb_min) * 0.5
+    radius = (bb_max - center).length()
+    Renderer.cam_pos = center + params['cam_pos_sample'] * radius
+    Renderer.cam_dir = (center + params['cam_dir_sample'] * radius * 0.1 - Renderer.cam_pos).normalize()
     Renderer.cam_fov = params['cam_fov']
     # render noisy
     Renderer.seed = params['seed_input']
+    Renderer.bounces = params['max_bounces']
     Renderer.render(params['samples'])
     for f, dataset in enumerate(datasets_input):
         data = np.flip(np.array(Renderer.fbo_data(f)), axis=0)
         dataset[i] = np.transpose(data.astype(np.float16), [2, 1, 0])
-    # render converged
+    # render converged reference
     Renderer.seed = params['seed_target']
+    Renderer.bounces = 128
     Renderer.render(N_SAMPLES_TARGET)
     data_target = np.flip(np.array(Renderer.fbo_data(0)), axis=0)
     dataset_target[i] = np.transpose(data_target.astype(np.float16), [2, 1, 0])

@@ -4,6 +4,7 @@
 #include <pybind11/embed.h>
 #include <pybind11/operators.h>
 #include <pybind11/numpy.h>
+#include <pybind11/stl.h>
 namespace py = pybind11;
 
 #include <cppgl.h>
@@ -70,6 +71,7 @@ PYBIND11_EMBEDDED_MODULE(volpy, m) {
         .def("load_grid", &voldata::Volume::load_grid)
         .def("current_grid", &voldata::Volume::current_grid)
         .def("AABB", &voldata::Volume::AABB)
+        .def("minorant_majorant", &voldata::Volume::minorant_majorant)
         .def_readwrite("albedo", &voldata::Volume::albedo)
         .def_readwrite("phase", &voldata::Volume::phase)
         .def_readwrite("density_scale", &voldata::Volume::density_scale)

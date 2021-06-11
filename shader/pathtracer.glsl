@@ -81,6 +81,7 @@ vec3 trace_path(inout ray_state ray) {
         const vec3 Le = lookup_environment(ray.dir);
         const float weight = ray.n_paths > 0 ? power_heuristic(f_p, pdf_environment(ray.dir)) : 1.f;
         radiance += throughput * weight * Le;
+        if (ray.n_paths == 0) ray.feature1 = radiance;
     }
 
     ray.feature4.b = ray.n_paths / 10.f;
