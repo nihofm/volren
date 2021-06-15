@@ -20,18 +20,12 @@ uniform int show_environment;
 
 vec3 sanitize(const vec3 data) { return mix(data, vec3(0), isnan(data) || isinf(data)); }
 
-//#define USE_TRANSFERFUNC
-
 vec3 trace_path(inout ray_state ray) {
     // trace path
     vec3 radiance = vec3(0), throughput = vec3(1), vol_features = vec3(0);
     bool free_path = true;
     float t, f_p; // t: end of ray segment (i.e. sampled position or out of volume), f_p: last phase function sample for MIS
-#ifdef USE_TRANSFERFUNC
-    while (sample_volume(ray.pos, ray.dir, t, throughput, ray.seed, vol_features)) {
-#else
     while (sample_volumeDDA(ray.pos, ray.dir, t, throughput, ray.seed, vol_features)) {
-#endif
         // advance ray
         ray.pos = ray.pos + t * ray.dir;
 
@@ -41,11 +35,7 @@ vec3 trace_path(inout ray_state ray) {
         if (Li_pdf.w > 0) {
             f_p = phase_henyey_greenstein(dot(-ray.dir, w_i), vol_phase_g);
             const float weight = power_heuristic(Li_pdf.w, f_p);
-#ifdef USE_TRANSFERFUNC
-            const float Tr = transmittance(ray.pos, w_i, ray.seed);
-#else
             const float Tr = transmittanceDDA(ray.pos, w_i, ray.seed);
-#endif
             radiance += throughput * weight * f_p * Tr * Li_pdf.rgb / Li_pdf.w;
         }
 
