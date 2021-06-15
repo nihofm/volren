@@ -3,7 +3,7 @@
 // Settings
 int Renderer::sample = 0;
 int Renderer::sppx = 1000;
-int Renderer::bounces = 100;
+int Renderer::bounces = 3;
 int Renderer::seed = 42;
 float Renderer::tonemap_exposure = 10.f;
 float Renderer::tonemap_gamma = 2.2f;
