@@ -9,17 +9,12 @@ set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}")
 set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}")
 set(CMAKE_LIBRARY_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}")
 
+# install path options
+SET(CMAKE_INSTALL_RPATH_USE_LINK_PATH TRUE)
+SET(CMAKE_INSTALL_RPATH "${CMAKE_INSTALL_PREFIX}/lib")
+
 # ---------------------------------------------------------------------
 # options
-
-# pytorch (set CMAKE_PREFIX_PATH=/path/to/libtorch)
-option(WITH_TORCH "Enable PyTorch." OFF)
-
-if (WITH_TORCH)
-    add_definitions(-DWITH_TORCH)
-else()
-    add_definitions(-UWITH_TORCH)
-endif()
 
 # ---------------------------------------------------------------------
 # compiler flags
