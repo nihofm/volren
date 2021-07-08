@@ -4,10 +4,11 @@
 #include <cppgl.h>
 #include <glm/glm.hpp>
 
-class EnvironmentImpl {
+class Environment {
 public:
-    EnvironmentImpl(const std::string& name, const Texture2D& envmap);
-    virtual ~EnvironmentImpl();
+    Environment(const std::string& path);
+    Environment(const Texture2D& envmap);
+    virtual ~Environment();
 
     explicit inline operator bool() const  { return envmap->operator bool() && impmap->operator bool(); }
 
@@ -15,10 +16,7 @@ public:
     void set_uniforms(const Shader& shader, uint32_t& texture_unit) const;
 
     // data
-    const std::string name;
     glm::mat3 model;
     float strength;
     Texture2D envmap, impmap;
 };
-
-using Environment = NamedHandle<EnvironmentImpl>;

@@ -2,9 +2,9 @@
 #include <fstream>
 #include <iostream>
 
-TransferFunctionImpl::TransferFunctionImpl(const std::string& name) : name(name), window_left(0), window_width(1) {}
+TransferFunction::TransferFunction() : window_left(0), window_width(1) {}
 
-TransferFunctionImpl::TransferFunctionImpl(const std::string& name, const fs::path& path) : TransferFunctionImpl(name) {
+TransferFunction::TransferFunction(const fs::path& path) : TransferFunction() {
     // load lut from file (format: %f, %f, %f, %f)
     std::ifstream lut_file(path);
     if (!lut_file.is_open())
@@ -19,24 +19,32 @@ TransferFunctionImpl::TransferFunctionImpl(const std::string& name, const fs::pa
     upload_gpu();
 }
 
-TransferFunctionImpl::TransferFunctionImpl(const std::string& name, const std::vector<glm::vec4>& lut) : TransferFunctionImpl(name) {
+TransferFunction::TransferFunction(const std::vector<glm::vec4>& lut) : TransferFunction() {
     this->lut = lut;
     upload_gpu();
 }
 
-TransferFunctionImpl::~TransferFunctionImpl() {}
+TransferFunction::~TransferFunction() {}
 
-void TransferFunctionImpl::set_uniforms(const Shader& shader, uint32_t& texture_unit) const {
+void TransferFunction::set_uniforms(const Shader& shader, uint32_t& texture_unit) const {
     shader->uniform("tf_window_left", window_left);
     shader->uniform("tf_window_width", window_width);
     shader->uniform("tf_texture", texture, texture_unit++);
 }
 
-void TransferFunctionImpl::upload_gpu() {
+void TransferFunction::upload_gpu() {
+    // copy
+    auto lut_cdf = lut;
+    // build density CDF
+    for (uint32_t i = 1; i < lut_cdf.size(); ++i)
+        lut_cdf[i].a += lut_cdf[i-1].a;
+    const float integral = lut_cdf[lut_cdf.size()-1].a;
+    for (uint32_t i = 0; i < lut_cdf.size(); ++i)
+        lut_cdf[i].a = integral == 0.f ? (i+1) / float(lut_cdf.size()) : lut_cdf[i].a / integral;
     // setup GL texture
-    texture = Texture2D("transferfunc_lut", lut.size(), 1, GL_RGBA32F, GL_RGBA, GL_FLOAT, lut.data(), false);
+    texture = Texture2D("transferfunc_lut", lut_cdf.size(), 1, GL_RGBA16F, GL_RGBA, GL_FLOAT, lut_cdf.data(), false);
     texture->bind(0);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_BORDER);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_BORDER);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);//GL_CLAMP_TO_BORDER);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);//GL_CLAMP_TO_BORDER);
     texture->unbind();
 }
