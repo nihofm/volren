@@ -8,7 +8,7 @@ layout (binding = 2, rgba32f) uniform image2D features2;
 layout (binding = 3, rgba32f) uniform image2D features3;
 layout (binding = 4, rgba32f) uniform image2D features4;
 
-#include "common.h"
+#include "common.glsl"
 
 // ---------------------------------------------------
 // path tracing

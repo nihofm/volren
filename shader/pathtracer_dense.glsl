@@ -2,8 +2,6 @@
 
 layout (local_size_x = 16, local_size_y = 16) in;
 
-uniform sampler2D tex_x;
-uniform sampler2D tex_y;
 uniform int current_sample;
 uniform int bounces;
 uniform int seed;
@@ -11,7 +9,7 @@ uniform int show_environment;
 
 layout (binding = 0, rgba32f) uniform image2D color;
 
-#include "common.h"
+#include "common.glsl"
 
 // ---------------------------------------------------
 // helper funcs
@@ -71,9 +69,6 @@ void main() {
 	const ivec2 pixel = ivec2(gl_GlobalInvocationID.xy);
     const ivec2 size = imageSize(color);
     if (any(greaterThanEqual(pixel, size))) return;
-
-    // compute l2 loss gradient between input x and reference y
-    const vec3 l2_grad = 2 * (texelFetch(tex_x, pixel, 0).rgb - texelFetch(tex_y, pixel, 0).rgb);
 
     // setup random seed and camera ray
     uint seed = tea(seed * (pixel.y * size.x + pixel.x), current_sample, 32);

@@ -14,7 +14,7 @@ uniform int bounces;
 uniform int seed;
 uniform int show_environment;
 
-#include "common.h"
+#include "common.glsl"
 
 // ---------------------------------------------------
 // helper funcs
