@@ -1,5 +1,5 @@
-project(vol LANGUAGES C CXX)# CUDA)
 cmake_minimum_required(VERSION 3.10)
+project(vol LANGUAGES CXX CUDA)
 
 # ---------------------------------------------------------------------
 # path management
