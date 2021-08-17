@@ -10,7 +10,7 @@ Environment::Environment(const Texture2D& envmap) :
     model(1),
     strength(1),
     envmap(envmap),
-    impmap("env_importance", DIMENSION, DIMENSION, GL_R32F, GL_RED, GL_FLOAT)
+    impmap(envmap->name + "_importance", DIMENSION, DIMENSION, GL_R32F, GL_RED, GL_FLOAT)
 {
     // build importance map
     static Shader setup_shader = Shader("env_setup", "shader/env_setup.glsl");
@@ -32,8 +32,12 @@ Environment::Environment(const Texture2D& envmap) :
 
 Environment::~Environment() {}
 
-int Environment::num_mip_levels() const {
+uint32_t Environment::num_mip_levels() const {
     return 1 + floor(log2(DIMENSION));
+}
+
+uint32_t Environment::dimension() const {
+    return DIMENSION;
 }
 
 void Environment::set_uniforms(const Shader& shader, uint32_t& texture_unit) const {

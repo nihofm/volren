@@ -12,7 +12,8 @@ public:
 
     explicit inline operator bool() const  { return envmap->operator bool() && impmap->operator bool(); }
 
-    int num_mip_levels() const;
+    uint32_t num_mip_levels() const;
+    uint32_t dimension() const;
     void set_uniforms(const Shader& shader, uint32_t& texture_unit) const;
 
     // data

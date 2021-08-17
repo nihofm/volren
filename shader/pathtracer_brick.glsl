@@ -92,7 +92,7 @@ void main() {
     const vec3 dir = view_dir(pixel, size, rng2(seed));
 
     // trace ray
-    ray_state ray = { pos, 0.f, dir, 9999999.f, pixel, seed, 0, vec3(0), vec3(0), vec3(0), vec3(0) };
+    ray_state ray = { pos, 0.f, dir, 1e+38f, pixel, seed, 0, vec3(0), vec3(0), vec3(0), vec3(0) };
     const vec3 radiance = trace_path(ray);
 
     // write results

@@ -203,12 +203,10 @@ vec3 sample_phase_henyey_greenstein(const vec3 dir, const float g, const vec2 ph
 uniform float tf_window_left;
 uniform float tf_window_width;
 uniform sampler2D tf_texture;
-const ivec2 tf_size = textureSize(tf_texture, 0);
 
 // TODO stochastic lookup filter for transferfunc
 vec4 tf_lookup(float d) {
-    const vec4 lut = texture(tf_texture, vec2((d - tf_window_left) / tf_window_width, 0));
-    return vec4(lut.rgb, lut.a);
+    return texture(tf_texture, vec2((d - tf_window_left) / tf_window_width, 0));
 }
 
 // --------------------------------------------------------------
@@ -218,11 +216,23 @@ uniform mat4 vol_model;
 uniform mat4 vol_inv_model;
 uniform vec3 vol_bb_min;
 uniform vec3 vol_bb_max;
+uniform float vol_minorant;
+uniform float vol_inv_minorant;
 uniform float vol_majorant;
 uniform float vol_inv_majorant;
 uniform vec3 vol_albedo;
 uniform float vol_phase_g;
 uniform float vol_density_scale;
+uniform int vol_grid_type; // 0: brick grid (default), 1: dense grid
+
+// dense grid
+uniform sampler3D vol_dense;
+
+// dense grid voxel lookup
+float lookup_voxel_dense(const vec3 ipos) {
+    return texelFetch(vol_dense, ivec3(floor(ipos)), 0).r;
+    return vol_minorant + texelFetch(vol_dense, ivec3(floor(ipos)), 0).r * (vol_majorant - vol_minorant);
+}
 
 // brick grid
 uniform usampler3D vol_indirection;
@@ -246,9 +256,12 @@ float lookup_majorant(const vec3 ipos, int mip) {
 }
 
 // density lookup
+// TODO better filter on axis-aligned view and high density scale?
 float lookup_density(const vec3 ipos, inout uint seed) {
-    //return vol_density_scale * lookup_voxel_dense(ipos + rng3(seed) - .5f);
-    return vol_density_scale * lookup_voxel_brick(ipos + rng3(seed) - .5f);
+    if (vol_grid_type > 0)
+        return vol_density_scale * lookup_voxel_dense(ipos + rng3(seed) - .5f);
+    else
+        return vol_density_scale * lookup_voxel_brick(ipos + rng3(seed) - .5f);
 }
 
 float transmittance(const vec3 wpos, const vec3 wdir, inout uint seed) {
@@ -262,9 +275,9 @@ float transmittance(const vec3 wpos, const vec3 wdir, inout uint seed) {
     float t = near_far.x, Tr = 1.f;
     while (t < near_far.y) {
         t -= log(1 - rng(seed)) * vol_inv_majorant;
-        Tr *= max(0.f, 1 - tf_lookup(lookup_density(ipos + t * idir, seed) * vol_inv_majorant).a);
+        Tr *= max(0.f, 1 - lookup_density(ipos + t * idir, seed) * vol_inv_majorant);
         // russian roulette
-        if (Tr < 1.f) {
+        if (Tr < .1f) {
             const float prob = 1 - Tr;
             if (rng(seed) < prob) return 0.f;
             Tr /= 1 - prob;
@@ -273,7 +286,7 @@ float transmittance(const vec3 wpos, const vec3 wdir, inout uint seed) {
     return Tr;
 }
 
-bool sample_volume(const vec3 wpos, const vec3 wdir, out float t, inout vec3 throughput, inout uint seed, inout vec3 vol_features) {
+bool sample_volume(const vec3 wpos, const vec3 wdir, out float t, inout vec3 throughput, inout uint seed) {
     // clip volume
     vec2 near_far;
     if (!intersect_box(wpos, wdir, vol_bb_min, vol_bb_max, near_far)) return false;
@@ -282,23 +295,18 @@ bool sample_volume(const vec3 wpos, const vec3 wdir, out float t, inout vec3 thr
     const vec3 idir = vec3(vol_inv_model * vec4(wdir, 0)); // non-normalized!
     // delta tracking
     t = near_far.x;
-    float Tr = 1.f;
-     while (t < near_far.y) {
+    while (t < near_far.y) {
         t -= log(1 - rng(seed)) * vol_inv_majorant;
-        const vec4 rgba = tf_lookup(lookup_density(ipos + t * idir, seed) * vol_inv_majorant);
-        if (rng(seed) < rgba.a) {
-            throughput *= rgba.rgb * vol_albedo;
-            vol_features.r = (t - near_far.x) / (near_far.y - near_far.x);
-            vol_features.g = rgba.a;
-            vol_features.b = Tr;
+        const float d = lookup_density(ipos + t * idir, seed);
+        if (rng(seed) * vol_majorant < d) {
+            throughput *= vol_albedo;
             return true;
         }
-        Tr *= 1.f - rgba.a * vol_inv_majorant;
-     }
-     return false;
+    }
+    return false;
 }
 
-#define USE_TRANSFERFUNC
+//#define USE_TRANSFERFUNC
 #define MIP_START 3
 #define MIP_SPEED_UP 0.25
 #define MIP_SPEED_DOWN 2

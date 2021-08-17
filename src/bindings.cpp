@@ -43,7 +43,6 @@ py::class_<VecT> register_vector_operators(py::class_<VecT>& pyclass) {
         .def(-py::self);
 }
 
-//PYBIND11_MODULE(volpy, m) {
 PYBIND11_EMBEDDED_MODULE(volpy, m) {
 
     // ------------------------------------------------------------
@@ -97,70 +96,68 @@ PYBIND11_EMBEDDED_MODULE(volpy, m) {
     // ------------------------------------------------------------
     // renderer bindings
 
-    py::class_<Renderer>(m, "Renderer")
-        .def_static("init", &Renderer::init,
+    py::class_<RendererOpenGL, std::shared_ptr<RendererOpenGL>>(m, "Renderer") // TODO RendererOpenGL
+        .def(py::init<>())
+        .def_static("initOpenGL", &RendererOpenGL::initOpenGL,
             py::arg("w") = uint32_t(1920), py::arg("h") = uint32_t(1080), py::arg("vsync") = false, py::arg("pinned") = false, py::arg("visible") = false)
-        .def_static("commit", []() {
-            Renderer::commit();
+        .def("init", &Renderer::init)
+        .def("commit", [](const std::shared_ptr<RendererOpenGL>& renderer) {
+            renderer->commit();
             current_camera()->update();
-            Renderer::sample = 0;
-            Renderer::fbo->bind();
+            renderer->sample = 0;
             glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-            Renderer::fbo->unbind();
         })
-        .def_static("trace", &Renderer::trace)
-        .def_static("draw", []() {
+        .def("trace", &RendererOpenGL::trace)
+        .def("draw", [](const std::shared_ptr<RendererOpenGL>& renderer) {
             glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-            Renderer::draw();
+            renderer->draw();
             Context::swap_buffers();
         })
         .def_static("resolution", []() {
             return Context::resolution();
         })
-        .def_static("resize", [](int w, int h) {
+        .def("resize", [](const std::shared_ptr<RendererOpenGL>& renderer, int w, int h) {
             Context::resize(w, h);
+            renderer->resize(w, h);
         })
-        .def_static("render", [](int spp) {
-            Renderer::commit();
+        .def("render", [](const std::shared_ptr<RendererOpenGL>& renderer, int spp) {
+            renderer->commit();
             current_camera()->update();
-            Renderer::sample = 0;
-            Renderer::fbo->bind();
+            renderer->sample = 0;
+            while (renderer->sample < spp)
+                renderer->trace();
             glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-            Renderer::fbo->unbind();
-            while (Renderer::sample < spp)
-                Renderer::trace();
-            glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-            Renderer::draw();
+            renderer->draw();
             Context::swap_buffers();
         })
-        .def_static("fbo_num_buffers", []() { return Renderer::fbo->color_textures.size(); })
-        .def_static("fbo_data", [](uint32_t i = 0) {
-            auto tex = Renderer::fbo->color_textures.at(i);
+        .def("num_buffers", [](const std::shared_ptr<RendererOpenGL>& renderer) { return renderer->textures.size(); })
+        .def("buffer_data", [](const std::shared_ptr<RendererOpenGL>& renderer, uint32_t i = 0) {
+            auto tex = renderer->textures.at(i);
             auto buf = std::make_shared<voldata::Buf3D<float>>(glm::uvec3(tex->w, tex->h, 3));
             glBindTexture(GL_TEXTURE_2D, tex->id);
             glGetTexImage(GL_TEXTURE_2D, 0, GL_RGB, GL_FLOAT, &buf->data[0]);
             glBindTexture(GL_TEXTURE_2D, 0);
             return buf;
         })
-        .def_static("save", [](const std::string& filename = "out.png") {
+        .def("save", [](const std::shared_ptr<RendererOpenGL>& renderer, const std::string& filename = "out.png") {
             Context::screenshot(filename);
         })
-        .def_readwrite_static("volume", &Renderer::volume)
-        .def_readwrite_static("environment", &Renderer::environment)
-        .def_readwrite_static("transferfunc", &Renderer::transferfunc)
+        .def_readwrite("volume", &RendererOpenGL::volume)
+        .def_readwrite("environment", &RendererOpenGL::environment)
+        .def_readwrite("transferfunc", &RendererOpenGL::transferfunc)
         .def_readwrite_static("cam_pos", &current_camera()->pos)
         .def_readwrite_static("cam_dir", &current_camera()->dir)
         .def_readwrite_static("cam_fov", &current_camera()->fov_degree)
-        .def_readwrite_static("sample", &Renderer::sample)
-        .def_readwrite_static("sppx", &Renderer::sppx)
-        .def_readwrite_static("bounces", &Renderer::bounces)
-        .def_readwrite_static("seed", &Renderer::seed)
-        .def_readwrite_static("tonemap_exposure", &Renderer::tonemap_exposure)
-        .def_readwrite_static("tonemap_gamma", &Renderer::tonemap_gamma)
-        .def_readwrite_static("tonemapping", &Renderer::tonemapping)
-        .def_readwrite_static("show_environment", &Renderer::show_environment)
-        .def_readwrite_static("vol_crop_min", &Renderer::vol_crop_min)
-        .def_readwrite_static("vol_crop_max", &Renderer::vol_crop_max)
+        .def_readwrite("sample", &RendererOpenGL::sample)
+        .def_readwrite("sppx", &RendererOpenGL::sppx)
+        .def_readwrite("bounces", &RendererOpenGL::bounces)
+        .def_readwrite("seed", &RendererOpenGL::seed)
+        .def_readwrite("tonemap_exposure", &RendererOpenGL::tonemap_exposure)
+        .def_readwrite("tonemap_gamma", &RendererOpenGL::tonemap_gamma)
+        .def_readwrite("tonemapping", &RendererOpenGL::tonemapping)
+        .def_readwrite("show_environment", &RendererOpenGL::show_environment)
+        .def_readwrite("vol_clip_min", &RendererOpenGL::vol_clip_min)
+        .def_readwrite("vol_clip_max", &RendererOpenGL::vol_clip_max)
         .def_static("shutdown", []() { exit(0); });
 
     // ------------------------------------------------------------
