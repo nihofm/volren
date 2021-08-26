@@ -1,9 +1,9 @@
 #pragma once
 
-#include <voldata.h>
+#include "voldata.h"
 
 // OpenGL includes
-#include <cppgl.h>
+#include "cppgl.h"
 #include "environment.h"
 #include "transferfunc.h"
 
@@ -20,10 +20,12 @@ struct Renderer {
     virtual void draw() = 0;                            // draw result on screen
 
     // Camera data TODO actually use this
+    /*
     glm::vec3 cam_pos = glm::vec3(0, 0, 0);
     glm::vec3 cam_dir = glm::vec3(1, 0, 0);
     glm::vec3 cam_up = glm::vec3(0, 1, 0);
     float cam_fov = 70.f;
+    */
 
     // Volume data
     std::shared_ptr<voldata::Volume> volume;
@@ -60,8 +62,7 @@ struct RendererOpenGL : public Renderer {
 
     // OpenGL data
     Shader trace_shader;
-    int draw_idx = 0;
-    std::vector<Texture2D> textures;
+    Texture2D color;
     Texture3D vol_indirection, vol_range, vol_atlas;
 };
 
@@ -72,20 +73,19 @@ struct BackpropRendererOpenGL : public RendererOpenGL {
     void commit() override;
     void trace(uint32_t spp = 1) override;
     void draw() override;
+    void draw_adjoint();
 
     void trace_prediction(uint32_t spp = 1);
-    void backprop();
+    void radiative_backprop();
     void apply_gradients();
 
     // OpenGL data
-    Texture2D prediction, grad_debug;
-    Shader pred_trace_shader, backprop_shader, apply_shader;
-
-    // Settings
-    bool draw_debug = false;
+    Texture2D prediction, debug_color, radiative_debug;
+    Shader pred_trace_shader, backprop_shader, gradient_apply_shader, debug_shader;
 
     // Optimization target and gradients:
     Texture3D vol_dense, vol_grad;
+    float learning_rate = 0.001f;
 };
 
 // TODO

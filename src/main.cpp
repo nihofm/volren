@@ -28,7 +28,7 @@ inline float4 cast(const glm::vec4& v) { return make_float4(v.x, v.y, v.z, v.w);
 // ------------------------------------------
 // settings
 
-static bool adjoint = false;
+static bool adjoint = false, adjoint_update = false;
 
 static int sppx = 1024;
 static bool use_vsync = true;
@@ -91,6 +91,25 @@ void handle_path(const std::string& path) {
         load_volume(path);
 }
 
+float randf() { return rand() / (RAND_MAX + 1.f); }
+
+glm::vec3 uniform_sample_sphere() {
+    const float z = 1.f - 2.f * randf();
+    const float r = sqrtf(fmaxf(0.f, 1.f - z * z));
+    const float phi = 2.f * M_PI * randf();
+    return glm::vec3(r * cosf(phi), r * sinf(phi), z);
+}
+
+void randomize_camera() {
+    const auto& [bb_min, bb_max] = renderer->volume->AABB();
+    const auto& center = bb_min + (bb_max - bb_min) * .5f;
+    const float radius = glm::length(bb_max - bb_min) * .5f;
+    current_camera()->pos = center + uniform_sample_sphere() * radius;
+    current_camera()->dir = glm::normalize(center + uniform_sample_sphere() * .1f * radius - current_camera()->pos);
+    current_camera()->up = glm::vec3(0, 1, 0);
+    current_camera()->fov_degree = 25 + randf() * 70;
+}
+
 // ------------------------------------------
 // callbacks
 
@@ -117,10 +136,8 @@ void keyboard_callback(int key, int scancode, int action, int mods) {
         renderer->sample = 0;
     }
     if (key == GLFW_KEY_U && action == GLFW_PRESS) {
-        if (adjoint) {
-            renderer->apply_gradients();
-            renderer->sample = 0;
-        }
+        adjoint_update = !adjoint_update;
+        renderer->sample = 0;
     }
     if (key == GLFW_KEY_T && action == GLFW_PRESS)
         renderer->tonemapping = !renderer->tonemapping;
@@ -169,8 +186,11 @@ void gui_callback(void) {
         ImGui::Text("Sample: %i/%i (est: %um, %us)", renderer->sample, sppx, uint32_t(est_ravg) / 60, uint32_t(est_ravg) % 60);
         if (ImGui::InputInt("Sppx", &sppx)) renderer->sample = 0;
         if (ImGui::InputInt("Bounces", &renderer->bounces)) renderer->sample = 0;
-        if (ImGui::Checkbox("Adjoint", &adjoint)) renderer->sample = 0;
         if (ImGui::Checkbox("Vsync", &use_vsync)) Context::set_swap_interval(use_vsync ? 1 : 0);
+        ImGui::Separator();
+        ImGui::DragFloat("Learning rate", &renderer->learning_rate, 0.0001f, 0.f, 1.f);
+        if (ImGui::Checkbox("Adjoint", &adjoint)) renderer->sample = 0;
+        ImGui::Checkbox("Adjoint update", &adjoint_update);
         ImGui::Separator();
         if (ImGui::Checkbox("Environment", &renderer->show_environment)) renderer->sample = 0;
         if (ImGui::DragFloat("Env strength", &renderer->environment->strength, 0.1f)) {
@@ -181,7 +201,6 @@ void gui_callback(void) {
         if (ImGui::DragFloat("Exposure", &renderer->tonemap_exposure, 0.01f))
             renderer->tonemap_exposure = fmaxf(0.f, renderer->tonemap_exposure);
         ImGui::DragFloat("Gamma", &renderer->tonemap_gamma, 0.01f);
-        ImGui::SliderInt("Draw Buffer", &renderer->draw_idx, 0, renderer->textures.size() - 1);
         ImGui::Separator();
         if (ImGui::DragFloat3("Albedo", &renderer->volume->albedo.x, 0.01f, 0.f, 1.f)) renderer->sample = 0;
         if (ImGui::DragFloat("Density scale", &renderer->volume->density_scale, 0.01f, 0.01f, 1000.f)) renderer->sample = 0;
@@ -354,22 +373,28 @@ int main(int argc, char** argv) {
         }
 
         // render sample
-        if (renderer->sample < sppx)
-            renderer->trace();
+        // TODO adjoint logic
+        if (renderer->sample < sppx) {
+            renderer->trace(adjoint ? 4 : 1);
+            if (adjoint) renderer->trace_prediction(4);
+            if (adjoint_update) {
+                renderer->radiative_backprop();
+                renderer->apply_gradients();
+                // TODO draw random camera position
+                randomize_camera();
+                renderer->sample = 0;
+                renderer->seed++;
+            }
+        }
         else
             glfwWaitEventsTimeout(1.f / 10); // 10fps idle
 
-        // TODO backprop logic
-        if (adjoint) {
-            renderer->trace_prediction();
-            renderer->backprop();
-            //renderer->apply_gradients();
-        }
-
         // draw results
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-        renderer->draw_debug = adjoint;
-        renderer->draw();
+        if (adjoint)
+            renderer->draw_adjoint();
+        else
+            renderer->draw();
 
         // finish frame
         Context::swap_buffers();

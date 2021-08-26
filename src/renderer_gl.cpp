@@ -69,20 +69,15 @@ void RendererOpenGL::init() {
     if (!trace_shader)
         trace_shader = Shader("trace brick", "shader/pathtracer_brick.glsl");
 
-    // setup textures
-    if (textures.empty()) {
+    // setup color texture
+    if (!color) {
         const glm::ivec2 res = Context::resolution();
-        textures.push_back(Texture2D("color", res.x, res.y, GL_RGBA32F, GL_RGBA, GL_FLOAT));
-        textures.push_back(Texture2D("features1", res.x, res.y, GL_RGBA32F, GL_RGBA, GL_FLOAT));
-        textures.push_back(Texture2D("features2", res.x, res.y, GL_RGBA32F, GL_RGBA, GL_FLOAT));
-        textures.push_back(Texture2D("features3", res.x, res.y, GL_RGBA32F, GL_RGBA, GL_FLOAT));
-        textures.push_back(Texture2D("features4", res.x, res.y, GL_RGBA32F, GL_RGBA, GL_FLOAT));
+        color = Texture2D("color", res.x, res.y, GL_RGBA32F, GL_RGBA, GL_FLOAT);
     }
 }
 
 void RendererOpenGL::resize(uint32_t w, uint32_t h) {
-    for (auto& tex : textures) 
-        tex->resize(w, h);
+    if (color) color->resize(w, h);
 }
 
 void RendererOpenGL::commit() {
@@ -156,8 +151,7 @@ void RendererOpenGL::commit() {
 void RendererOpenGL::trace(uint32_t spp) {
     // bind
     trace_shader->bind();
-    for (uint32_t i = 0; i < textures.size(); ++i)
-        textures[i]->bind_image(i, GL_READ_WRITE, GL_RGBA32F);
+    color->bind_image(0, GL_READ_WRITE, GL_RGBA32F);
 
     // uniforms
     uint32_t tex_unit = 0;
@@ -208,19 +202,16 @@ void RendererOpenGL::trace(uint32_t spp) {
     }
 
     // unbind
-    for (uint32_t i = 0; i < textures.size(); ++i)
-        textures[i]->unbind_image(i);
+    color->unbind_image(0);
     trace_shader->unbind();
-    glMemoryBarrier(GL_SHADER_IMAGE_ACCESS_BARRIER_BIT); // TODO this required?
 }
 
 void RendererOpenGL::draw() {
-    if (textures.empty()) return;
-    const auto tex = textures[draw_idx % textures.size()];
+    if (!color) return;
     if (tonemapping)
-        tonemap(tex, tonemap_exposure, tonemap_gamma);
+        tonemap(color, tonemap_exposure, tonemap_gamma);
     else
-        blit(tex);
+        blit(color);
 }
 
 // -----------------------------------------------------------
@@ -233,22 +224,27 @@ void BackpropRendererOpenGL::init() {
     const glm::ivec2 res = Context::resolution();
     if (!prediction)
         prediction = Texture2D("prediction", res.x, res.y, GL_RGBA32F, GL_RGBA, GL_FLOAT);
-    if (!grad_debug)
-        grad_debug = Texture2D("backprop grad", res.x, res.y, GL_RGBA32F, GL_RGBA, GL_FLOAT);
+    if (!debug_color)
+        debug_color = Texture2D("grad debug", res.x, res.y, GL_RGBA32F, GL_RGBA, GL_FLOAT);
+    if (!radiative_debug)
+        radiative_debug = Texture2D("grad debug2", res.x, res.y, GL_RGBA32F, GL_RGBA, GL_FLOAT);
 
     // compile shaders
     if (!pred_trace_shader)
         pred_trace_shader = Shader("trace dense", "shader/pathtracer_dense.glsl");
     if (!backprop_shader)
-        backprop_shader = Shader("backprop", "shader/backprop.glsl");
-    if (!apply_shader)
-        apply_shader = Shader("apply gradients", "shader/apply_gradients.glsl");
+        backprop_shader = Shader("backprop", "shader/radiative_backprop.glsl");
+    if (!gradient_apply_shader)
+        gradient_apply_shader = Shader("apply gradients", "shader/apply_gradients.glsl");
+    if (!debug_shader)
+        debug_shader = Shader("adjoint debug", "shader/adjoint_debug.glsl");
 }
 
 void BackpropRendererOpenGL::resize(uint32_t w, uint32_t h) {
     RendererOpenGL::resize(w, h);
     if (prediction) prediction->resize(w, h);
-    if (grad_debug) grad_debug->resize(w, h);
+    if (debug_color) debug_color->resize(w, h);
+    if (radiative_debug) radiative_debug->resize(w, h);
 }
 
 void BackpropRendererOpenGL::commit() {
@@ -269,8 +265,8 @@ void BackpropRendererOpenGL::commit() {
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_R, GL_CLAMP_TO_EDGE);
-    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);//GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);//GL_NEAREST);
     vol_dense->unbind();
     // upload dense texture
     const auto grad = std::vector<float>(n_voxels.x * n_voxels.y * n_voxels.z, 0.f);
@@ -324,7 +320,7 @@ void BackpropRendererOpenGL::trace_prediction(uint32_t spp) {
     pred_trace_shader->uniform("vol_albedo", volume->albedo);
     pred_trace_shader->uniform("vol_phase_g", volume->phase);
     pred_trace_shader->uniform("vol_density_scale", volume->density_scale);
-    // brick grid data
+    // dense grid data
     pred_trace_shader->uniform("vol_grid_type", 1);
     if (vol_dense) pred_trace_shader->uniform("vol_dense", vol_dense, tex_unit++);
     // transfer function
@@ -350,16 +346,15 @@ void BackpropRendererOpenGL::trace_prediction(uint32_t spp) {
     // unbind
     prediction->unbind_image(0);
     pred_trace_shader->unbind();
-    glMemoryBarrier(GL_SHADER_IMAGE_ACCESS_BARRIER_BIT); // TODO this required?
 }
 
-void BackpropRendererOpenGL::backprop() {
+void BackpropRendererOpenGL::radiative_backprop() {
     // bind
     backprop_shader->bind();
     prediction->bind_image(0, GL_READ_ONLY, GL_RGBA32F);
-    textures[0]->bind_image(1, GL_READ_ONLY, GL_RGBA32F);
+    color->bind_image(1, GL_READ_ONLY, GL_RGBA32F);
     vol_grad->bind_image(2, GL_READ_WRITE, GL_R32F);
-    grad_debug->bind_image(3, GL_WRITE_ONLY, GL_RGBA32F);
+    radiative_debug->bind_image(3, GL_WRITE_ONLY, GL_RGBA32F);
 
     // uniforms
     uint32_t tex_unit = 0;
@@ -384,7 +379,7 @@ void BackpropRendererOpenGL::backprop() {
     backprop_shader->uniform("vol_albedo", volume->albedo);
     backprop_shader->uniform("vol_phase_g", volume->phase);
     backprop_shader->uniform("vol_density_scale", volume->density_scale);
-    // brick grid data
+    // dense grid data
     backprop_shader->uniform("vol_grid_type", 1);
     if (vol_dense) backprop_shader->uniform("vol_dense", vol_dense, tex_unit++);
     // transfer function
@@ -406,36 +401,56 @@ void BackpropRendererOpenGL::backprop() {
     backprop_shader->dispatch_compute(res.x, res.y);
 
     // unbind
-    grad_debug->unbind_image(3);
+    radiative_debug->unbind_image(3);
     vol_grad->unbind_image(2);
-    textures[0]->unbind_image(1);
+    color->unbind_image(1);
     prediction->unbind_image(0);
     backprop_shader->unbind();
 }
 
 void BackpropRendererOpenGL::apply_gradients() {
     // TODO optimization step
-    apply_shader->bind();
+    gradient_apply_shader->bind();
     vol_dense->bind_image(0, GL_READ_WRITE, GL_R32F);
     vol_grad->bind_image(1, GL_READ_WRITE, GL_R32F);
 
-    apply_shader->uniform("learning_rate", 0.01f); // TODO
+    gradient_apply_shader->uniform("learning_rate", learning_rate);
     const auto [min, maj] = volume->minorant_majorant();
-    apply_shader->uniform("vol_majorant", maj);
-    apply_shader->uniform("size", glm::ivec3(vol_dense->w, vol_dense->h, vol_dense->d));
-    apply_shader->dispatch_compute(vol_dense->w, vol_dense->h, vol_dense->d);
+    gradient_apply_shader->uniform("vol_majorant", maj);
+    gradient_apply_shader->uniform("size", glm::ivec3(vol_dense->w, vol_dense->h, vol_dense->d));
+    gradient_apply_shader->dispatch_compute(vol_dense->w, vol_dense->h, vol_dense->d);
 
     vol_grad->unbind_image(1);
     vol_dense->unbind_image(0);
-    apply_shader->unbind();
+    gradient_apply_shader->unbind();
+}
+
+void BackpropRendererOpenGL::draw_adjoint() {
+    // bind
+    debug_shader->bind();
+    prediction->bind_image(0, GL_READ_ONLY, GL_RGBA32F);
+    color->bind_image(1, GL_READ_ONLY, GL_RGBA32F);
+    debug_color->bind_image(2, GL_WRITE_ONLY, GL_RGBA32F);
+    radiative_debug->bind_image(3, GL_READ_ONLY, GL_RGBA32F);
+
+    // run
+    const glm::ivec2 res = Context::resolution();
+    debug_shader->dispatch_compute(res.x, res.y);
+
+    // unbind
+    radiative_debug->unbind_image(3);
+    debug_color->unbind_image(2);
+    color->unbind_image(1);
+    prediction->unbind_image(0);
+    debug_shader->unbind();
+
+    // draw
+    if (tonemapping)
+        tonemap(debug_color, tonemap_exposure, tonemap_gamma);
+    else
+        blit(debug_color);
 }
 
 void BackpropRendererOpenGL::draw() {
-    if (draw_debug) {
-        if (tonemapping)
-            tonemap(grad_debug, tonemap_exposure, tonemap_gamma);
-        else
-            blit(grad_debug);
-    } else
-        RendererOpenGL::draw();
+    RendererOpenGL::draw();
 }

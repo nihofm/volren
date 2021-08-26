@@ -77,6 +77,7 @@ void main() {
 
     // trace ray
     const vec3 radiance = trace_path(pos, dir, seed);
+    // const vec3 radiance = vec3(transmittance(pos, dir, seed)); // TODO debug
 
     // write output
     imageStore(color, pixel, vec4(mix(imageLoad(color, pixel).rgb, sanitize(radiance), 1.f / current_sample), 1));

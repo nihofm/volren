@@ -9,10 +9,6 @@ struct ray_state {
     ivec2 pixel;
     uint seed;
     uint n_paths;
-    vec3 feature1;
-    vec3 feature2;
-    vec3 feature3;
-    vec3 feature4;
 };
 
 // --------------------------------------------------------------
@@ -230,6 +226,7 @@ uniform sampler3D vol_dense;
 
 // dense grid voxel lookup
 float lookup_voxel_dense(const vec3 ipos) {
+    return texture(vol_dense, ipos / vec3(textureSize(vol_dense, 0))).r;
     return texelFetch(vol_dense, ivec3(floor(ipos)), 0).r;
     return vol_minorant + texelFetch(vol_dense, ivec3(floor(ipos)), 0).r * (vol_majorant - vol_minorant);
 }
@@ -271,19 +268,21 @@ float transmittance(const vec3 wpos, const vec3 wdir, inout uint seed) {
     // to index-space
     const vec3 ipos = vec3(vol_inv_model * vec4(wpos, 1));
     const vec3 idir = vec3(vol_inv_model * vec4(wdir, 0)); // non-normalized!
-    // ratio tracking
-    float t = near_far.x, Tr = 1.f;
-    while (t < near_far.y) {
-        t -= log(1 - rng(seed)) * vol_inv_majorant;
-        Tr *= max(0.f, 1 - lookup_density(ipos + t * idir, seed) * vol_inv_majorant);
-        // russian roulette
-        if (Tr < .1f) {
-            const float prob = 1 - Tr;
-            if (rng(seed) < prob) return 0.f;
-            Tr /= 1 - prob;
+    {
+        // ratio tracking
+        float t = near_far.x, Tr = 1.f;
+        while (t < near_far.y) {
+            t -= log(1 - rng(seed)) * vol_inv_majorant;
+            Tr *= max(0.f, 1 - lookup_density(ipos + t * idir, seed) * vol_inv_majorant);
+            // russian roulette
+            if (Tr < .1f) {
+                const float prob = 1 - Tr;
+                if (rng(seed) < prob) return 0.f;
+                Tr /= 1 - prob;
+            }
         }
+        return Tr;
     }
-    return Tr;
 }
 
 bool sample_volume(const vec3 wpos, const vec3 wdir, out float t, inout vec3 throughput, inout uint seed) {
@@ -294,16 +293,18 @@ bool sample_volume(const vec3 wpos, const vec3 wdir, out float t, inout vec3 thr
     const vec3 ipos = vec3(vol_inv_model * vec4(wpos, 1));
     const vec3 idir = vec3(vol_inv_model * vec4(wdir, 0)); // non-normalized!
     // delta tracking
-    t = near_far.x;
-    while (t < near_far.y) {
-        t -= log(1 - rng(seed)) * vol_inv_majorant;
-        const float d = lookup_density(ipos + t * idir, seed);
-        if (rng(seed) * vol_majorant < d) {
-            throughput *= vol_albedo;
-            return true;
+    {
+        t = near_far.x;
+        while (t < near_far.y) {
+            t -= log(1 - rng(seed)) * vol_inv_majorant;
+            const float d = lookup_density(ipos + t * idir, seed);
+            if (rng(seed) * vol_majorant < d) {
+                throughput *= vol_albedo;
+                return true;
+            }
         }
+        return false;
     }
-    return false;
 }
 
 //#define USE_TRANSFERFUNC
@@ -366,7 +367,7 @@ float transmittanceDDA(const vec3 wpos, const vec3 wdir, inout uint seed) {
 }
 
 // DDA-based volume sampling
-bool sample_volumeDDA(const vec3 wpos, const vec3 wdir, out float t, inout vec3 throughput, inout uint seed, inout vec3 vol_features) {
+bool sample_volumeDDA(const vec3 wpos, const vec3 wdir, out float t, inout vec3 throughput, inout uint seed) {
     // clip volume
     vec2 near_far;
     if (!intersect_box(wpos, wdir, vol_bb_min, vol_bb_max, near_far)) return false;
@@ -376,7 +377,7 @@ bool sample_volumeDDA(const vec3 wpos, const vec3 wdir, out float t, inout vec3 
     const vec3 ri = 1.f / idir;
     // march brick grid
     t = near_far.x + 1e-4f;
-    float tau = -log(1.f - rng(seed)), Tr = 1.f, mip = MIP_START;
+    float tau = -log(1.f - rng(seed)), mip = MIP_START;
     while (t < near_far.y) {
         const vec3 curr = ipos + t * idir;
 #ifdef USE_TRANSFERFUNC
@@ -391,7 +392,7 @@ bool sample_volumeDDA(const vec3 wpos, const vec3 wdir, out float t, inout vec3 
         if (tau > 0) continue; // no collision, step ahead
         t += tau / majorant; // step back to point of collision
         if (t >= near_far.y) break;
-#ifdef USE_TRANSFERFUNC
+#ifdef USE_TRANSFERFUNC 
         const vec4 rgba = tf_lookup(lookup_density(ipos + t * idir, seed) * vol_inv_majorant);
         const float d = vol_majorant * rgba.a;
 #else
@@ -402,12 +403,8 @@ bool sample_volumeDDA(const vec3 wpos, const vec3 wdir, out float t, inout vec3 
 #ifdef USE_TRANSFERFUNC
             throughput *= rgba.rgb;
 #endif
-            vol_features.r = (t - near_far.x) / (near_far.y - near_far.x);
-            vol_features.g = d * vol_inv_majorant;
-            vol_features.b = Tr;
             return true;
         }
-        Tr *= 1.f - d * vol_inv_majorant;
         tau = -log(1.f - rng(seed));
         mip = max(0.f, mip - MIP_SPEED_DOWN);
     }

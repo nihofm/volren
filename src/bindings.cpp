@@ -130,9 +130,8 @@ PYBIND11_EMBEDDED_MODULE(volpy, m) {
             renderer->draw();
             Context::swap_buffers();
         })
-        .def("num_buffers", [](const std::shared_ptr<RendererOpenGL>& renderer) { return renderer->textures.size(); })
-        .def("buffer_data", [](const std::shared_ptr<RendererOpenGL>& renderer, uint32_t i = 0) {
-            auto tex = renderer->textures.at(i);
+        .def("data", [](const std::shared_ptr<RendererOpenGL>& renderer) {
+            auto tex = renderer->color;
             auto buf = std::make_shared<voldata::Buf3D<float>>(glm::uvec3(tex->w, tex->h, 3));
             glBindTexture(GL_TEXTURE_2D, tex->id);
             glGetTexImage(GL_TEXTURE_2D, 0, GL_RGB, GL_FLOAT, &buf->data[0]);
