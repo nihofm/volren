@@ -38,11 +38,11 @@ void main() {
             out_col = abs(l2_grad);
         } else {                    // bottom right
             const ivec2 pixel_adj = ivec2((pixel.x - size.x / 2) * 2, pixel.y * 2);
-            out_col = imageLoad(color_debug, pixel_adj).rgb;
-            // const vec3 col_adj = imageLoad(color_adjoint, pixel_adj).rgb;
-            // const vec3 col_ref = imageLoad(color_reference, pixel_adj).rgb;
-            // const vec3 l2_grad = 2 * (col_adj - col_ref);
-            // out_col = visualize_grad(sum(l2_grad));
+            const vec3 col_adj = imageLoad(color_adjoint, pixel_adj).rgb;
+            const vec3 col_ref = imageLoad(color_reference, pixel_adj).rgb;
+            const vec3 l2_grad = 2 * (col_adj - col_ref);
+            out_col = visualize_grad(sum(l2_grad));
+            // out_col = imageLoad(color_debug, pixel_adj).rgb;
         }
     } else {
         if (pixel.x < size.x / 2) { // top left

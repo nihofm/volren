@@ -107,7 +107,7 @@ void randomize_camera() {
     current_camera()->pos = center + uniform_sample_sphere() * radius;
     current_camera()->dir = glm::normalize(center + uniform_sample_sphere() * .1f * radius - current_camera()->pos);
     current_camera()->up = glm::vec3(0, 1, 0);
-    current_camera()->fov_degree = 25 + randf() * 70;
+    current_camera()->fov_degree = 40 + randf() * 60;
 }
 
 // ------------------------------------------
