@@ -20,8 +20,8 @@ void main() {
 
     // gradient descent
     const float x = imageLoad(volume, gid).x;
-    const float dx = imageLoad(gradients, gid).x;
-    const float y = clamp(x - learning_rate * sign(dx), 0.f, vol_majorant);
+    const float dx = clamp(imageLoad(gradients, gid).x, -1, 1);
+    const float y = clamp(x - learning_rate * dx, 0.f, vol_majorant);
 
     // write updated grid and zero gradients
     imageStore(volume, gid, vec4(y));
