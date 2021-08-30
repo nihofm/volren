@@ -101,6 +101,16 @@ PYBIND11_EMBEDDED_MODULE(volpy, m) {
         .def_static("initOpenGL", &RendererOpenGL::initOpenGL,
             py::arg("w") = uint32_t(1920), py::arg("h") = uint32_t(1080), py::arg("vsync") = false, py::arg("pinned") = false, py::arg("visible") = false)
         .def("init", &Renderer::init)
+        .def("set_floating", [](const std::shared_ptr<RendererOpenGL>& renderer, bool value = true) {
+            Context::set_attribute(GLFW_FLOATING, value);
+        })
+        .def("set_resizable", [](const std::shared_ptr<RendererOpenGL>& renderer, bool value = true) {
+            Context::set_attribute(GLFW_RESIZABLE, value);
+        })
+        .def("resize", [](const std::shared_ptr<RendererOpenGL>& renderer, int w, int h) {
+            Context::resize(w, h);
+            renderer->resize(w, h);
+        })
         .def("commit", [](const std::shared_ptr<RendererOpenGL>& renderer) {
             renderer->commit();
             current_camera()->update();
@@ -108,6 +118,13 @@ PYBIND11_EMBEDDED_MODULE(volpy, m) {
             glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
         })
         .def("trace", &RendererOpenGL::trace)
+        .def("render", [](const std::shared_ptr<RendererOpenGL>& renderer, int spp) {
+            renderer->commit();
+            current_camera()->update();
+            renderer->sample = 0;
+            while (renderer->sample < spp)
+                renderer->trace();
+        })
         .def("draw", [](const std::shared_ptr<RendererOpenGL>& renderer) {
             glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
             renderer->draw();
@@ -116,21 +133,7 @@ PYBIND11_EMBEDDED_MODULE(volpy, m) {
         .def_static("resolution", []() {
             return Context::resolution();
         })
-        .def("resize", [](const std::shared_ptr<RendererOpenGL>& renderer, int w, int h) {
-            Context::resize(w, h);
-            renderer->resize(w, h);
-        })
-        .def("render", [](const std::shared_ptr<RendererOpenGL>& renderer, int spp) {
-            renderer->commit();
-            current_camera()->update();
-            renderer->sample = 0;
-            while (renderer->sample < spp)
-                renderer->trace();
-            glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-            renderer->draw();
-            Context::swap_buffers();
-        })
-        .def("data", [](const std::shared_ptr<RendererOpenGL>& renderer) {
+        .def("fbo_data", [](const std::shared_ptr<RendererOpenGL>& renderer) {
             auto tex = renderer->color;
             auto buf = std::make_shared<voldata::Buf3D<float>>(glm::uvec3(tex->w, tex->h, 3));
             glBindTexture(GL_TEXTURE_2D, tex->id);
