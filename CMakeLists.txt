@@ -38,6 +38,8 @@ include_directories(submodules/voldata/src)
 
 add_subdirectory(submodules/pybind11)
 
+include_directories(submodules/optix/include)
+
 # ---------------------------------------------------------------------
 # install shaders
 

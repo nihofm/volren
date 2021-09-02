@@ -1,6 +1,5 @@
-#pragma once
-
 #include "common.cuh"
+#include <cuda_gl_interop.h>
 
 template <typename T> class BufferCUDAGL {
 public:

@@ -30,25 +30,26 @@ void main() {
     
     vec3 out_col;
     if (pixel.y < size.y / 2) {
-        if (pixel.x < size.x / 2) { // bottom left
+        if (pixel.x < size.x / 2) { // bottom left: l2_grad
             const ivec2 pixel_adj = ivec2(pixel.x * 2, pixel.y * 2);
             const vec3 col_adj = imageLoad(color_adjoint, pixel_adj).rgb;
             const vec3 col_ref = imageLoad(color_reference, pixel_adj).rgb;
             const vec3 l2_grad = 2 * (col_adj - col_ref);
-            out_col = abs(l2_grad);
-        } else {                    // bottom right
-            const ivec2 pixel_adj = ivec2((pixel.x - size.x / 2) * 2, pixel.y * 2);
-            const vec3 col_adj = imageLoad(color_adjoint, pixel_adj).rgb;
-            const vec3 col_ref = imageLoad(color_reference, pixel_adj).rgb;
-            const vec3 l2_grad = 2 * (col_adj - col_ref);
+            // out_col = abs(l2_grad);
             out_col = visualize_grad(sum(l2_grad));
-            // out_col = imageLoad(color_debug, pixel_adj).rgb;
+        } else {                    // bottom right: diff randiance
+            const ivec2 pixel_adj = ivec2((pixel.x - size.x / 2) * 2, pixel.y * 2);
+            // const vec3 col_adj = imageLoad(color_adjoint, pixel_adj).rgb;
+            // const vec3 col_ref = imageLoad(color_reference, pixel_adj).rgb;
+            // const vec3 l2_grad = 2 * (col_adj - col_ref);
+            // out_col = visualize_grad(sum(l2_grad));
+            out_col = visualize_grad(mean(imageLoad(color_debug, pixel_adj).rgb));
         }
     } else {
-        if (pixel.x < size.x / 2) { // top left
+        if (pixel.x < size.x / 2) { // top left: prediction
             const ivec2 pixel_adj = ivec2(pixel.x * 2, (pixel.y - size.y / 2) * 2);
             out_col = imageLoad(color_adjoint, pixel_adj).rgb;
-        } else {                    // top right
+        } else {                    // top right: reference
             const ivec2 pixel_adj = ivec2((pixel.x - size.x / 2) * 2, (pixel.y - size.y / 2) * 2);
             out_col = imageLoad(color_reference, pixel_adj).rgb;
         }

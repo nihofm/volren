@@ -21,6 +21,7 @@ void main() {
     // gradient descent
     const float x = imageLoad(volume, gid).x;
     const float dx = clamp(imageLoad(gradients, gid).x, -1, 1);
+    // TODO adam optimizer
     const float y = clamp(x - learning_rate * dx, 0.f, vol_majorant);
 
     // write updated grid and zero gradients

@@ -1,13 +1,25 @@
 #pragma once
 
+#include <string>
 #include <iostream>
 #include <cuda_runtime.h>
-#include <cuda_gl_interop.h>
+#include <optix.h>
+
+// ------------------------------------------
+// error checking helpers
 
 #define cudaCheckError(code) { _cudaCheckError(code, __FILE__, __LINE__); }
 inline void _cudaCheckError(cudaError_t code, const char* file, int line, bool abort=true) {
     if (code != cudaSuccess) {
         fprintf(stderr, "%s:%d: CUDA error: '%s'\n", file, line, cudaGetErrorString(code));
+        if (abort) exit(code);
+    }
+}
+
+#define optixCheckError(code) { _optixCheckError(code, __FILE__, __LINE__); }
+inline void _optixCheckError(OptixResult code, const char* file, int line, bool abort=true) {
+    if (code != OPTIX_SUCCESS) {
+        fprintf(stderr, "%s:%d: OPTIX error: '%i'\n", file, line, uint32_t(code));
         if (abort) exit(code);
     }
 }

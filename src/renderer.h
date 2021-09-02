@@ -8,8 +8,9 @@
 #include "transferfunc.h"
 
 // CUDA includes
-#include "cuda/gl.cuh"
 #include "cuda/common.cuh"
+#include "cuda/gl.cuh"
+#include <optix.h>
 
 struct Renderer {
     // Renderer interface
@@ -44,6 +45,7 @@ struct Renderer {
     float tonemap_gamma = 2.2f;
     bool tonemapping = true;
     bool show_environment = true;
+    float raymarch_step_size = 0.1f;
 };
 
 
@@ -88,13 +90,19 @@ struct BackpropRendererOpenGL : public RendererOpenGL {
     float learning_rate = 0.001f;
 };
 
-// TODO
-struct RendererCUDA : public Renderer {
+// TODO CUDA
+struct RendererOptix : public Renderer {
+    static void initOptix();
+
     void init();
     void resize(uint32_t w, uint32_t h);
     void commit();
     void trace(uint32_t spp = 1);
     void draw();
+
+    // Optix data
+    OptixDeviceContext context;
+    OptixModule module;
 
     // CUDA data
     BufferCUDAGL<float4> fbo;

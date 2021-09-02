@@ -19,7 +19,6 @@ namespace py = pybind11;
 // CUDA
 
 #include "cuda/common.cuh"
-#include "cuda/gl.cuh"
 
 inline float2 cast(const glm::vec2& v) { return make_float2(v.x, v.y); }
 inline float3 cast(const glm::vec3& v) { return make_float3(v.x, v.y, v.z); }
@@ -100,7 +99,8 @@ glm::vec3 uniform_sample_sphere() {
     return glm::vec3(r * cosf(phi), r * sinf(phi), z);
 }
 
-void randomize_camera() {
+void randomize_parameters() {
+    // randomize camera
     const auto& [bb_min, bb_max] = renderer->volume->AABB();
     const auto& center = bb_min + (bb_max - bb_min) * .5f;
     const float radius = glm::length(bb_max - bb_min) * .5f;
@@ -108,6 +108,8 @@ void randomize_camera() {
     current_camera()->dir = glm::normalize(center + uniform_sample_sphere() * .1f * radius - current_camera()->pos);
     current_camera()->up = glm::vec3(0, 1, 0);
     current_camera()->fov_degree = 40 + randf() * 60;
+    // randomize volume
+    renderer->volume->density_scale = 0.01 + randf() * 2.f;
 }
 
 // ------------------------------------------
@@ -188,7 +190,8 @@ void gui_callback(void) {
         if (ImGui::InputInt("Bounces", &renderer->bounces)) renderer->sample = 0;
         if (ImGui::Checkbox("Vsync", &use_vsync)) Context::set_swap_interval(use_vsync ? 1 : 0);
         ImGui::Separator();
-        ImGui::DragFloat("Learning rate", &renderer->learning_rate, 0.0001f, 0.f, 1.f);
+        ImGui::DragFloat("Step size", &renderer->raymarch_step_size, 0.01f, 0.01f, 10.f);
+        ImGui::DragFloat("Learning rate", &renderer->learning_rate, 0.0001f, 0.0001f, 1.f);
         if (ImGui::Checkbox("Adjoint", &adjoint)) renderer->sample = 0;
         ImGui::Checkbox("Adjoint update", &adjoint_update);
         ImGui::Separator();
@@ -329,6 +332,12 @@ int main(int argc, char** argv) {
     // explicitly initialize OpenGL
     RendererOpenGL::initOpenGL(1920, 1080, use_vsync, /*pinned = */false, /*visible = */true);
 
+    // XXX DEBUG test CUDA renderer
+    {
+        auto test = std::make_shared<RendererOptix>();
+        //test->init();
+    }
+
     // initialize the renderer(s)
     renderer = std::make_shared<BackpropRendererOpenGL>();
     renderer->init();
@@ -375,18 +384,18 @@ int main(int argc, char** argv) {
         // render sample
         // TODO adjoint logic
         if (renderer->sample < sppx) {
-            renderer->trace(adjoint ? 4 : 1);
-            if (adjoint) renderer->trace_prediction(4);
-            if (adjoint_update) {
+            renderer->trace();
+            if (adjoint) {
+                renderer->trace_prediction();
                 renderer->radiative_backprop();
-                renderer->apply_gradients();
-                // TODO draw random camera position
-                randomize_camera();
-                renderer->sample = 0;
-                renderer->seed++;
             }
         }
-        else
+        else if (adjoint_update) {
+            renderer->apply_gradients();
+            renderer->sample = 0;
+            renderer->seed++;
+            randomize_parameters();
+        } else
             glfwWaitEventsTimeout(1.f / 10); // 10fps idle
 
         // draw results

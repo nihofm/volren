@@ -18,6 +18,7 @@ struct ray_state {
 #define inv_PI (1.f / M_PI)
 #define inv_2PI (1.f / (2 * M_PI))
 #define inv_4PI (1.f / (4 * M_PI))
+#define FLT_MAX float(3.402823466e+38)
 
 float sqr(float x) { return x * x; }
 
@@ -219,6 +220,7 @@ uniform float vol_inv_majorant;
 uniform vec3 vol_albedo;
 uniform float vol_phase_g;
 uniform float vol_density_scale;
+uniform float vol_step_size;
 uniform int vol_grid_type; // 0: brick grid (default), 1: dense grid
 
 // dense grid
@@ -261,6 +263,58 @@ float lookup_density(const vec3 ipos, inout uint seed) {
         return vol_density_scale * lookup_voxel_brick(ipos + rng3(seed) - .5f);
 }
 
+// ---------------------------------
+// ray marching based methods
+
+float integrate_density(const vec3 ipos, const vec3 idir, const vec2 near_far, inout uint seed, out float last_interpolant) {
+    const int steps = 1 + int(ceil((near_far.y - near_far.x) / vol_step_size));
+    // const int steps = 32;
+    // const float dt = (near_far.y - near_far.x) / float(steps);
+    float t0 = near_far.x + rng(seed) * vol_step_size, tau = 0.f;
+    // first step
+    float last_value = lookup_density(ipos + t0 * idir, seed); // TODO extinction coef?
+    // integrate density
+    for (int i = 1; i < steps; ++i) {
+        const ivec3 curr_pos = ivec3(ipos + min(t0 + i * vol_step_size, near_far.y) * idir);
+        const float curr_value = lookup_density(curr_pos, seed); // TODO extinction coef?
+        last_interpolant = .5f * (last_value + curr_value);
+        tau += last_interpolant * vol_step_size;
+        last_value = curr_value;
+    }
+    return tau;
+}
+
+float integrate_density(const vec3 ipos, const vec3 idir, const vec2 near_far, inout uint seed) {
+    float dummy;
+    return integrate_density(ipos, idir, near_far, seed, dummy);
+}
+
+float transmittance_raymarch(const vec3 wpos, const vec3 wdir, inout uint seed, const float t_max = FLT_MAX) {
+    vec2 near_far;
+    if (!intersect_box(wpos, wdir, vol_bb_min, vol_bb_max, near_far)) return 1.f;
+    near_far.y = min(near_far.y, t_max);
+    // to index-space
+    const vec3 ipos = vec3(vol_inv_model * vec4(wpos, 1));
+    const vec3 idir = vec3(vol_inv_model * vec4(wdir, 0)); // non-normalized!
+    const float tau = integrate_density(ipos, idir, near_far, seed);
+    return exp(-tau);
+}
+
+float distance_pdf(const vec3 wpos, const vec3 wdir, inout uint seed, const float t) {
+    vec2 near_far;
+    if (!intersect_box(wpos, wdir, vol_bb_min, vol_bb_max, near_far)) return 1.f;
+    near_far.y = min(near_far.y, t);
+    // to index-space
+    const vec3 ipos = vec3(vol_inv_model * vec4(wpos, 1));
+    const vec3 idir = vec3(vol_inv_model * vec4(wdir, 0)); // non-normalized!
+    float last_interpolant;
+    const float tau = integrate_density(ipos, idir, near_far, seed, last_interpolant);
+    return last_interpolant * exp(-tau); // TODO extinction coef?
+}
+
+// ---------------------------------
+// null-collision methods
+
 float transmittance(const vec3 wpos, const vec3 wdir, inout uint seed) {
     // clip volume
     vec2 near_far;
@@ -268,21 +322,19 @@ float transmittance(const vec3 wpos, const vec3 wdir, inout uint seed) {
     // to index-space
     const vec3 ipos = vec3(vol_inv_model * vec4(wpos, 1));
     const vec3 idir = vec3(vol_inv_model * vec4(wdir, 0)); // non-normalized!
-    {
-        // ratio tracking
-        float t = near_far.x, Tr = 1.f;
-        while (t < near_far.y) {
-            t -= log(1 - rng(seed)) * vol_inv_majorant;
-            Tr *= max(0.f, 1 - lookup_density(ipos + t * idir, seed) * vol_inv_majorant);
-            // russian roulette
-            if (Tr < .1f) {
-                const float prob = 1 - Tr;
-                if (rng(seed) < prob) return 0.f;
-                Tr /= 1 - prob;
-            }
+    // ratio tracking
+    float t = near_far.x, Tr = 1.f;
+    while (t < near_far.y) {
+        t -= log(1 - rng(seed)) * vol_inv_majorant;
+        Tr *= max(0.f, 1 - lookup_density(ipos + t * idir, seed) * vol_inv_majorant);
+        // russian roulette
+        if (Tr < .1f) {
+            const float prob = 1 - Tr;
+            if (rng(seed) < prob) return 0.f;
+            Tr /= 1 - prob;
         }
-        return Tr;
     }
+    return Tr;
 }
 
 bool sample_volume(const vec3 wpos, const vec3 wdir, out float t, inout vec3 throughput, inout uint seed) {
@@ -306,6 +358,9 @@ bool sample_volume(const vec3 wpos, const vec3 wdir, out float t, inout vec3 thr
         return false;
     }
 }
+
+// ---------------------------------
+// DDA-based null-collision methods
 
 //#define USE_TRANSFERFUNC
 #define MIP_START 3

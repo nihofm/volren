@@ -2,8 +2,8 @@
 set(TARGET vol)
 
 # glob source files
-file(GLOB_RECURSE HEADERS "*.h" "*.cuh")
-file(GLOB_RECURSE SOURCES "*.cpp" "*.cu")
+file(GLOB_RECURSE HEADERS "./*.h" "*.cuh")
+file(GLOB_RECURSE SOURCES "./*.cpp" "*.cu")
 
 # define targets
 add_executable(${TARGET} ${HEADERS} ${SOURCES})

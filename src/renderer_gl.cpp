@@ -45,7 +45,7 @@ void RendererOpenGL::initOpenGL(uint32_t w, uint32_t h, bool vsync, bool pinned,
         Context::init(params);
     }
 
-    is_init = true;    
+    is_init = true;
 }
 
 void RendererOpenGL::init() {
@@ -176,6 +176,7 @@ void RendererOpenGL::trace(uint32_t spp) {
     trace_shader->uniform("vol_albedo", volume->albedo);
     trace_shader->uniform("vol_phase_g", volume->phase);
     trace_shader->uniform("vol_density_scale", volume->density_scale);
+    trace_shader->uniform("vol_step_size", raymarch_step_size);
     // brick grid data
     trace_shader->uniform("vol_grid_type", 0);
     if (vol_indirection) trace_shader->uniform("vol_indirection", vol_indirection, tex_unit++);
@@ -320,6 +321,7 @@ void BackpropRendererOpenGL::trace_prediction(uint32_t spp) {
     pred_trace_shader->uniform("vol_albedo", volume->albedo);
     pred_trace_shader->uniform("vol_phase_g", volume->phase);
     pred_trace_shader->uniform("vol_density_scale", volume->density_scale);
+    pred_trace_shader->uniform("vol_step_size", raymarch_step_size);
     // dense grid data
     pred_trace_shader->uniform("vol_grid_type", 1);
     if (vol_dense) pred_trace_shader->uniform("vol_dense", vol_dense, tex_unit++);
@@ -358,6 +360,7 @@ void BackpropRendererOpenGL::radiative_backprop() {
 
     // uniforms
     uint32_t tex_unit = 0;
+    backprop_shader->uniform("sppx", sppx);
     backprop_shader->uniform("bounces", 1);
     backprop_shader->uniform("seed", seed);
     backprop_shader->uniform("show_environment", show_environment ? 0 : 1);
@@ -379,6 +382,7 @@ void BackpropRendererOpenGL::radiative_backprop() {
     backprop_shader->uniform("vol_albedo", volume->albedo);
     backprop_shader->uniform("vol_phase_g", volume->phase);
     backprop_shader->uniform("vol_density_scale", volume->density_scale);
+    backprop_shader->uniform("vol_step_size", raymarch_step_size);
     // dense grid data
     backprop_shader->uniform("vol_grid_type", 1);
     if (vol_dense) backprop_shader->uniform("vol_dense", vol_dense, tex_unit++);
