@@ -148,7 +148,7 @@ void RendererOpenGL::commit() {
     vol_atlas->unbind();
 }
 
-void RendererOpenGL::trace(uint32_t spp) {
+void RendererOpenGL::trace() {
     // bind
     trace_shader->bind();
     color->bind_image(0, GL_READ_WRITE, GL_RGBA32F);
@@ -197,10 +197,8 @@ void RendererOpenGL::trace(uint32_t spp) {
 
     // trace
     const glm::ivec2 size = Context::resolution();
-    for (uint32_t i = 0; i < spp; ++i) {
-        trace_shader->uniform("current_sample", ++sample);
-        trace_shader->dispatch_compute(size.x, size.y);
-    }
+    trace_shader->uniform("current_sample", sample);
+    trace_shader->dispatch_compute(size.x, size.y);
 
     // unbind
     color->unbind_image(0);
@@ -288,12 +286,12 @@ void BackpropRendererOpenGL::commit() {
     vol_grad->unbind();
 }
 
-void BackpropRendererOpenGL::trace(uint32_t spp) {
+void BackpropRendererOpenGL::trace() {
     // trace reference sample
-    RendererOpenGL::trace(spp);
+    RendererOpenGL::trace();
 }
 
-void BackpropRendererOpenGL::trace_prediction(uint32_t spp) {
+void BackpropRendererOpenGL::trace_prediction() {
     // trace prediction sample
     uint32_t tex_unit = 0;
     pred_trace_shader->bind();
@@ -340,10 +338,8 @@ void BackpropRendererOpenGL::trace_prediction(uint32_t spp) {
 
     // trace
     const glm::ivec2 res = Context::resolution();
-    for (uint32_t i = 0; i < spp; ++i) {
-        pred_trace_shader->uniform("current_sample", int(sample - spp + i + 1));
-        pred_trace_shader->dispatch_compute(res.x, res.y);
-    }
+    pred_trace_shader->uniform("current_sample", sample);
+    pred_trace_shader->dispatch_compute(res.x, res.y);
 
     // unbind
     prediction->unbind_image(0);
@@ -360,10 +356,10 @@ void BackpropRendererOpenGL::radiative_backprop() {
 
     // uniforms
     uint32_t tex_unit = 0;
-    backprop_shader->uniform("sppx", sppx);
-    backprop_shader->uniform("bounces", 1);
+    backprop_shader->uniform("sppx", backprop_sppx);
+    backprop_shader->uniform("bounces", bounces);
     backprop_shader->uniform("seed", seed);
-    backprop_shader->uniform("show_environment", show_environment ? 0 : 1);
+    backprop_shader->uniform("show_environment", show_environment ? 1 : 0);
     // camera
     backprop_shader->uniform("cam_pos", current_camera()->pos);
     backprop_shader->uniform("cam_fov", current_camera()->fov_degree);
@@ -401,7 +397,7 @@ void BackpropRendererOpenGL::radiative_backprop() {
 
     // backprop
     const glm::ivec2 res = Context::resolution();
-    backprop_shader->uniform("current_sample", sample);
+    backprop_shader->uniform("current_sample", backprop_sample);
     backprop_shader->dispatch_compute(res.x, res.y);
 
     // unbind
@@ -413,7 +409,7 @@ void BackpropRendererOpenGL::radiative_backprop() {
 }
 
 void BackpropRendererOpenGL::apply_gradients() {
-    // TODO optimization step
+    // TODO adam optimizer
     gradient_apply_shader->bind();
     vol_dense->bind_image(0, GL_READ_WRITE, GL_R32F);
     vol_grad->bind_image(1, GL_READ_WRITE, GL_R32F);
@@ -434,7 +430,7 @@ void BackpropRendererOpenGL::draw_adjoint() {
     debug_shader->bind();
     prediction->bind_image(0, GL_READ_ONLY, GL_RGBA32F);
     color->bind_image(1, GL_READ_ONLY, GL_RGBA32F);
-    debug_color->bind_image(2, GL_WRITE_ONLY, GL_RGBA32F);
+    debug_color->bind_image(2, GL_READ_ONLY, GL_RGBA32F);
     radiative_debug->bind_image(3, GL_READ_ONLY, GL_RGBA32F);
 
     // run

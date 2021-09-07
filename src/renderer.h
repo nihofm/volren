@@ -17,7 +17,7 @@ struct Renderer {
     virtual void init() = 0;                            // initialize renderer (call once upon initialization)
     virtual void resize(uint32_t w, uint32_t h) = 0;    // resize internal buffers
     virtual void commit() = 0;                          // commit and upload internal data structures (call after changing the scene)
-    virtual void trace(uint32_t spp = 1) = 0;           // trace single sample per pixel (wavefront)
+    virtual void trace() = 0;                           // trace one sample per pixel
     virtual void draw() = 0;                            // draw result on screen
 
     // Camera data TODO actually use this
@@ -45,7 +45,7 @@ struct Renderer {
     float tonemap_gamma = 2.2f;
     bool tonemapping = true;
     bool show_environment = true;
-    float raymarch_step_size = 0.1f;
+    float raymarch_step_size = 0.5f;
 };
 
 
@@ -55,7 +55,7 @@ struct RendererOpenGL : public Renderer {
     void init();
     void resize(uint32_t w, uint32_t h);
     void commit();
-    void trace(uint32_t spp = 1);
+    void trace();
     void draw();
 
     // Scene data
@@ -73,11 +73,11 @@ struct BackpropRendererOpenGL : public RendererOpenGL {
     void init() override;
     void resize(uint32_t w, uint32_t h) override;
     void commit() override;
-    void trace(uint32_t spp = 1) override;
+    void trace() override;
     void draw() override;
     void draw_adjoint();
 
-    void trace_prediction(uint32_t spp = 1);
+    void trace_prediction();
     void radiative_backprop();
     void apply_gradients();
 
@@ -87,7 +87,9 @@ struct BackpropRendererOpenGL : public RendererOpenGL {
 
     // Optimization target and gradients:
     Texture3D vol_dense, vol_grad;
-    float learning_rate = 0.001f;
+    float learning_rate = 0.01f;
+    int backprop_sample = 0;
+    int backprop_sppx = 4;
 };
 
 // TODO CUDA
@@ -97,7 +99,7 @@ struct RendererOptix : public Renderer {
     void init();
     void resize(uint32_t w, uint32_t h);
     void commit();
-    void trace(uint32_t spp = 1);
+    void trace();
     void draw();
 
     // Optix data

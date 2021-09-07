@@ -125,14 +125,13 @@ void RendererOptix::commit() {
                 vol->grid[make_uint3(x, y, z)] = volume->current_grid()->lookup(glm::uvec3(x, y, z));
 }
 
-void RendererOptix::trace(uint32_t spp) {
+void RendererOptix::trace() {
     // update camera
     cam->pos = cast(current_camera()->pos);
     cam->dir = cast(current_camera()->dir);
     cam->fov = current_camera()->fov_degree;
     // trace
-    for (uint32_t i = 0; i < spp; ++i)
-        render_cuda(fbo.map_cuda(), fbo.size.x, fbo.size.y, cam, vol);
+    render_cuda(fbo.map_cuda(), fbo.size.x, fbo.size.y, cam, vol);
     fbo.unmap_cuda();
 }
 

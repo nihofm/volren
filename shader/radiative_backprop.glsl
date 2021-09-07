@@ -23,10 +23,10 @@ uniform int show_environment;
 float sum(const vec3 x) { return (x.x + x.y + x.z); }
 vec3 sanitize(const vec3 x) { return mix(x, vec3(0), isnan(x) || isinf(x)); }
 
-void transmittance_raymarch_adjoint(const vec3 wpos, const vec3 wdir, inout uint seed, const vec3 dy, const float t_max = FLT_MAX) {
+float transmittance_adjoint(const vec3 wpos, const vec3 wdir, inout uint seed, const vec3 dy, const float t_max = FLT_MAX) {
     // clip volume
     vec2 near_far;
-    if (!intersect_box(wpos, wdir, vol_bb_min, vol_bb_max, near_far)) return;
+    if (!intersect_box(wpos, wdir, vol_bb_min, vol_bb_max, near_far)) return 0.f;
     near_far.y = min(near_far.y, t_max);
     // to index-space
     const vec3 ipos = vec3(vol_inv_model * vec4(wpos, 1));
@@ -34,59 +34,34 @@ void transmittance_raymarch_adjoint(const vec3 wpos, const vec3 wdir, inout uint
     const float tau = integrate_density(ipos, idir, near_far, seed);
     // store gradients
     const float dx = -exp(-tau) * sum(dy) * vol_step_size;
+    if (abs(dx) <= 1e-4f) return dx;
     const int steps = 1 + int(ceil((near_far.y - near_far.x) / vol_step_size));
     float t0 = near_far.x + rng(seed) * vol_step_size;
-    for (int i = 1; i < steps; ++i) {
-        imageAtomicAdd(gradients, ivec3(ipos + min(t0 + (i - 1) * vol_step_size, near_far.y) * idir), .5f * dx);
-        imageAtomicAdd(gradients, ivec3(ipos + min(t0 + (i + 0) * vol_step_size, near_far.y) * idir), .5f * dx);
-    }
-}
-
-bool sample_volume_raymarch(const vec3 wpos, const vec3 wdir, out float t, out float tr_pdf, inout vec3 throughput, inout uint seed) {
-    // clip volume
-    vec2 near_far;
-    if (!intersect_box(wpos, wdir, vol_bb_min, vol_bb_max, near_far)) return false;
-    // to index-space
-    const vec3 ipos = vec3(vol_inv_model * vec4(wpos, 1));
-    const vec3 idir = vec3(vol_inv_model * vec4(wdir, 0)); // non-normalized!
-    // compute step size and jitter starting point
-    const int steps = int(ceil((near_far.y - near_far.x) / vol_step_size));
-    const float sampled_tau = -log(1.f - rng(seed));
-    t = near_far.x + rng(seed) * vol_step_size, tr_pdf = 0.f;
-    // raymarch
-    float tau = 0.f;
-    for (int i = 0; i < steps; ++i) {
-        const ivec3 curr_p = ivec3(ipos + min(t, near_far.y) * idir);
-        const float curr_d = lookup_density(curr_p, seed); // TODO extinction coef?
-        tau += curr_d * vol_step_size;
-        t += vol_step_size;
-        if (tau >= sampled_tau) {
-            const float f = (tau - sampled_tau) / curr_d;
-            t -= f * vol_step_size;
-            tr_pdf = curr_d * exp(-sampled_tau);
-            throughput *= vol_albedo;
-            return true;
-        }
-    }
-    return false;
+    for (int i = 0; i < steps; ++i)
+        imageAtomicAdd(gradients, ivec3(ipos + min(t0 + i * vol_step_size, near_far.y) * idir), dx);
+    return dx;
 }
 
 // ---------------------------------------------------
-// adjoint funcs
-
-
-// ---------------------------------------------------
-// TODO radiative backprop
+// radiative backprop TODO merge with forward render pass and re-use paths
 
 vec3 radiative_backprop(vec3 pos, vec3 dir, inout uint seed, const vec3 dy) {
-     // TODO multiple bounces
-    vec3 throughput = vec3(1);
-    float t, tr_pdf;
-    const bool collision = sample_volume_raymarch(pos, dir, t, tr_pdf, throughput, seed);
-    if (false && collision) {
-        // Term: G * Q1 * Li + K * Q2 * Li
-        const vec3 sampled_pos = pos + t * dir;
-        // approximate (biased) Li
+    vec3 throughput = vec3(1), result = vec3(0);
+    for (int i = 0; i < bounces; ++i) {
+        // sample volume and compute pdf
+        float t, tr_pdf;
+        const bool escaped = !sample_volume_raymarch_pdf(pos, dir, t, tr_pdf, seed);
+
+        // Term: Q2 * Le
+        if (escaped && show_environment > 0) {
+            const vec3 Le = lookup_environment(dir);
+            const vec3 weight = throughput * Le * dy / tr_pdf;
+            result += vec3(transmittance_adjoint(pos, dir, seed, sanitize(weight), t));
+        }
+        if (escaped) break;
+
+        // Term: Q2 * K * Li
+        // Approximate Li to avoid recursion (biased)
         vec3 Li = vec3(1);
         // emitter sampling
         vec3 w_i;
@@ -94,19 +69,27 @@ vec3 radiative_backprop(vec3 pos, vec3 dir, inout uint seed, const vec3 dy) {
         if (env.w > 0) {
             const float f_p = phase_henyey_greenstein(dot(-dir, w_i), vol_phase_g);
             const float mis_weight = 1.f;//power_heuristic(env.w, f_p);
-            const float Tr = transmittance(sampled_pos, w_i, seed);
+            const float Tr = transmittance(pos + t * dir, w_i, seed);
             Li += throughput * mis_weight * f_p * Tr * env.rgb / env.w;
         }
         // backprop transmittance
-        const vec3 weight = vol_albedo * throughput * Li * dy / max(0.001f, tr_pdf);
-        transmittance_raymarch_adjoint(pos, dir, seed, sanitize(weight), t);
-        return weight;
-    } else {
-        const vec3 Le = show_environment < 1 ? lookup_environment(dir) : vec3(-1); // TODO ???
-        const vec3 weight = Le * dy;
-        transmittance_raymarch_adjoint(pos, dir, seed, sanitize(weight));
-        return weight;
+        const vec3 weight = throughput * Li * dy / tr_pdf;
+        result += vec3(transmittance_adjoint(pos, dir, seed, sanitize(weight), t));
+
+        // russian roulette
+        const float rr_val = luma(throughput);
+        if (rr_val < .1f) {
+            const float prob = 1 - rr_val;
+            if (rng(seed) < prob) break;
+            throughput /= 1 - prob;
+        }
+
+        // advance and scatter ray
+        pos += t * dir;
+        dir = sample_phase_henyey_greenstein(dir, vol_phase_g, rng2(seed));
+        throughput *= vol_albedo;
     }
+    return result;
 }
 
 // ---------------------------------------------------
@@ -128,7 +111,6 @@ void main() {
     const vec3 pos = cam_pos;
     const vec3 dir = view_dir(pixel, size, rng2(seed));
     
-    // transmittance_raymarch_adjoint(pos, dir, seed, weight);
-    const vec3 L = radiative_backprop(pos, dir, seed, dy);
+    const vec3 L = radiative_backprop(pos, dir, seed, dy / float(sppx));
     imageStore(color_debug, pixel, vec4(mix(imageLoad(color_debug, pixel).rgb, sanitize(L), 1.f / current_sample), 1));
 }

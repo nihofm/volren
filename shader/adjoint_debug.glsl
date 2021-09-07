@@ -1,7 +1,5 @@
 #version 450 core
 
-#extension GL_NV_shader_atomic_float : enable
-
 layout (local_size_x = 16, local_size_y = 16) in;
 
 layout (binding = 0, rgba32f) uniform image2D color_adjoint;
@@ -15,7 +13,7 @@ layout (binding = 3, rgba32f) uniform image2D color_debug;
 float sum(const vec3 x) { return x.x + x.y + x.z; }
 float mean(const vec3 x) { return sum(x) * (1.f / 3.f); }
 vec3 sanitize(const vec3 x) { return mix(x, vec3(0), isnan(x) || isinf(x)); }
-vec3 visualize_grad(const float grad) { return abs(grad) * (sign(grad) > 0.f ? vec3(1, 0, 0) : vec3(0, 0, 1)); }
+vec3 visualize_grad(const float grad) { return abs(grad) * (abs(grad) <= 0.001f ? vec3(0) : (sign(grad) > 0.f ? vec3(1, 0, 0) : vec3(0, 0, 1))); }
 
 // ---------------------------------------------------
 // main
@@ -32,18 +30,14 @@ void main() {
     if (pixel.y < size.y / 2) {
         if (pixel.x < size.x / 2) { // bottom left: l2_grad
             const ivec2 pixel_adj = ivec2(pixel.x * 2, pixel.y * 2);
+            out_col = visualize_grad(sum(imageLoad(color_debug, pixel_adj).rgb));
+            // out_col = abs(imageLoad(color_debug, pixel_adj).rgb);
+        } else {                    // bottom right: diff randiance
+            const ivec2 pixel_adj = ivec2((pixel.x - size.x / 2) * 2, pixel.y * 2);
             const vec3 col_adj = imageLoad(color_adjoint, pixel_adj).rgb;
             const vec3 col_ref = imageLoad(color_reference, pixel_adj).rgb;
             const vec3 l2_grad = 2 * (col_adj - col_ref);
-            // out_col = abs(l2_grad);
             out_col = visualize_grad(sum(l2_grad));
-        } else {                    // bottom right: diff randiance
-            const ivec2 pixel_adj = ivec2((pixel.x - size.x / 2) * 2, pixel.y * 2);
-            // const vec3 col_adj = imageLoad(color_adjoint, pixel_adj).rgb;
-            // const vec3 col_ref = imageLoad(color_reference, pixel_adj).rgb;
-            // const vec3 l2_grad = 2 * (col_adj - col_ref);
-            // out_col = visualize_grad(sum(l2_grad));
-            out_col = visualize_grad(mean(imageLoad(color_debug, pixel_adj).rgb));
         }
     } else {
         if (pixel.x < size.x / 2) { // top left: prediction

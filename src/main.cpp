@@ -27,7 +27,7 @@ inline float4 cast(const glm::vec4& v) { return make_float4(v.x, v.y, v.z, v.w);
 // ------------------------------------------
 // settings
 
-static bool adjoint = false, adjoint_update = false;
+static bool adjoint = false, randomize = false;
 
 static int sppx = 1024;
 static bool use_vsync = true;
@@ -136,10 +136,12 @@ void keyboard_callback(int key, int scancode, int action, int mods) {
     if (key == GLFW_KEY_C && action == GLFW_PRESS) {
         adjoint = !adjoint;
         renderer->sample = 0;
+        renderer->backprop_sample = 0;
     }
-    if (key == GLFW_KEY_U && action == GLFW_PRESS) {
-        adjoint_update = !adjoint_update;
+    if (key == GLFW_KEY_X && action == GLFW_PRESS) {
+        randomize = !randomize;
         renderer->sample = 0;
+        renderer->backprop_sample = 0;
     }
     if (key == GLFW_KEY_T && action == GLFW_PRESS)
         renderer->tonemapping = !renderer->tonemapping;
@@ -190,10 +192,18 @@ void gui_callback(void) {
         if (ImGui::InputInt("Bounces", &renderer->bounces)) renderer->sample = 0;
         if (ImGui::Checkbox("Vsync", &use_vsync)) Context::set_swap_interval(use_vsync ? 1 : 0);
         ImGui::Separator();
-        ImGui::DragFloat("Step size", &renderer->raymarch_step_size, 0.01f, 0.01f, 10.f);
+        ImGui::Text("Radiative backprop:");
+        if (ImGui::InputInt("Backprop sppx", &renderer->backprop_sppx)) {
+            renderer->sample = 0;
+            renderer->backprop_sample = 0;
+        }
+        ImGui::DragFloat("Raymarch step size", &renderer->raymarch_step_size, 0.01f, 0.01f, 10.f);
         ImGui::DragFloat("Learning rate", &renderer->learning_rate, 0.0001f, 0.0001f, 1.f);
-        if (ImGui::Checkbox("Adjoint", &adjoint)) renderer->sample = 0;
-        ImGui::Checkbox("Adjoint update", &adjoint_update);
+        if (ImGui::Checkbox("Adjoint", &adjoint)) { 
+            renderer->sample = 0;
+            renderer->backprop_sample = 0;
+        }
+        ImGui::Checkbox("Randomize params", &randomize);
         ImGui::Separator();
         if (ImGui::Checkbox("Environment", &renderer->show_environment)) renderer->sample = 0;
         if (ImGui::DragFloat("Env strength", &renderer->environment->strength, 0.1f)) {
@@ -364,6 +374,12 @@ int main(int argc, char** argv) {
         renderer->transferfunc->window_width = maj - min;
     }
 
+    // setup timers
+    auto timer_trace = TimerQueryGL("trace");
+    auto timer_trace_pred = TimerQueryGL("trace_pred");
+    auto timer_trace_backprop = TimerQueryGL("trace_backprop");
+    auto timer_update = TimerQueryGL("gradient update");
+
     // run the main loop
     float shader_timer = 0;
     while (Context::running()) {
@@ -381,20 +397,43 @@ int main(int argc, char** argv) {
             shader_timer = shader_check_delay_ms;
         }
 
-        // render sample
-        // TODO adjoint logic
-        if (renderer->sample < sppx) {
-            renderer->trace();
-            if (adjoint) {
+        // adjoint rendering path
+        if (adjoint) {
+            if (renderer->sample < sppx) { // forward part
+                renderer->sample++;
+                // trace prediction
+                timer_trace_pred->begin();
                 renderer->trace_prediction();
-                renderer->radiative_backprop();
+                timer_trace_pred->end();
+                // trace reference
+                timer_trace->begin();
+                renderer->trace();
+                timer_trace->end();
+            } else { // backwards part
+                if (renderer->backprop_sample < renderer->backprop_sppx) {      
+                    // backprop
+                    renderer->backprop_sample++;
+                    renderer->seed = rand();
+                    timer_trace_backprop->begin();
+                    renderer->radiative_backprop();
+                    timer_trace_backprop->end();
+                } else {
+                    // gradient update
+                    timer_update->begin();
+                    renderer->apply_gradients();
+                    timer_update->end();
+                    renderer->sample = 0;
+                    renderer->seed = rand();
+                    if (randomize) randomize_parameters();
+                    // reset
+                    renderer->sample = 0;
+                    renderer->backprop_sample = 0;
+                }
             }
-        }
-        else if (adjoint_update) {
-            renderer->apply_gradients();
-            renderer->sample = 0;
-            renderer->seed++;
-            randomize_parameters();
+        // regular forward rendering
+        } else if (renderer->sample < sppx) {
+            renderer->sample++;
+            renderer->trace();
         } else
             glfwWaitEventsTimeout(1.f / 10); // 10fps idle
 

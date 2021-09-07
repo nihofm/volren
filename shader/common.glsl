@@ -267,17 +267,17 @@ float lookup_density(const vec3 ipos, inout uint seed) {
 // ray marching based methods
 
 float integrate_density(const vec3 ipos, const vec3 idir, const vec2 near_far, inout uint seed, out float last_interpolant) {
-    const int steps = 1 + int(ceil((near_far.y - near_far.x) / vol_step_size));
     // const int steps = 32;
     // const float dt = (near_far.y - near_far.x) / float(steps);
+    const int steps = 1 + int(ceil((near_far.y - near_far.x) / vol_step_size));
     float t0 = near_far.x + rng(seed) * vol_step_size, tau = 0.f;
     // first step
-    float last_value = lookup_density(ipos + t0 * idir, seed); // TODO extinction coef?
+    float last_value = lookup_density(ipos + t0 * idir, seed);
     // integrate density
     for (int i = 1; i < steps; ++i) {
         const ivec3 curr_pos = ivec3(ipos + min(t0 + i * vol_step_size, near_far.y) * idir);
-        const float curr_value = lookup_density(curr_pos, seed); // TODO extinction coef?
-        last_interpolant = .5f * (last_value + curr_value);
+        const float curr_value = lookup_density(curr_pos, seed);
+        last_interpolant = (last_value + curr_value) * 0.5f;
         tau += last_interpolant * vol_step_size;
         last_value = curr_value;
     }
@@ -300,16 +300,76 @@ float transmittance_raymarch(const vec3 wpos, const vec3 wdir, inout uint seed, 
     return exp(-tau);
 }
 
-float distance_pdf(const vec3 wpos, const vec3 wdir, inout uint seed, const float t) {
+bool sample_volume_raymarch(const vec3 wpos, const vec3 wdir, out float t, inout vec3 throughput, inout uint seed) {
+    // clip volume
     vec2 near_far;
-    if (!intersect_box(wpos, wdir, vol_bb_min, vol_bb_max, near_far)) return 1.f;
+    if (!intersect_box(wpos, wdir, vol_bb_min, vol_bb_max, near_far)) return false;
+    // to index-space
+    const vec3 ipos = vec3(vol_inv_model * vec4(wpos, 1));
+    const vec3 idir = vec3(vol_inv_model * vec4(wdir, 0)); // non-normalized!
+    // compute step size and jitter starting point
+    const int steps = int(ceil((near_far.y - near_far.x) / vol_step_size));
+    const float sampled_tau = -log(1.f - rng(seed));
+    t = near_far.x + rng(seed) * vol_step_size;
+    // raymarch
+    float tau = 0.f;
+    for (int i = 0; i < steps; ++i) {
+        const ivec3 curr_p = ivec3(ipos + min(t, near_far.y) * idir);
+        const float curr_d = lookup_density(curr_p, seed);
+        tau += curr_d * vol_step_size;
+        t += vol_step_size;
+        if (tau >= sampled_tau) {
+            const float f = (tau - sampled_tau) / curr_d;
+            t -= f * vol_step_size;
+            throughput *= vol_albedo;
+            return true;
+        }
+    }
+    t = near_far.y;
+    return false;
+}
+
+bool sample_volume_raymarch_pdf(const vec3 wpos, const vec3 wdir, out float t, out float tr_pdf, inout uint seed) {
+    // clip volume
+    vec2 near_far;
+    if (!intersect_box(wpos, wdir, vol_bb_min, vol_bb_max, near_far)) return false;
+    // to index-space
+    const vec3 ipos = vec3(vol_inv_model * vec4(wpos, 1));
+    const vec3 idir = vec3(vol_inv_model * vec4(wdir, 0)); // non-normalized!
+    // compute step size and jitter starting point
+    const int steps = int(ceil((near_far.y - near_far.x) / vol_step_size));
+    const float sampled_tau = -log(1.f - rng(seed));
+    t = near_far.x + rng(seed) * vol_step_size, tr_pdf = 0.f;
+    // raymarch
+    float tau = 0.f, density = 0.f;
+    for (int i = 0; i < steps; ++i) {
+        const ivec3 curr_p = ivec3(ipos + min(t, near_far.y) * idir);
+        density = lookup_density(curr_p, seed);
+        tau += density * vol_step_size;
+        t += vol_step_size;
+        if (tau >= sampled_tau) {
+            // solve for exact collision
+            const float f = (tau - sampled_tau) / density;
+            t -= f * vol_step_size;
+            tr_pdf = density * exp(-sampled_tau);
+            return true;
+        }
+    }
+    t = near_far.y;
+    tr_pdf = density * exp(-tau);
+    return false;
+}
+
+float pdf_distance(const vec3 wpos, const vec3 wdir, inout uint seed, const float t) {
+    vec2 near_far;
+    if (!intersect_box(wpos, wdir, vol_bb_min, vol_bb_max, near_far)) return 0.f;
     near_far.y = min(near_far.y, t);
     // to index-space
     const vec3 ipos = vec3(vol_inv_model * vec4(wpos, 1));
     const vec3 idir = vec3(vol_inv_model * vec4(wdir, 0)); // non-normalized!
     float last_interpolant;
     const float tau = integrate_density(ipos, idir, near_far, seed, last_interpolant);
-    return last_interpolant * exp(-tau); // TODO extinction coef?
+    return last_interpolant * exp(-tau);
 }
 
 // ---------------------------------
