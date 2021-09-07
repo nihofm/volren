@@ -22,7 +22,7 @@ vec3 trace_path(vec3 pos, vec3 dir, inout uint seed) {
     bool free_path = true;
     uint n_paths = 0;
     float t, f_p; // t: end of ray segment (i.e. sampled position or out of volume), f_p: last phase function sample for MIS
-    while (sample_volume_raymarch(pos, dir, t, throughput, seed)) {
+    while (sample_volume(pos, dir, t, throughput, seed)) {
         // advance ray
         pos += t * dir;
 
@@ -32,7 +32,7 @@ vec3 trace_path(vec3 pos, vec3 dir, inout uint seed) {
         if (Li_pdf.w > 0) {
             f_p = phase_henyey_greenstein(dot(-dir, w_i), vol_phase_g);
             const float weight = power_heuristic(Li_pdf.w, f_p);
-            const float Tr = transmittance_raymarch(pos, w_i, seed);
+            const float Tr = transmittance(pos, w_i, seed);
             radiance += throughput * weight * f_p * Tr * Li_pdf.rgb / Li_pdf.w;
         }
 
@@ -77,7 +77,6 @@ void main() {
 
     // trace ray
     const vec3 radiance = trace_path(pos, dir, seed);
-    // const vec3 radiance = vec3(transmittance_raymarch(pos, dir, seed)); // TODO debug
 
     // write output
     imageStore(color, pixel, vec4(mix(imageLoad(color, pixel).rgb, sanitize(radiance), 1.f / current_sample), 1));

@@ -86,7 +86,7 @@ struct BackpropRendererOpenGL : public RendererOpenGL {
     Shader pred_trace_shader, backprop_shader, gradient_apply_shader, debug_shader;
 
     // Optimization target and gradients:
-    Texture3D vol_dense, vol_grad;
+    Texture3D vol_dense, vol_grad, adam_params;
     float learning_rate = 0.01f;
     int backprop_sample = 0;
     int backprop_sppx = 4;

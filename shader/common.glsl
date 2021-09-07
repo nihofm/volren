@@ -329,7 +329,7 @@ bool sample_volume_raymarch(const vec3 wpos, const vec3 wdir, out float t, inout
     return false;
 }
 
-bool sample_volume_raymarch_pdf(const vec3 wpos, const vec3 wdir, out float t, out float tr_pdf, inout uint seed) {
+bool sample_volume_raymarch_pdf(const vec3 wpos, const vec3 wdir, out float t, out float tr_pdf, inout vec3 throughput, inout uint seed) {
     // clip volume
     vec2 near_far;
     if (!intersect_box(wpos, wdir, vol_bb_min, vol_bb_max, near_far)) return false;
@@ -352,6 +352,7 @@ bool sample_volume_raymarch_pdf(const vec3 wpos, const vec3 wdir, out float t, o
             const float f = (tau - sampled_tau) / density;
             t -= f * vol_step_size;
             tr_pdf = density * exp(-sampled_tau);
+            throughput *= vol_albedo;
             return true;
         }
     }

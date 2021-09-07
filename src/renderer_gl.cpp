@@ -267,7 +267,7 @@ void BackpropRendererOpenGL::commit() {
     glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);//GL_NEAREST);
     glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);//GL_NEAREST);
     vol_dense->unbind();
-    // upload dense texture
+    // upload dense texture gradients
     const auto grad = std::vector<float>(n_voxels.x * n_voxels.y * n_voxels.z, 0.f);
     vol_grad = Texture3D("dense grid gradients",
             n_voxels.x,
@@ -284,6 +284,23 @@ void BackpropRendererOpenGL::commit() {
     glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
     glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
     vol_grad->unbind();
+    // upload adam parameters
+    const auto adam_data = std::vector<float>(n_voxels.x * n_voxels.y * n_voxels.z * 2, 0.f);
+    adam_params = Texture3D("dense grid gradients",
+            n_voxels.x,
+            n_voxels.y,
+            n_voxels.z,
+            GL_RG32F,
+            GL_RG,
+            GL_FLOAT,
+            adam_data.data());
+    adam_params->bind(0);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_R, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    adam_params->unbind();
 }
 
 void BackpropRendererOpenGL::trace() {
@@ -413,6 +430,7 @@ void BackpropRendererOpenGL::apply_gradients() {
     gradient_apply_shader->bind();
     vol_dense->bind_image(0, GL_READ_WRITE, GL_R32F);
     vol_grad->bind_image(1, GL_READ_WRITE, GL_R32F);
+    adam_params->bind_image(2, GL_READ_WRITE, GL_RG32F);
 
     gradient_apply_shader->uniform("learning_rate", learning_rate);
     const auto [min, maj] = volume->minorant_majorant();
@@ -420,6 +438,7 @@ void BackpropRendererOpenGL::apply_gradients() {
     gradient_apply_shader->uniform("size", glm::ivec3(vol_dense->w, vol_dense->h, vol_dense->d));
     gradient_apply_shader->dispatch_compute(vol_dense->w, vol_dense->h, vol_dense->d);
 
+    adam_params->unbind_image(2);
     vol_grad->unbind_image(1);
     vol_dense->unbind_image(0);
     gradient_apply_shader->unbind();

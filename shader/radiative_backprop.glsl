@@ -50,7 +50,7 @@ vec3 radiative_backprop(vec3 pos, vec3 dir, inout uint seed, const vec3 dy) {
     for (int i = 0; i < bounces; ++i) {
         // sample volume and compute pdf
         float t, tr_pdf;
-        const bool escaped = !sample_volume_raymarch_pdf(pos, dir, t, tr_pdf, seed);
+        const bool escaped = !sample_volume_raymarch_pdf(pos, dir, t, tr_pdf, throughput, seed);
 
         // Term: Q2 * Le
         if (escaped && show_environment > 0) {
@@ -68,9 +68,8 @@ vec3 radiative_backprop(vec3 pos, vec3 dir, inout uint seed, const vec3 dy) {
         const vec4 env = sample_environment(rng2(seed), w_i);
         if (env.w > 0) {
             const float f_p = phase_henyey_greenstein(dot(-dir, w_i), vol_phase_g);
-            const float mis_weight = 1.f;//power_heuristic(env.w, f_p);
             const float Tr = transmittance(pos + t * dir, w_i, seed);
-            Li += throughput * mis_weight * f_p * Tr * env.rgb / env.w;
+            Li += throughput * f_p * Tr * env.rgb / env.w;
         }
         // backprop transmittance
         const vec3 weight = throughput * Li * dy / tr_pdf;
@@ -87,7 +86,6 @@ vec3 radiative_backprop(vec3 pos, vec3 dir, inout uint seed, const vec3 dy) {
         // advance and scatter ray
         pos += t * dir;
         dir = sample_phase_henyey_greenstein(dir, vol_phase_g, rng2(seed));
-        throughput *= vol_albedo;
     }
     return result;
 }
