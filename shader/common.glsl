@@ -220,10 +220,9 @@ uniform float vol_inv_majorant;
 uniform vec3 vol_albedo;
 uniform float vol_phase_g;
 uniform float vol_density_scale;
-uniform float vol_step_size;
-uniform int vol_grid_type; // 0: brick grid (default), 1: dense grid
+uniform int vol_grid_type; // underlying grid data type
 
-// dense grid
+// dense grid (only valid if vol_grid_type == 1)
 uniform sampler3D vol_dense;
 
 // dense grid voxel lookup
@@ -233,7 +232,7 @@ float lookup_voxel_dense(const vec3 ipos) {
     return vol_minorant + texelFetch(vol_dense, ivec3(floor(ipos)), 0).r * (vol_majorant - vol_minorant);
 }
 
-// brick grid
+// brick grid (only valid if vol_grid_type == 0)
 uniform usampler3D vol_indirection;
 uniform sampler3D vol_range;
 uniform sampler3D vol_atlas;
@@ -267,18 +266,17 @@ float lookup_density(const vec3 ipos, inout uint seed) {
 // ray marching based methods
 
 float integrate_density(const vec3 ipos, const vec3 idir, const vec2 near_far, inout uint seed, out float last_interpolant) {
-    // const int steps = 32;
-    // const float dt = (near_far.y - near_far.x) / float(steps);
-    const int steps = 1 + int(ceil((near_far.y - near_far.x) / vol_step_size));
-    float t0 = near_far.x + rng(seed) * vol_step_size, tau = 0.f;
+    const int steps = 32;
+    const float dt = (near_far.y - near_far.x) / float(steps);
+    float t0 = near_far.x + rng(seed) * dt, tau = 0.f;
     // first step
     float last_value = lookup_density(ipos + t0 * idir, seed);
     // integrate density
     for (int i = 1; i < steps; ++i) {
-        const ivec3 curr_pos = ivec3(ipos + min(t0 + i * vol_step_size, near_far.y) * idir);
+        const ivec3 curr_pos = ivec3(ipos + min(t0 + i * dt, near_far.y) * idir);
         const float curr_value = lookup_density(curr_pos, seed);
         last_interpolant = (last_value + curr_value) * 0.5f;
-        tau += last_interpolant * vol_step_size;
+        tau += last_interpolant * dt;
         last_value = curr_value;
     }
     return tau;
@@ -308,19 +306,20 @@ bool sample_volume_raymarch(const vec3 wpos, const vec3 wdir, out float t, inout
     const vec3 ipos = vec3(vol_inv_model * vec4(wpos, 1));
     const vec3 idir = vec3(vol_inv_model * vec4(wdir, 0)); // non-normalized!
     // compute step size and jitter starting point
-    const int steps = int(ceil((near_far.y - near_far.x) / vol_step_size));
+    const int steps = 32;
+    const float dt = (near_far.y - near_far.x) / float(steps);
     const float sampled_tau = -log(1.f - rng(seed));
-    t = near_far.x + rng(seed) * vol_step_size;
+    t = near_far.x + rng(seed) * dt;
     // raymarch
     float tau = 0.f;
     for (int i = 0; i < steps; ++i) {
         const ivec3 curr_p = ivec3(ipos + min(t, near_far.y) * idir);
         const float curr_d = lookup_density(curr_p, seed);
-        tau += curr_d * vol_step_size;
-        t += vol_step_size;
+        tau += curr_d * dt;
+        t += dt;
         if (tau >= sampled_tau) {
             const float f = (tau - sampled_tau) / curr_d;
-            t -= f * vol_step_size;
+            t -= f * dt;
             throughput *= vol_albedo;
             return true;
         }
@@ -337,27 +336,28 @@ bool sample_volume_raymarch_pdf(const vec3 wpos, const vec3 wdir, out float t, o
     const vec3 ipos = vec3(vol_inv_model * vec4(wpos, 1));
     const vec3 idir = vec3(vol_inv_model * vec4(wdir, 0)); // non-normalized!
     // compute step size and jitter starting point
-    const int steps = int(ceil((near_far.y - near_far.x) / vol_step_size));
+    const int steps = 32;
+    const float dt = (near_far.y - near_far.x) / float(steps);
     const float sampled_tau = -log(1.f - rng(seed));
-    t = near_far.x + rng(seed) * vol_step_size, tr_pdf = 0.f;
+    t = near_far.x + rng(seed) * dt, tr_pdf = 0.f;
     // raymarch
     float tau = 0.f, density = 0.f;
     for (int i = 0; i < steps; ++i) {
         const ivec3 curr_p = ivec3(ipos + min(t, near_far.y) * idir);
         density = lookup_density(curr_p, seed);
-        tau += density * vol_step_size;
-        t += vol_step_size;
+        tau += density * dt;
+        t = min(t + dt, near_far.y);
         if (tau >= sampled_tau) {
             // solve for exact collision
             const float f = (tau - sampled_tau) / density;
-            t -= f * vol_step_size;
+            t -= f * dt;
             tr_pdf = density * exp(-sampled_tau);
             throughput *= vol_albedo;
             return true;
         }
     }
     t = near_far.y;
-    tr_pdf = density * exp(-tau);
+    tr_pdf = exp(-tau);
     return false;
 }
 

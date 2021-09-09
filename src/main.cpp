@@ -197,7 +197,6 @@ void gui_callback(void) {
             renderer->sample = 0;
             renderer->backprop_sample = 0;
         }
-        ImGui::DragFloat("Raymarch step size", &renderer->raymarch_step_size, 0.01f, 0.01f, 10.f);
         ImGui::DragFloat("Learning rate", &renderer->learning_rate, 0.0001f, 0.0001f, 1.f);
         if (ImGui::Checkbox("Adjoint", &adjoint)) { 
             renderer->sample = 0;
@@ -376,64 +375,55 @@ int main(int argc, char** argv) {
 
     // setup timers
     auto timer_trace = TimerQueryGL("trace");
-    auto timer_trace_pred = TimerQueryGL("trace_pred");
-    auto timer_trace_backprop = TimerQueryGL("trace_backprop");
-    auto timer_update = TimerQueryGL("gradient update");
+    auto timer_backprop = TimerQueryGL("backprop");
+    auto timer_update = TimerQueryGL("gradient step");
 
     // run the main loop
     float shader_timer = 0;
     while (Context::running()) {
         // handle input
-        if (CameraImpl::default_input_handler(Context::frame_time()))
-            renderer->sample = 0; // restart rendering
+        if (CameraImpl::default_input_handler(Context::frame_time())) {
+            renderer->sample = 0;
+            renderer->backprop_sample = 0;
+        }
 
         // update
         current_camera()->update();
         // reload shaders?
         shader_timer -= Context::frame_time();
         if (shader_timer <= 0) {
-            if (reload_modified_shaders())
+            if (reload_modified_shaders()) {
                 renderer->sample = 0;
+                renderer->backprop_sample = 0;
+            }
             shader_timer = shader_check_delay_ms;
         }
 
-        // adjoint rendering path
-        if (adjoint) {
-            if (renderer->sample < sppx) { // forward part
-                renderer->sample++;
-                // trace prediction
-                timer_trace_pred->begin();
-                renderer->trace_prediction();
-                timer_trace_pred->end();
-                // trace reference
-                timer_trace->begin();
-                renderer->trace();
-                timer_trace->end();
-            } else { // backwards part
-                if (renderer->backprop_sample < renderer->backprop_sppx) {      
-                    // backprop
-                    renderer->backprop_sample++;
-                    renderer->seed = rand();
-                    timer_trace_backprop->begin();
-                    renderer->radiative_backprop();
-                    timer_trace_backprop->end();
-                } else {
-                    // gradient update
-                    timer_update->begin();
-                    renderer->apply_gradients();
-                    timer_update->end();
-                    renderer->sample = 0;
-                    renderer->seed = rand();
-                    if (randomize) randomize_parameters();
-                    // reset
-                    renderer->sample = 0;
-                    renderer->backprop_sample = 0;
-                }
-            }
-        // regular forward rendering
-        } else if (renderer->sample < sppx) {
+        // trace
+        if (renderer->sample < sppx) {
+            // forward rendering
             renderer->sample++;
+            timer_trace->begin();
             renderer->trace();
+            timer_trace->end();
+        } else if (adjoint) {
+            if (renderer->backprop_sample < renderer->backprop_sppx) {
+                // radiative backprop
+                renderer->backprop_sample++;
+                timer_backprop->begin();
+                renderer->radiative_backprop();
+                timer_backprop->end();
+            } else {
+                // gradient update step
+                timer_update->begin();
+                renderer->apply_gradients();
+                timer_update->end();
+                if (randomize) randomize_parameters();
+                // reset
+                renderer->sample = 0;
+                renderer->backprop_sample = 0;
+                renderer->seed = rand();
+            }
         } else
             glfwWaitEventsTimeout(1.f / 10); // 10fps idle
 

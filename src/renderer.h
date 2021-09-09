@@ -41,11 +41,10 @@ struct Renderer {
     int sppx = 1024;
     int seed = 42;
     int bounces = 3;
-    float tonemap_exposure = 10.f;
+    float tonemap_exposure = 5.f;
     float tonemap_gamma = 2.2f;
     bool tonemapping = true;
     bool show_environment = true;
-    float raymarch_step_size = 0.5f;
 };
 
 
@@ -77,13 +76,12 @@ struct BackpropRendererOpenGL : public RendererOpenGL {
     void draw() override;
     void draw_adjoint();
 
-    void trace_prediction();
     void radiative_backprop();
     void apply_gradients();
 
     // OpenGL data
     Texture2D prediction, debug_color, radiative_debug;
-    Shader pred_trace_shader, backprop_shader, gradient_apply_shader, debug_shader;
+    Shader backprop_shader, gradient_apply_shader, debug_shader;
 
     // Optimization target and gradients:
     Texture3D vol_dense, vol_grad, adam_params;

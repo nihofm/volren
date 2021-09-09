@@ -57,7 +57,7 @@ void RendererOpenGL::init() {
 
     // load default environment map
     if (!environment) {
-        glm::vec3 color(.5f);
+        glm::vec3 color(1.f);
         environment = std::make_shared<Environment>(Texture2D("background", 1, 1, GL_RGB32F, GL_RGB, GL_FLOAT, &color.x));
     }
 
@@ -157,7 +157,7 @@ void RendererOpenGL::trace() {
     uint32_t tex_unit = 0;
     trace_shader->uniform("bounces", bounces);
     trace_shader->uniform("seed", seed);
-    trace_shader->uniform("show_environment", show_environment ? 0 : 1);
+    trace_shader->uniform("show_environment", show_environment ? 1 : 0);
     // camera
     trace_shader->uniform("cam_pos", current_camera()->pos);
     trace_shader->uniform("cam_fov", current_camera()->fov_degree);
@@ -176,7 +176,6 @@ void RendererOpenGL::trace() {
     trace_shader->uniform("vol_albedo", volume->albedo);
     trace_shader->uniform("vol_phase_g", volume->phase);
     trace_shader->uniform("vol_density_scale", volume->density_scale);
-    trace_shader->uniform("vol_step_size", raymarch_step_size);
     // brick grid data
     trace_shader->uniform("vol_grid_type", 0);
     if (vol_indirection) trace_shader->uniform("vol_indirection", vol_indirection, tex_unit++);
@@ -196,9 +195,10 @@ void RendererOpenGL::trace() {
     trace_shader->uniform("env_impmap", environment->impmap, tex_unit++);
 
     // trace
-    const glm::ivec2 size = Context::resolution();
+    const glm::ivec2 resolution = Context::resolution();
     trace_shader->uniform("current_sample", sample);
-    trace_shader->dispatch_compute(size.x, size.y);
+    trace_shader->uniform("resolution", resolution);
+    trace_shader->dispatch_compute(resolution.x, resolution.y);
 
     // unbind
     color->unbind_image(0);
@@ -229,8 +229,6 @@ void BackpropRendererOpenGL::init() {
         radiative_debug = Texture2D("grad debug2", res.x, res.y, GL_RGBA32F, GL_RGBA, GL_FLOAT);
 
     // compile shaders
-    if (!pred_trace_shader)
-        pred_trace_shader = Shader("trace dense", "shader/pathtracer_dense.glsl");
     if (!backprop_shader)
         backprop_shader = Shader("backprop", "shader/radiative_backprop.glsl");
     if (!gradient_apply_shader)
@@ -308,65 +306,10 @@ void BackpropRendererOpenGL::trace() {
     RendererOpenGL::trace();
 }
 
-void BackpropRendererOpenGL::trace_prediction() {
-    // trace prediction sample
-    uint32_t tex_unit = 0;
-    pred_trace_shader->bind();
-    prediction->bind_image(tex_unit++, GL_READ_WRITE, GL_RGBA32F);
-
-    // uniforms
-    pred_trace_shader->uniform("bounces", bounces);
-    pred_trace_shader->uniform("seed", seed);
-    pred_trace_shader->uniform("show_environment", show_environment ? 0 : 1);
-    // camera
-    pred_trace_shader->uniform("cam_pos", current_camera()->pos);
-    pred_trace_shader->uniform("cam_fov", current_camera()->fov_degree);
-    pred_trace_shader->uniform("cam_transform", glm::inverse(glm::mat3(current_camera()->view)));
-    // volume
-    const auto [bb_min, bb_max] = volume->AABB();
-    const auto [min, maj] = volume->minorant_majorant();
-    pred_trace_shader->uniform("vol_model", volume->get_transform());
-    pred_trace_shader->uniform("vol_inv_model", glm::inverse(volume->get_transform()));
-    pred_trace_shader->uniform("vol_bb_min", bb_min + vol_clip_min * (bb_max - bb_min));
-    pred_trace_shader->uniform("vol_bb_max", bb_min + vol_clip_max * (bb_max - bb_min));
-    pred_trace_shader->uniform("vol_minorant", min * volume->density_scale);
-    pred_trace_shader->uniform("vol_inv_minorant", 1.f / (min * volume->density_scale));
-    pred_trace_shader->uniform("vol_majorant", maj * volume->density_scale);
-    pred_trace_shader->uniform("vol_inv_majorant", 1.f / (maj * volume->density_scale));
-    pred_trace_shader->uniform("vol_albedo", volume->albedo);
-    pred_trace_shader->uniform("vol_phase_g", volume->phase);
-    pred_trace_shader->uniform("vol_density_scale", volume->density_scale);
-    pred_trace_shader->uniform("vol_step_size", raymarch_step_size);
-    // dense grid data
-    pred_trace_shader->uniform("vol_grid_type", 1);
-    if (vol_dense) pred_trace_shader->uniform("vol_dense", vol_dense, tex_unit++);
-    // transfer function
-    pred_trace_shader->uniform("tf_window_left", transferfunc->window_left);
-    pred_trace_shader->uniform("tf_window_width", transferfunc->window_width);
-    pred_trace_shader->uniform("tf_texture", transferfunc->texture, tex_unit++);
-    // environment
-    pred_trace_shader->uniform("env_model", environment->model);
-    pred_trace_shader->uniform("env_inv_model", glm::inverse(environment->model));
-    pred_trace_shader->uniform("env_strength", environment->strength);
-    pred_trace_shader->uniform("env_imp_inv_dim", glm::vec2(1.f / environment->dimension()));
-    pred_trace_shader->uniform("env_imp_base_mip", int(floor(log2(environment->dimension()))));
-    pred_trace_shader->uniform("env_envmap", environment->envmap, tex_unit++);
-    pred_trace_shader->uniform("env_impmap", environment->impmap, tex_unit++);
-
-    // trace
-    const glm::ivec2 res = Context::resolution();
-    pred_trace_shader->uniform("current_sample", sample);
-    pred_trace_shader->dispatch_compute(res.x, res.y);
-
-    // unbind
-    prediction->unbind_image(0);
-    pred_trace_shader->unbind();
-}
-
 void BackpropRendererOpenGL::radiative_backprop() {
     // bind
     backprop_shader->bind();
-    prediction->bind_image(0, GL_READ_ONLY, GL_RGBA32F);
+    prediction->bind_image(0, GL_READ_WRITE, GL_RGBA32F);
     color->bind_image(1, GL_READ_ONLY, GL_RGBA32F);
     vol_grad->bind_image(2, GL_READ_WRITE, GL_R32F);
     radiative_debug->bind_image(3, GL_WRITE_ONLY, GL_RGBA32F);
@@ -395,7 +338,6 @@ void BackpropRendererOpenGL::radiative_backprop() {
     backprop_shader->uniform("vol_albedo", volume->albedo);
     backprop_shader->uniform("vol_phase_g", volume->phase);
     backprop_shader->uniform("vol_density_scale", volume->density_scale);
-    backprop_shader->uniform("vol_step_size", raymarch_step_size);
     // dense grid data
     backprop_shader->uniform("vol_grid_type", 1);
     if (vol_dense) backprop_shader->uniform("vol_dense", vol_dense, tex_unit++);
@@ -413,9 +355,10 @@ void BackpropRendererOpenGL::radiative_backprop() {
     backprop_shader->uniform("env_impmap", environment->impmap, tex_unit++);
 
     // backprop
-    const glm::ivec2 res = Context::resolution();
+    const glm::ivec2 resolution = Context::resolution();
     backprop_shader->uniform("current_sample", backprop_sample);
-    backprop_shader->dispatch_compute(res.x, res.y);
+    backprop_shader->uniform("resolution", resolution);
+    backprop_shader->dispatch_compute(resolution.x, resolution.y);
 
     // unbind
     radiative_debug->unbind_image(3);
