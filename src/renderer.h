@@ -94,6 +94,10 @@ struct BackpropRendererOpenGL : public RendererOpenGL {
 struct RendererOptix : public Renderer {
     static void initOptix();
 
+    // TODO
+    RendererOptix();
+    ~RendererOptix();
+
     void init();
     void resize(uint32_t w, uint32_t h);
     void commit();
@@ -103,7 +107,12 @@ struct RendererOptix : public Renderer {
     // Optix data
     OptixDeviceContext context;
     OptixModule module;
+    // TODO
+    OptixProgramGroup raygen, miss;
+    OptixPipeline pipeline;
+    OptixShaderBindingTable sbt;
 
+    // TODO remove this stuff
     // CUDA data
     BufferCUDAGL<float4> fbo;
     BufferCUDA<CameraCUDA> cam;

@@ -344,7 +344,7 @@ int main(int argc, char** argv) {
     // XXX DEBUG test CUDA renderer
     {
         auto test = std::make_shared<RendererOptix>();
-        //test->init();
+        test->init();
     }
 
     // initialize the renderer(s)

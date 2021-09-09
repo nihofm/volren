@@ -3,25 +3,31 @@
 #include <string>
 #include <iostream>
 #include <cuda_runtime.h>
+#include <nvrtc.h>
 #include <optix.h>
+
+#include <vector>
+#include <fstream>
 
 // ------------------------------------------
 // error checking helpers
 
 #define cudaCheckError(code) { _cudaCheckError(code, __FILE__, __LINE__); }
-inline void _cudaCheckError(cudaError_t code, const char* file, int line, bool abort=true) {
-    if (code != cudaSuccess) {
-        fprintf(stderr, "%s:%d: CUDA error: '%s'\n", file, line, cudaGetErrorString(code));
-        if (abort) exit(code);
-    }
+inline void _cudaCheckError(cudaError_t code, const std::string& file, int line, bool abort=true) {
+    if (code != cudaSuccess)
+        throw std::runtime_error(file + "(" + std::to_string(line) + "): CUDA error: " + cudaGetErrorString(code));
 }
 
 #define optixCheckError(code) { _optixCheckError(code, __FILE__, __LINE__); }
-inline void _optixCheckError(OptixResult code, const char* file, int line, bool abort=true) {
-    if (code != OPTIX_SUCCESS) {
-        fprintf(stderr, "%s:%d: OPTIX error: '%i'\n", file, line, uint32_t(code));
-        if (abort) exit(code);
-    }
+inline void _optixCheckError(OptixResult code, const std::string& file, int line, bool abort=true) {
+    if (code != OPTIX_SUCCESS)
+        throw std::runtime_error(file + "(" + std::to_string(line) + "): OPTIX error: " + std::to_string(uint32_t(code)));
+}
+
+#define nvrtcCheckError(code) { _nvrtcCheckError(code, __FILE__, __LINE__); }
+inline void _nvrtcCheckError(nvrtcResult code, const std::string& file, int line, bool abort = true) {           
+    if (code != NVRTC_SUCCESS)
+        throw std::runtime_error(file + "(" + std::to_string(line) + "): NVRTC error: " + nvrtcGetErrorString(code));
 }
 
 // ------------------------------------------
@@ -214,6 +220,3 @@ struct VolumeCUDA {
     float majorant;
     BufferCUDA<float> grid;
 };
-
-// ------------------------------------------
-// Renderer TODO

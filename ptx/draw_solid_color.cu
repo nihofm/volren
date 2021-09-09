@@ -28,18 +28,24 @@
 
 #include <optix.h>
 
-#include "optixHello.h"
-#include <cuda/helpers.h>
+struct Params
+{
+    float4* image;
+    unsigned int image_width;
+};
+
+struct RayGenData
+{
+    float r,g,b;
+};
 
 extern "C" {
 __constant__ Params params;
 }
 
-extern "C"
-__global__ void __raygen__draw_solid_color()
-{
+extern "C" __global__ void __raygen__draw_solid_color() {
     uint3 launch_index = optixGetLaunchIndex();
+    size_t idx = launch_index.y * params.image_width + launch_index.x;
     RayGenData* rtData = (RayGenData*)optixGetSbtDataPointer();
-    params.image[launch_index.y * params.image_width + launch_index.x] =
-        make_color( make_float3( rtData->r, rtData->g, rtData->b ) );
+    params.image[idx] = make_float4(rtData->r, rtData->g, rtData->b, 0);
 }
