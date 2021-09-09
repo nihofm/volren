@@ -26,19 +26,19 @@ vec3 sanitize(const vec3 x) { return mix(x, vec3(0), isnan(x) || isinf(x)); }
 
 struct PathSegment {
     vec3 pos;
-    float t_min;
+    float t;
     vec3 dir;
-    float t_max;
-    vec3 weight;
     float tau;
+    vec3 weight;
+    uint seed;
 
-    void store(vec3 _pos, vec3 _dir, float _t_min, float _t_max, vec3 _weight, float _tau) {
+    void store(vec3 _pos, vec3 _dir, float _t, float _tau, vec3 _weight, uint _seed) {
         pos = _pos;
-        t_min = _t_min;
+        t = _t;
         dir = _dir;
-        t_max = _t_max;
-        weight = _weight;
         tau = _tau;
+        weight = _weight;
+        seed = _seed;
     }
 };
 
@@ -178,7 +178,7 @@ vec3 radiative_backprop(vec3 pos, vec3 dir, inout uint seed, const vec3 dy) {
         if (env.w > 0) {
             const float f_p = phase_henyey_greenstein(dot(-dir, w_i), vol_phase_g);
             const float Tr = transmittance(pos + t * dir, w_i, seed);
-            Li += throughput * f_p * Tr * env.rgb / env.w;
+            Li += f_p * Tr * env.rgb / env.w;
         }
         // backprop transmittance
         const vec3 weight = throughput * Li * dy / tr_pdf;
@@ -203,7 +203,8 @@ vec3 radiative_backprop(vec3 pos, vec3 dir, inout uint seed, const vec3 dy) {
 // ---------------------------------------------------
 // combined forward + backprop
 
-vec3 trace_path_backprop(vec3 pos, vec3 dir, inout uint seed) {
+vec3 trace_path_backprop(vec3 pos, vec3 dir, inout uint seed, const vec3 reference, out vec3 Lr) {
+    // TODO DEBUG THIS
     // storage for saved path segments
     const uint N_PATH_SEGMENTS = 3;
     PathSegment segments[N_PATH_SEGMENTS];
@@ -220,9 +221,9 @@ vec3 trace_path_backprop(vec3 pos, vec3 dir, inout uint seed) {
             f_p = phase_henyey_greenstein(dot(-dir, w_i), vol_phase_g);
             const float mis_weight = power_heuristic(Li_pdf.w, f_p);
             const float Tr = transmittance(pos + t * dir, w_i, seed);
-            const vec3 Li = throughput * mis_weight * f_p * Tr * Li_pdf.rgb / Li_pdf.w;
-            radiance += Li;
-            if (n_paths < N_PATH_SEGMENTS) segments[n_paths].store(pos, dir, 0.f, t, Li / tr_pdf, tau); // TODO t_min
+            const vec3 Li = mis_weight * f_p * Tr * Li_pdf.rgb / Li_pdf.w;
+            radiance += throughput * Li;
+            if (n_paths < N_PATH_SEGMENTS) segments[n_paths].store(pos, dir, t, tau, throughput * (Li + vec3(1)) / tr_pdf, seed);
         }
 
         // early out?
@@ -248,13 +249,15 @@ vec3 trace_path_backprop(vec3 pos, vec3 dir, inout uint seed) {
         const float mis_weight = n_paths > 0 ? power_heuristic(f_p, pdf_environment(dir)) : 1.f;
         const vec3 Li = throughput * mis_weight * Le;
         radiance += Li;
-        if (n_paths < N_PATH_SEGMENTS) segments[n_paths].store(pos - t * dir, dir, 0.f, t, Li / tr_pdf, tau);
+        if (n_paths < N_PATH_SEGMENTS) segments[n_paths].store(pos - t * dir, dir, t, tau, Li / tr_pdf, seed);
     }
 
     // at this point, we can compute the loss and backprop using the saved path segments
-    // TODO
+    Lr = vec3(0);
+    const vec3 dy = 2 * (radiance - reference);
     for (int i = 0; i < min(N_PATH_SEGMENTS, n_paths); ++i) {
-        
+        // TODO
+        Lr += transmittance_adjoint(segments[i].pos, segments[i].dir, segments[i].seed, segments[i].weight * dy, segments[i].t);
     }
 
     return radiance;
@@ -272,6 +275,7 @@ void main() {
     const vec3 pos = cam_pos;
     const vec3 dir = view_dir(pixel, resolution, rng2(seed));
 
+#if 1
     // forward path tracing
     const vec3 Lo = trace_path(pos, dir, seed);
 
@@ -279,9 +283,14 @@ void main() {
     const vec3 reference = imageLoad(color_reference, pixel).rgb;
     const vec3 dy = 2 * (Lo - reference);
     
-    // radiative backprop TODO re-use paths
+    // radiative backprop
     seed = tea(seed * (pixel.y * resolution.x + pixel.x), current_sample, 32);
     const vec3 Lr = radiative_backprop(pos, dir, seed, dy / float(sppx));
+#else
+    // TODO DEBUG
+    vec3 Lr;
+    const vec3 Lo = trace_path_backprop(pos, dir, seed, imageLoad(color_reference, pixel).rgb, Lr);
+#endif
 
     // store results
     imageStore(color_prediction, pixel, vec4(mix(imageLoad(color_prediction, pixel).rgb, sanitize(Lo), 1.f / current_sample), 1));

@@ -1,4 +1,4 @@
-FROM nvidia/cuda:11.1-devel
+FROM nvidia/cuda:11.4-devel
 
 ENV TZ=Europe/Berlin
 RUN ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && echo $TZ > /etc/timezone
@@ -6,7 +6,7 @@ RUN apt-get update && apt-get upgrade -y
 
 RUN apt-get install -y build-essential cmake
 # cppgl deps
-RUN apt-get install -y libglew-dev libglfw3-dev libglm-dev libassimp-dev
+RUN apt-get install -y -qq --no-install-recommends build-essential libx11-dev xorg-dev libopengl-dev freeglut3-dev cmake
 # OpenVDB deps
 RUN apt-get install -y libboost-iostreams-dev libboost-system-dev libtbb-dev libilmbase-dev libopenexr-dev
 # TODO verify if this works with OpenVDB
