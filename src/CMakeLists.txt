@@ -20,6 +20,7 @@ target_link_libraries(${TARGET} PRIVATE cppgl voldata stdc++ stdc++fs)
 # CUDA
 find_package(CUDAToolkit REQUIRED)
 include_directories(${CUDAToolkit_INCLUDE_DIRS})
+set_target_properties(${TARGET} PROPERTIES CUDA_ARCHITECTURES "86")
 
 # pybind11
 target_link_libraries(${TARGET} PRIVATE pybind11::embed)
