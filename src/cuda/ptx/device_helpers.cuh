@@ -4,6 +4,7 @@
 // vector math
 
 #include "helper_math.cuh"
+#include "math_constants.h"
 
 inline __device__ float2 operator-(const float2& v) { return make_float2(-v.x, -v.y); }
 inline __device__ float3 operator-(const float3& v) { return make_float3(-v.x, -v.y, -v.z); }
@@ -43,7 +44,7 @@ inline __device__ bool intersect_box(const float3& pos, const float3& dir, const
 inline __device__ float3 view_dir(const float3& cam_dir, float cam_fov, int2 xy, int2 wh, float2 sample = make_float2(.5f)) {
     // compute eye-space direction
     const float2 pixel = (make_float2(xy) + sample - make_float2(wh) * .5f) / make_float2(wh.y);
-    const float z = -.5f / tanf(.5f * M_PI * cam_fov / 180.f);
+    const float z = -.5f / tanf(.5f * CUDART_PI_F * cam_fov / 180.f);
     const float3 eye_dir = make_float3(pixel.x, pixel.y, z);
     // transform to view space
     const float3 ndir = normalize(cam_dir);

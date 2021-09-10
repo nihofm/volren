@@ -26,18 +26,8 @@
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 //
 
-#include <optix.h>
-
-struct Params
-{
-    float4* image;
-    unsigned int image_width;
-};
-
-struct RayGenData
-{
-    float r,g,b;
-};
+#include "common.cuh"
+#include "device_helpers.cuh"
 
 extern "C" {
 __constant__ Params params;
@@ -45,7 +35,9 @@ __constant__ Params params;
 
 extern "C" __global__ void __raygen__draw_solid_color() {
     uint3 launch_index = optixGetLaunchIndex();
-    size_t idx = launch_index.y * params.image_width + launch_index.x;
+    size_t idx = launch_index.y * params.resolution.x + launch_index.x;
     RayGenData* rtData = (RayGenData*)optixGetSbtDataPointer();
     params.image[idx] = make_float4(rtData->r, rtData->g, rtData->b, 0);
+    const float3 dir = view_dir(params.cam_dir, params.cam_fov, make_int2(launch_index.x, launch_index.y), make_int2(params.resolution.x, params.resolution.y));
+    params.image[idx] = fabs(make_float4(dir.x, dir.y, dir.z, 0));
 }

@@ -8,9 +8,8 @@
 #include "transferfunc.h"
 
 // CUDA includes
-#include "cuda/common.cuh"
-#include "cuda/gl.cuh"
 #include <optix.h>
+#include "cuda/gl_interop.h"
 
 struct Renderer {
     // Renderer interface
@@ -68,7 +67,6 @@ struct RendererOpenGL : public Renderer {
 };
 
 struct BackpropRendererOpenGL : public RendererOpenGL {
-
     void init() override;
     void resize(uint32_t w, uint32_t h) override;
     void commit() override;
@@ -92,9 +90,6 @@ struct BackpropRendererOpenGL : public RendererOpenGL {
 
 // TODO CUDA
 struct RendererOptix : public Renderer {
-    static void initOptix();
-
-    // TODO
     RendererOptix();
     ~RendererOptix();
 
@@ -107,15 +102,12 @@ struct RendererOptix : public Renderer {
     // Optix data
     OptixDeviceContext context;
     OptixModule module;
-    // TODO
-    OptixProgramGroup raygen, miss;
+    OptixProgramGroup raygen_group;
+    OptixProgramGroup miss_group;
     OptixPipeline pipeline;
     OptixShaderBindingTable sbt;
 
-    // TODO remove this stuff
-    // CUDA data
+    // CUDA/GL data
+    CUstream stream;
     BufferCUDAGL<float4> fbo;
-    BufferCUDA<CameraCUDA> cam;
-    BufferCUDA<VolumeCUDA> vol;
-    // TODO environment + transferfunc
 };

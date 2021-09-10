@@ -16,15 +16,6 @@ namespace py = pybind11;
 #include "renderer.h"
 
 // ------------------------------------------
-// CUDA
-
-#include "cuda/common.cuh"
-
-inline float2 cast(const glm::vec2& v) { return make_float2(v.x, v.y); }
-inline float3 cast(const glm::vec3& v) { return make_float3(v.x, v.y, v.z); }
-inline float4 cast(const glm::vec4& v) { return make_float4(v.x, v.y, v.z, v.w); }
-
-// ------------------------------------------
 // settings
 
 static bool adjoint = false, randomize = false;
@@ -34,6 +25,10 @@ static bool use_vsync = true;
 static float shader_check_delay_ms = 1000;
 
 static std::shared_ptr<BackpropRendererOpenGL> renderer;
+// TODO debug
+static bool use_optix = false;
+static std::shared_ptr<RendererOptix> renderer_optix;
+
 
 // ------------------------------------------
 // helper funcs
@@ -120,6 +115,8 @@ void resize_callback(int w, int h) {
     renderer->resize(w, h);
     // restart rendering
     renderer->sample = 0;
+    // TODO debug
+    renderer_optix->resize(w, h);
 }
 
 void keyboard_callback(int key, int scancode, int action, int mods) {
@@ -133,6 +130,7 @@ void keyboard_callback(int key, int scancode, int action, int mods) {
         use_vsync = !use_vsync;
         Context::set_swap_interval(use_vsync ? 1 : 0);
     }
+    if (key == GLFW_KEY_V && action == GLFW_PRESS) 
     if (key == GLFW_KEY_C && action == GLFW_PRESS) {
         adjoint = !adjoint;
         renderer->sample = 0;
@@ -143,6 +141,8 @@ void keyboard_callback(int key, int scancode, int action, int mods) {
         renderer->sample = 0;
         renderer->backprop_sample = 0;
     }
+    if (key == GLFW_KEY_O && action == GLFW_PRESS)
+        use_optix = !use_optix;
     if (key == GLFW_KEY_T && action == GLFW_PRESS)
         renderer->tonemapping = !renderer->tonemapping;
     if (key == GLFW_KEY_SPACE && action == GLFW_PRESS)
@@ -191,6 +191,7 @@ void gui_callback(void) {
         if (ImGui::InputInt("Sppx", &sppx)) renderer->sample = 0;
         if (ImGui::InputInt("Bounces", &renderer->bounces)) renderer->sample = 0;
         if (ImGui::Checkbox("Vsync", &use_vsync)) Context::set_swap_interval(use_vsync ? 1 : 0);
+        ImGui::Checkbox("Use Optix", &use_optix);
         ImGui::Separator();
         ImGui::Text("Radiative backprop:");
         if (ImGui::InputInt("Backprop sppx", &renderer->backprop_sppx)) {
@@ -341,15 +342,12 @@ int main(int argc, char** argv) {
     // explicitly initialize OpenGL
     RendererOpenGL::initOpenGL(1920, 1080, use_vsync, /*pinned = */false, /*visible = */true);
 
-    // XXX DEBUG test CUDA renderer
-    {
-        auto test = std::make_shared<RendererOptix>();
-        test->init();
-    }
-
     // initialize the renderer(s)
     renderer = std::make_shared<BackpropRendererOpenGL>();
     renderer->init();
+
+    // TODO debug
+    renderer_optix = std::make_shared<RendererOptix>();
 
     // install callbacks for interactive mode
     Context::set_resize_callback(resize_callback);
@@ -400,7 +398,9 @@ int main(int argc, char** argv) {
         }
 
         // trace
-        if (renderer->sample < sppx) {
+        if (use_optix)
+            renderer_optix->trace();
+        else if (renderer->sample < sppx) {
             // forward rendering
             renderer->sample++;
             timer_trace->begin();
@@ -429,7 +429,9 @@ int main(int argc, char** argv) {
 
         // draw results
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-        if (adjoint)
+        if (use_optix)
+            renderer_optix->draw();
+        else if (adjoint)
             renderer->draw_adjoint();
         else
             renderer->draw();
@@ -437,4 +439,8 @@ int main(int argc, char** argv) {
         // finish frame
         Context::swap_buffers();
     }
+
+    // cleanup
+    renderer.reset();
+    renderer_optix.reset();
 }
