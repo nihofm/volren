@@ -108,6 +108,5 @@ struct RendererOptix : public Renderer {
     OptixShaderBindingTable sbt;
 
     // CUDA/GL data
-    CUstream stream;
     BufferCUDAGL<float4> fbo;
 };

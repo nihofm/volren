@@ -204,9 +204,6 @@ RendererOptix::RendererOptix() {
         sbt.missRecordCount             = 1;
     }
 
-    // create cuda stream
-    cudaCheckError(cudaStreamCreate(&stream));
-
     // load default volume
     if (!volume)
         volume = std::make_shared<voldata::Volume>();
@@ -217,7 +214,6 @@ RendererOptix::RendererOptix() {
 }
 
 RendererOptix::~RendererOptix() {
-    cudaCheckError(cudaStreamDestroy(stream));
     cudaCheckError(cudaFree(reinterpret_cast<void*>(sbt.raygenRecord)));
     cudaCheckError(cudaFree(reinterpret_cast<void*>(sbt.missRecordBase)));
     optixCheckError(optixPipelineDestroy(pipeline));
@@ -271,7 +267,7 @@ void RendererOptix::trace() {
     params->cam_dir = cast(current_camera()->dir);
     params->cam_fov = current_camera()->fov_degree;
 
-    optixCheckError(optixLaunch(pipeline, stream, (CUdeviceptr)params, sizeof(Params), &sbt, fbo.size.x, fbo.size.y, /*depth=*/1));
+    optixCheckError(optixLaunch(pipeline, 0, (CUdeviceptr)params, sizeof(Params), &sbt, fbo.size.x, fbo.size.y, /*depth=*/1));
     
     cudaDeviceSynchronize();
     cudaCheckError(cudaGetLastError());
