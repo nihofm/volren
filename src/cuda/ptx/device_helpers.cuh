@@ -37,7 +37,7 @@ inline __device__ bool intersect_box(const float3& pos, const float3& dir, const
     const float3 hi = (bb_max - pos) * inv_dir;
     const float3 tmin = fminf(lo, hi), tmax = fmaxf(lo, hi);
     near_far.x = fmaxf(0.f, fmaxf(tmin.x, fmaxf(tmin.y, tmin.z)));
-    near_far.y = fmaxf(0.f, fminf(tmax.x, fminf(tmax.y, tmax.z)));
+    near_far.y = fminf(tmax.x, fminf(tmax.y, tmax.z));
     return near_far.x < near_far.y;
 }
 

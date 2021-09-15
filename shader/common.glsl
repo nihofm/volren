@@ -203,7 +203,8 @@ uniform sampler2D tf_texture;
 
 // TODO stochastic lookup filter for transferfunc
 vec4 tf_lookup(float d) {
-    return texture(tf_texture, vec2((d - tf_window_left) / tf_window_width, 0));
+    const vec4 lut = texture(tf_texture, vec2((d - tf_window_left) / tf_window_width, 0));
+    return vec4(lut.rgb, lut.a * d);
 }
 
 // --------------------------------------------------------------
@@ -423,16 +424,16 @@ bool sample_volume(const vec3 wpos, const vec3 wdir, out float t, inout vec3 thr
 // ---------------------------------
 // DDA-based null-collision methods
 
-//#define USE_TRANSFERFUNC
+#define USE_TRANSFERFUNC
 #define MIP_START 3
 #define MIP_SPEED_UP 0.25
 #define MIP_SPEED_DOWN 2
 
 // perform DDA step on given mip level
-float stepDDA(const vec3 pos, const vec3 ri, const int mip) {
+float stepDDA(const vec3 pos, const vec3 inv_dir, const int mip) {
     const float dim = 8 << mip;
-    const vec3 offs = mix(vec3(-0.5f), vec3(dim + 0.5f), greaterThanEqual(ri, vec3(0)));
-    const vec3 tmax = (floor(pos * (1.f / dim)) * dim + offs - pos) * ri;
+    const vec3 offs = mix(vec3(-0.5f), vec3(dim + 0.5f), greaterThanEqual(inv_dir, vec3(0)));
+    const vec3 tmax = (floor(pos * (1.f / dim)) * dim + offs - pos) * inv_dir;
     return min(tmax.x, min(tmax.y , tmax.z));
 }
 

@@ -28,23 +28,23 @@ struct PathSegment {
     vec3 pos;
     float t;
     vec3 dir;
-    float tau;
-    vec3 weight;
-    uint seed;
+    float tr_pdf;
+    vec3 throughput;
+    bool escaped;
 
-    void store(vec3 _pos, vec3 _dir, float _t, float _tau, vec3 _weight, uint _seed) {
+    void store(vec3 _pos, vec3 _dir, float _t, float _tr_pdf, vec3 _throughput, bool _escaped) {
         pos = _pos;
         t = _t;
         dir = _dir;
-        tau = _tau;
-        weight = _weight;
-        seed = _seed;
+        tr_pdf = _tr_pdf;
+        throughput = _throughput;
+        escaped = _escaped;
     }
 };
 
-bool sample_volume_backprop(const vec3 wpos, const vec3 wdir, out float t, out float tau, out float tr_pdf, inout vec3 throughput, inout uint seed) {
+bool sample_volume_backprop(const vec3 wpos, const vec3 wdir, out float t, out float tr_pdf, inout vec3 throughput, inout uint seed) {
     // default out variables
-    t = 0.f, tau = 0.f, tr_pdf = 1.f;
+    t = 0.f, tr_pdf = 1.f;
     // clip volume
     vec2 near_far;
     if (!intersect_box(wpos, wdir, vol_bb_min, vol_bb_max, near_far)) return false;
@@ -57,6 +57,7 @@ bool sample_volume_backprop(const vec3 wpos, const vec3 wdir, out float t, out f
     const float sampled_tau = -log(1.f - rng(seed));
     t = near_far.x + rng(seed) * dt;
     // raymarch
+    float tau = 0.f;
     for (int i = 0; i < steps; ++i) {
         const ivec3 curr_p = ivec3(ipos + min(t, near_far.y) * idir);
         const float curr_d = lookup_density(curr_p, seed);
@@ -204,7 +205,7 @@ vec3 radiative_backprop(vec3 pos, vec3 dir, inout uint seed, const vec3 dy) {
 // combined forward + backprop
 
 vec3 trace_path_backprop(vec3 pos, vec3 dir, inout uint seed, const vec3 reference, out vec3 Lr) {
-    // TODO DEBUG THIS
+    // TODO DEBUG RENDERING OFFSET
     // storage for saved path segments
     const uint N_PATH_SEGMENTS = 3;
     PathSegment segments[N_PATH_SEGMENTS];
@@ -212,8 +213,10 @@ vec3 trace_path_backprop(vec3 pos, vec3 dir, inout uint seed, const vec3 referen
     vec3 radiance = vec3(0), throughput = vec3(1);
     bool free_path = true;
     uint n_paths = 0;
-    float t, tau, tr_pdf, f_p;
-    while (sample_volume_backprop(pos, dir, t, tau, tr_pdf, throughput, seed)) {
+    float t, tr_pdf, f_p;
+    while (sample_volume_backprop(pos, dir, t, tr_pdf, throughput, seed)) { // TODO OFFSET BY ONE VOXEL??
+        // store path segment
+        if (n_paths < N_PATH_SEGMENTS) segments[n_paths].store(pos, dir, t, tr_pdf, throughput, false);
         // sample light source (environment)
         vec3 w_i;
         const vec4 Li_pdf = sample_environment(rng2(seed), w_i);
@@ -223,7 +226,6 @@ vec3 trace_path_backprop(vec3 pos, vec3 dir, inout uint seed, const vec3 referen
             const float Tr = transmittance(pos + t * dir, w_i, seed);
             const vec3 Li = mis_weight * f_p * Tr * Li_pdf.rgb / Li_pdf.w;
             radiance += throughput * Li;
-            if (n_paths < N_PATH_SEGMENTS) segments[n_paths].store(pos, dir, t, tau, throughput * (Li + vec3(1)) / tr_pdf, seed);
         }
 
         // early out?
@@ -249,15 +251,41 @@ vec3 trace_path_backprop(vec3 pos, vec3 dir, inout uint seed, const vec3 referen
         const float mis_weight = n_paths > 0 ? power_heuristic(f_p, pdf_environment(dir)) : 1.f;
         const vec3 Li = throughput * mis_weight * Le;
         radiance += Li;
-        if (n_paths < N_PATH_SEGMENTS) segments[n_paths].store(pos - t * dir, dir, t, tau, Li / tr_pdf, seed);
+        // store path segment
+        if (n_paths < N_PATH_SEGMENTS) segments[n_paths++].store(pos, dir, t, tr_pdf, throughput, true);
     }
-
-    // at this point, we can compute the loss and backprop using the saved path segments
-    Lr = vec3(0);
-    const vec3 dy = 2 * (radiance - reference);
-    for (int i = 0; i < min(N_PATH_SEGMENTS, n_paths); ++i) {
-        // TODO
-        Lr += transmittance_adjoint(segments[i].pos, segments[i].dir, segments[i].seed, segments[i].weight * dy, segments[i].t);
+    
+    // at this point, we can compute the gradient of the loss and backprop using saved path segments
+    {
+        // TODO DEBUG GRADIENTS
+        Lr = vec3(0);
+        const vec3 dy = 2 * (radiance - reference) / float(sppx);
+        // Lr = dy; return radiance;
+        for (int i = 0; i < min(N_PATH_SEGMENTS, n_paths); ++i) {
+            const PathSegment path = segments[i];
+            if (path.tr_pdf <= 0.f) continue;
+            vec3 L;
+            if (path.escaped) {
+                // Term: Q2 * Le
+                L = lookup_environment(path.dir);
+                // L = vec3(0);
+            } else {
+                // Term: Q2 * K * Li
+                L = vec3(1);
+                // emitter sampling
+                vec3 w_i;
+                const vec4 env = sample_environment(rng2(seed), w_i);
+                if (env.w > 0) {
+                    const float f_p = phase_henyey_greenstein(dot(-path.dir, w_i), vol_phase_g);
+                    const float Tr = transmittance_raymarch(path.pos + path.t * path.dir, w_i, seed);
+                    L += f_p * Tr * env.rgb / env.w;
+                }
+                // L = vec3(0);
+            }
+            // compute weight and backprop
+            const vec3 weight = path.throughput * L * dy / path.tr_pdf;
+            Lr += transmittance_adjoint(path.pos, path.dir, seed, weight, path.t);
+        }
     }
 
     return radiance;
@@ -287,7 +315,7 @@ void main() {
     seed = tea(seed * (pixel.y * resolution.x + pixel.x), current_sample, 32);
     const vec3 Lr = radiative_backprop(pos, dir, seed, dy / float(sppx));
 #else
-    // TODO DEBUG
+    // TODO DEBUG single pass backprop
     vec3 Lr;
     const vec3 Lo = trace_path_backprop(pos, dir, seed, imageLoad(color_reference, pixel).rgb, Lr);
 #endif

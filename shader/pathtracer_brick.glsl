@@ -76,6 +76,9 @@ void main() {
     const vec3 dir = view_dir(pixel, resolution, rng2(seed));
 
     // trace ray
+    float t;
+    vec3 throughput;
+    // const vec3 radiance = sample_volumeDDA(pos, dir, t, throughput, seed) ? vec3(t / 100.f) : vec3(0);
     const vec3 radiance = trace_path(pos, dir, seed);
 
     // write result

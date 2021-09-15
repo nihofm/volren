@@ -40,7 +40,7 @@ void TransferFunction::upload_gpu() {
         lut_cdf[i].a += lut_cdf[i-1].a;
     const float integral = lut_cdf[lut_cdf.size()-1].a;
     for (uint32_t i = 0; i < lut_cdf.size(); ++i)
-        lut_cdf[i].a = integral == 0.f ? (i+1) / float(lut_cdf.size()) : lut_cdf[i].a / integral;
+        lut_cdf[i].a = integral <= 0.f ? (i+1) / float(lut_cdf.size()) : lut_cdf[i].a / integral;
     // setup GL texture
     texture = Texture2D("transferfunc_lut", lut_cdf.size(), 1, GL_RGBA16F, GL_RGBA, GL_FLOAT, lut_cdf.data(), false);
     texture->bind(0);

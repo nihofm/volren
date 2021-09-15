@@ -1,4 +1,4 @@
-#include "../renderer.h"
+#include "renderer_optix.h"
 #include "host_helpers.h"
 
 #include <optix_function_table_definition.h>
@@ -85,7 +85,7 @@ static void initOptix() {
     is_init = true;
 }
 
-RendererOptix::RendererOptix() {
+RendererOptix::RendererOptix() : params(0) {
     initOptix();
 
     // init optix device
@@ -112,7 +112,7 @@ RendererOptix::RendererOptix() {
         pipeline_options.exceptionFlags        = OPTIX_EXCEPTION_FLAG_STACK_OVERFLOW;
         pipeline_options.pipelineLaunchParamsVariableName = "params";
 
-        const std::string ptx_source = compile_ptx("src/cuda/ptx/draw_solid_color.cu");
+        const std::string ptx_source = compile_ptx("src/cuda/ptx/raygen_pinhole.cu");
 
         optixCheckError(optixModuleCreateFromPTX(
             context,
@@ -134,7 +134,7 @@ RendererOptix::RendererOptix() {
         OptixProgramGroupDesc raygen_group_desc  = {};
         raygen_group_desc.kind                     = OPTIX_PROGRAM_GROUP_KIND_RAYGEN;
         raygen_group_desc.raygen.module            = module;
-        raygen_group_desc.raygen.entryFunctionName = "__raygen__draw_solid_color";
+        raygen_group_desc.raygen.entryFunctionName = "__raygen__pinhole";
         optixCheckError(optixProgramGroupCreate(context, &raygen_group_desc, 1, &group_options, 0, 0, &raygen_group));
 
         // Leave miss group's module and entryfunc name null
@@ -204,6 +204,9 @@ RendererOptix::RendererOptix() {
         sbt.missRecordCount             = 1;
     }
 
+    // alloc kernel parameter memory (managed)
+    cudaCheckError(cudaMallocManaged(&params, sizeof(Params)));
+
     // load default volume
     if (!volume)
         volume = std::make_shared<voldata::Volume>();
@@ -214,6 +217,7 @@ RendererOptix::RendererOptix() {
 }
 
 RendererOptix::~RendererOptix() {
+    cudaCheckError(cudaFree(params));
     cudaCheckError(cudaFree(reinterpret_cast<void*>(sbt.raygenRecord)));
     cudaCheckError(cudaFree(reinterpret_cast<void*>(sbt.missRecordBase)));
     optixCheckError(optixPipelineDestroy(pipeline));
@@ -258,21 +262,20 @@ void RendererOptix::commit() {
 #include "cuda/ptx/common.cuh"
 
 void RendererOptix::trace() {
-    // TODO
-    Params* params;
-    cudaCheckError(cudaMallocManaged(&params, sizeof(Params)));
+    // upload params
     params->image = fbo.map_cuda();
-    params->resolution = make_uint2(fbo.size.x, fbo.size.y);
+    params->resolution = make_float2(fbo.size.x, fbo.size.y);
     params->cam_pos = cast(current_camera()->pos);
     params->cam_dir = cast(current_camera()->dir);
     params->cam_fov = current_camera()->fov_degree;
+    const auto& [bb_min, bb_max] = volume->AABB();
+    params->vol_bb_min = cast(bb_min);
+    params->vol_bb_max = cast(bb_max);
 
     optixCheckError(optixLaunch(pipeline, 0, (CUdeviceptr)params, sizeof(Params), &sbt, fbo.size.x, fbo.size.y, /*depth=*/1));
     
     cudaDeviceSynchronize();
     cudaCheckError(cudaGetLastError());
-
-    cudaCheckError(cudaFree(params));
 
     fbo.unmap_cuda();
 }

@@ -14,6 +14,7 @@ namespace fs = std::filesystem;
 namespace py = pybind11;
 
 #include "renderer.h"
+#include "cuda/renderer_optix.h"
 
 // ------------------------------------------
 // settings
@@ -130,7 +131,6 @@ void keyboard_callback(int key, int scancode, int action, int mods) {
         use_vsync = !use_vsync;
         Context::set_swap_interval(use_vsync ? 1 : 0);
     }
-    if (key == GLFW_KEY_V && action == GLFW_PRESS) 
     if (key == GLFW_KEY_C && action == GLFW_PRESS) {
         adjoint = !adjoint;
         renderer->sample = 0;
@@ -250,8 +250,12 @@ void gui_callback(void) {
             renderer->sample = 0;
         }
         ImGui::Separator();
-        if (ImGui::SliderFloat3("Vol crop min", &renderer->vol_clip_min.x, 0.f, 1.f)) renderer->sample = 0;
-        if (ImGui::SliderFloat3("Vol crop max", &renderer->vol_clip_max.x, 0.f, 1.f)) renderer->sample = 0;
+        if (ImGui::SliderFloat("Vol crop min X", &renderer->vol_clip_min.x, 0.f, 1.f)) renderer->sample = 0;
+        if (ImGui::SliderFloat("Vol crop min Y", &renderer->vol_clip_min.y, 0.f, 1.f)) renderer->sample = 0;
+        if (ImGui::SliderFloat("Vol crop min Z", &renderer->vol_clip_min.z, 0.f, 1.f)) renderer->sample = 0;
+        if (ImGui::SliderFloat("Vol crop max X", &renderer->vol_clip_max.x, 0.f, 1.f)) renderer->sample = 0;
+        if (ImGui::SliderFloat("Vol crop max Y", &renderer->vol_clip_max.y, 0.f, 1.f)) renderer->sample = 0;
+        if (ImGui::SliderFloat("Vol crop max Z", &renderer->vol_clip_max.z, 0.f, 1.f)) renderer->sample = 0;
         ImGui::Separator();
         ImGui::Text("Modelmatrix:");
         glm::mat4 row_maj = glm::transpose(renderer->volume->model);
@@ -346,7 +350,7 @@ int main(int argc, char** argv) {
     renderer = std::make_shared<BackpropRendererOpenGL>();
     renderer->init();
 
-    // TODO debug
+    // TODO debug optix stuff
     renderer_optix = std::make_shared<RendererOptix>();
 
     // install callbacks for interactive mode
