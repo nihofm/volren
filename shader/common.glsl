@@ -203,8 +203,8 @@ uniform sampler2D tf_texture;
 
 // TODO stochastic lookup filter for transferfunc
 vec4 tf_lookup(float d) {
-    const vec4 lut = texture(tf_texture, vec2((d - tf_window_left) / tf_window_width, 0));
-    return vec4(lut.rgb, lut.a * d);
+    const vec4 lut = texture(tf_texture, vec2(max(0.f, d - tf_window_left) / tf_window_width, 0));
+    return vec4(lut.rgb, lut.a);
 }
 
 // --------------------------------------------------------------
@@ -407,24 +407,22 @@ bool sample_volume(const vec3 wpos, const vec3 wdir, out float t, inout vec3 thr
     const vec3 ipos = vec3(vol_inv_model * vec4(wpos, 1));
     const vec3 idir = vec3(vol_inv_model * vec4(wdir, 0)); // non-normalized!
     // delta tracking
-    {
-        t = near_far.x;
-        while (t < near_far.y) {
-            t -= log(1 - rng(seed)) * vol_inv_majorant;
-            const float d = lookup_density(ipos + t * idir, seed);
-            if (rng(seed) * vol_majorant < d) {
-                throughput *= vol_albedo;
-                return true;
-            }
+    t = near_far.x;
+    while (t < near_far.y) {
+        t -= log(1 - rng(seed)) * vol_inv_majorant;
+        const float d = lookup_density(ipos + t * idir, seed);
+        if (rng(seed) * vol_majorant < d) {
+            throughput *= vol_albedo;
+            return true;
         }
-        return false;
     }
+    return false;
 }
 
 // ---------------------------------
 // DDA-based null-collision methods
 
-#define USE_TRANSFERFUNC
+// #define USE_TRANSFERFUNC
 #define MIP_START 3
 #define MIP_SPEED_UP 0.25
 #define MIP_SPEED_DOWN 2

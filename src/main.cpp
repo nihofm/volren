@@ -14,6 +14,7 @@ namespace fs = std::filesystem;
 namespace py = pybind11;
 
 #include "renderer.h"
+#include "renderer_gl.h"
 #include "cuda/renderer_optix.h"
 
 // ------------------------------------------

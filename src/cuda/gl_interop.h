@@ -1,8 +1,7 @@
 #pragma once
 
 #include "host_helpers.h"
-#include <GL/glew.h>
-#include <GL/gl.h>
+#include "cppgl.h"
 #include <cuda_gl_interop.h>
 
 template <typename T> class BufferCUDAGL {

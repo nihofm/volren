@@ -11,6 +11,7 @@ namespace py = pybind11;
 #include <voldata.h>
 
 #include "renderer.h"
+#include "renderer_gl.h"
 #include "environment.h"
 #include "transferfunc.h"
 

@@ -1,4 +1,4 @@
-#include "renderer.h"
+#include "renderer_gl.h"
 
 // -----------------------------------------------------------
 // helper funcs
