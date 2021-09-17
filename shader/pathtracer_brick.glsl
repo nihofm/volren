@@ -78,7 +78,6 @@ void main() {
     // trace ray
     float t;
     vec3 throughput;
-    // const vec3 radiance = sample_volumeDDA(pos, dir, t, throughput, seed) ? vec3(t / 100.f) : vec3(0);
     const vec3 radiance = trace_path(pos, dir, seed);
 
     // write result

@@ -55,17 +55,19 @@ bool sample_volume_backprop(const vec3 wpos, const vec3 wdir, out float t, out f
     const int steps = 32;
     const float dt = (near_far.y - near_far.x) / float(steps);
     const float sampled_tau = -log(1.f - rng(seed));
-    t = near_far.x + rng(seed) * dt;
+    // first step
+    const float t0 = near_far.x + rng(seed) * dt;
+    float last_d = lookup_density(ipos + min(t0, near_far.y) * idir);
     // raymarch
-    for (int i = 0; i < steps; ++i) {
-        const ivec3 curr_p = ivec3(ipos + min(t, near_far.y) * idir);
-        const float curr_d = lookup_density(curr_p, seed);
-        tau += curr_d * dt;
-        t += dt;
+    for (int i = 1; i < steps; ++i) {
+        const ivec3 curr_p = ivec3(ipos + min(t0 + i * dt, near_far.y) * idir);
+        const float curr_d = lookup_density(curr_p);
+        const float d = (last_d + curr_d) * 0.5f;
+        tau += d * dt;
+        last_d = curr_d;
         if (tau >= sampled_tau) {
-            // solve for exact collision
-            const float f = (tau - sampled_tau) / curr_d;
-            t -= f * dt;
+            const float f = max(0.f, tau - sampled_tau) / d;
+            t = t0 + (i - f) * dt;
             tau = sampled_tau;
             tr_pdf = curr_d * exp(-sampled_tau);
             throughput *= vol_albedo;
@@ -171,18 +173,19 @@ float transmittance_adjoint_tau(const vec3 wpos, const vec3 wdir, inout uint see
 // radiative backprop
 
 vec3 radiative_backprop(vec3 pos, vec3 dir, inout uint seed, const vec3 dy) {
-    vec3 throughput = vec3(1), result = vec3(0);
+    vec3 path_throughput = vec3(1), result = vec3(0);
     for (int i = 0; i < bounces; ++i) {
         // sample volume and compute pdf
         float t, tau, tr_pdf;
+        vec3 vol_throughput;
         // const bool escaped = !sample_volume_raymarch_pdf(pos, dir, t, tr_pdf, throughput, seed);
-        const bool escaped = !sample_volume_backprop(pos, dir, t, tau, tr_pdf, throughput, seed);
+        const bool escaped = !sample_volume_backprop(pos, dir, t, tau, tr_pdf, vol_throughput, seed);
         if (tr_pdf <= 0.f) break;
 
         // Term: Q2 * Le
         if (escaped && show_environment > 0) {
             const vec3 Le = lookup_environment(dir);
-            const vec3 weight = throughput * Le * dy / tr_pdf;
+            const vec3 weight = path_throughput * Le * dy / tr_pdf;
             const vec3 Lr = vec3(transmittance_adjoint(pos, dir, seed, sanitize(weight), t));
             result += Lr;
         }
@@ -200,16 +203,19 @@ vec3 radiative_backprop(vec3 pos, vec3 dir, inout uint seed, const vec3 dy) {
             Li += f_p * Tr * env.rgb / env.w;
         }
         // backprop transmittance
-        const vec3 weight = throughput * Li * dy / tr_pdf;
+        const vec3 weight = path_throughput * Li * dy / tr_pdf;
         const vec3 Lr = vec3(transmittance_adjoint(pos, dir, seed, sanitize(weight), t));
         result += Lr;
 
+        // adjust throughput
+        path_throughput *= vol_throughput;
+
         // russian roulette
-        const float rr_val = luma(throughput);
+        const float rr_val = luma(path_throughput);
         if (rr_val < .1f) {
             const float prob = 1 - rr_val;
             if (rng(seed) < prob) break;
-            throughput /= 1 - prob;
+            path_throughput /= 1 - prob;
         }
 
         // advance and scatter ray
@@ -234,7 +240,7 @@ vec3 trace_path_backprop(vec3 pos, vec3 dir, inout uint seed, const vec3 referen
     float t, tau, tr_pdf, f_p;
     while (sample_volume_backprop(pos, dir, t, tau, tr_pdf, throughput, seed)) { // TODO OFFSET BY ONE VOXEL??
         // store path segment
-        if (n_paths < N_PATH_SEGMENTS) segments[n_paths].store(pos, dir, t, tau, throughput / tr_pdf, false);
+        if (n_paths < N_PATH_SEGMENTS) segments[n_paths].store(pos, dir, t, tau, throughput / tr_pdf, false); // TODO throughput without albedo/TF
         // sample light source (environment)
         vec3 w_i;
         const vec4 Li_pdf = sample_environment(rng2(seed), w_i);
@@ -270,7 +276,7 @@ vec3 trace_path_backprop(vec3 pos, vec3 dir, inout uint seed, const vec3 referen
         const vec3 Li = throughput * mis_weight * Le;
         radiance += Li;
         // store path segment
-        if (n_paths < N_PATH_SEGMENTS) segments[n_paths++].store(pos, dir, t, tau, throughput / tr_pdf, true);
+        if (n_paths < N_PATH_SEGMENTS) segments[n_paths++].store(pos, dir, t, tau, throughput / tr_pdf, true); // TODO throughput without albedo/TF
     }
     
     // at this point, we can compute the gradient of the loss and backprop using saved path segments
@@ -321,6 +327,7 @@ void main() {
     const vec3 pos = cam_pos;
     const vec3 dir = view_dir(pixel, resolution, rng2(seed));
 
+    // TODO debug everything
 #if 1
     // forward path tracing
     const vec3 Lo = trace_path(pos, dir, seed);
@@ -330,7 +337,7 @@ void main() {
     const vec3 dy = 2 * (Lo - reference);
     
     // radiative backprop
-    seed = tea(seed * (pixel.y * resolution.x + pixel.x), current_sample, 32);
+    // seed = tea(seed * (pixel.y * resolution.x + pixel.x), current_sample, 32);
     const vec3 Lr = radiative_backprop(pos, dir, seed, dy / float(sppx));
 #else
     // TODO DEBUG single pass backprop

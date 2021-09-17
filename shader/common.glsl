@@ -255,6 +255,13 @@ float lookup_majorant(const vec3 ipos, int mip) {
 }
 
 // density lookup
+float lookup_density(const vec3 ipos) {
+    if (vol_grid_type > 0)
+        return vol_density_scale * lookup_voxel_dense(ipos);
+    else
+        return vol_density_scale * lookup_voxel_brick(ipos);
+}
+// TODO fix stochastic filter for ray marching?
 // TODO better filter on axis-aligned view and high density scale?
 float lookup_density(const vec3 ipos, inout uint seed) {
     if (vol_grid_type > 0)
@@ -269,13 +276,13 @@ float lookup_density(const vec3 ipos, inout uint seed) {
 float integrate_density(const vec3 ipos, const vec3 idir, const vec2 near_far, inout uint seed, out float last_interpolant) {
     const int steps = 32;
     const float dt = (near_far.y - near_far.x) / float(steps);
-    float t0 = near_far.x + rng(seed) * dt, tau = 0.f;
     // first step
-    float last_value = lookup_density(ipos + t0 * idir, seed);
+    const float t0 = near_far.x + rng(seed) * dt;
+    float last_value = lookup_density(ipos + t0 * idir),  tau = 0.f;
     // integrate density
     for (int i = 1; i < steps; ++i) {
         const ivec3 curr_pos = ivec3(ipos + min(t0 + i * dt, near_far.y) * idir);
-        const float curr_value = lookup_density(curr_pos, seed);
+        const float curr_value = lookup_density(curr_pos);
         last_interpolant = (last_value + curr_value) * 0.5f;
         tau += last_interpolant * dt;
         last_value = curr_value;
@@ -310,22 +317,23 @@ bool sample_volume_raymarch(const vec3 wpos, const vec3 wdir, out float t, inout
     const int steps = 32;
     const float dt = (near_far.y - near_far.x) / float(steps);
     const float sampled_tau = -log(1.f - rng(seed));
-    t = near_far.x + rng(seed) * dt;
+    // first step
+    const float t0 = near_far.x + rng(seed) * dt;
+    float last_d = lookup_density(ipos + min(t0, near_far.y) * idir), tau = 0.f;
     // raymarch
-    float tau = 0.f;
-    for (int i = 0; i < steps; ++i) {
-        const ivec3 curr_p = ivec3(ipos + min(t, near_far.y) * idir);
-        const float curr_d = lookup_density(curr_p, seed);
-        tau += curr_d * dt;
-        t += dt;
+    for (int i = 1; i < steps; ++i) {
+        const ivec3 curr_p = ivec3(ipos + min(t0 + i * dt, near_far.y) * idir);
+        const float curr_d = lookup_density(curr_p);
+        const float d = (last_d + curr_d) * 0.5f;
+        tau += d * dt;
+        last_d = curr_d;
         if (tau >= sampled_tau) {
-            const float f = (tau - sampled_tau) / curr_d;
-            t -= f * dt;
+            const float f = max(0.f, tau - sampled_tau) / d;
+            t = t0 + (i - f) * dt;
             throughput *= vol_albedo;
             return true;
         }
     }
-    t = near_far.y;
     return false;
 }
 
@@ -345,7 +353,7 @@ bool sample_volume_raymarch_pdf(const vec3 wpos, const vec3 wdir, out float t, o
     float tau = 0.f, density = 0.f;
     for (int i = 0; i < steps; ++i) {
         const ivec3 curr_p = ivec3(ipos + min(t, near_far.y) * idir);
-        density = lookup_density(curr_p, seed);
+        density = lookup_density(curr_p);
         tau += density * dt;
         t = min(t + dt, near_far.y);
         if (tau >= sampled_tau) {

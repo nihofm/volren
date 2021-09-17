@@ -38,8 +38,8 @@ struct BackpropRendererOpenGL : public RendererOpenGL {
     void apply_gradients();
 
     // OpenGL data
-    Texture2D prediction, debug_color, radiative_debug;
-    Shader backprop_shader, gradient_apply_shader, debug_shader;
+    Texture2D prediction, last_sample, radiative_debug;
+    Shader backprop_shader, gradient_apply_shader, draw_shader;
 
     // Optimization target and gradients:
     Texture3D vol_dense, vol_grad, adam_params;

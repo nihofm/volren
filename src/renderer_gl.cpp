@@ -223,8 +223,8 @@ void BackpropRendererOpenGL::init() {
     const glm::ivec2 res = Context::resolution();
     if (!prediction)
         prediction = Texture2D("prediction", res.x, res.y, GL_RGBA32F, GL_RGBA, GL_FLOAT);
-    if (!debug_color)
-        debug_color = Texture2D("grad debug", res.x, res.y, GL_RGBA32F, GL_RGBA, GL_FLOAT);
+    if (!last_sample)
+        last_sample = Texture2D("grad last sample", res.x, res.y, GL_RGBA32F, GL_RGBA, GL_FLOAT);
     if (!radiative_debug)
         radiative_debug = Texture2D("grad debug2", res.x, res.y, GL_RGBA32F, GL_RGBA, GL_FLOAT);
 
@@ -233,14 +233,14 @@ void BackpropRendererOpenGL::init() {
         backprop_shader = Shader("backprop", "shader/radiative_backprop.glsl");
     if (!gradient_apply_shader)
         gradient_apply_shader = Shader("apply gradients", "shader/apply_gradients.glsl");
-    if (!debug_shader)
-        debug_shader = Shader("adjoint debug", "shader/adjoint_debug.glsl");
+    if (!draw_shader)
+        draw_shader = Shader("draw adjoint", "shader/quad.vs", "shader/adjoint.fs");
 }
 
 void BackpropRendererOpenGL::resize(uint32_t w, uint32_t h) {
     RendererOpenGL::resize(w, h);
     if (prediction) prediction->resize(w, h);
-    if (debug_color) debug_color->resize(w, h);
+    if (last_sample) last_sample->resize(w, h);
     if (radiative_debug) radiative_debug->resize(w, h);
 }
 
@@ -388,29 +388,12 @@ void BackpropRendererOpenGL::apply_gradients() {
 }
 
 void BackpropRendererOpenGL::draw_adjoint() {
-    // bind
-    debug_shader->bind();
-    prediction->bind_image(0, GL_READ_ONLY, GL_RGBA32F);
-    color->bind_image(1, GL_READ_ONLY, GL_RGBA32F);
-    debug_color->bind_image(2, GL_READ_ONLY, GL_RGBA32F);
-    radiative_debug->bind_image(3, GL_READ_ONLY, GL_RGBA32F);
-
-    // run
-    const glm::ivec2 res = Context::resolution();
-    debug_shader->dispatch_compute(res.x, res.y);
-
-    // unbind
-    radiative_debug->unbind_image(3);
-    debug_color->unbind_image(2);
-    color->unbind_image(1);
-    prediction->unbind_image(0);
-    debug_shader->unbind();
-
-    // draw
-    if (tonemapping)
-        tonemap(debug_color, tonemap_exposure, tonemap_gamma);
-    else
-        blit(debug_color);
+    draw_shader->bind();
+    draw_shader->uniform("color_prediction", prediction, 0);
+    draw_shader->uniform("color_reference", color, 1);
+    draw_shader->uniform("color_debug", radiative_debug, 2);
+    Quad::draw();
+    draw_shader->unbind();
 }
 
 void BackpropRendererOpenGL::draw() {
