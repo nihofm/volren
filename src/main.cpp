@@ -31,7 +31,6 @@ static std::shared_ptr<BackpropRendererOpenGL> renderer;
 static bool use_optix = false;
 static std::shared_ptr<RendererOptix> renderer_optix;
 
-
 // ------------------------------------------
 // helper funcs
 
@@ -374,6 +373,15 @@ int main(int argc, char** argv) {
         current_camera()->dir = glm::normalize((bb_max + bb_min) * .5f - current_camera()->pos);
         renderer->transferfunc->window_left = min;
         renderer->transferfunc->window_width = maj - min;
+    } else {
+        // load box
+        const float values[4] = { 0.1, 1, 10, 100 };
+        const float size = 1.f;
+        auto box = std::make_shared<voldata::DenseGrid>(1, 2, 2, values);
+        box->transform = glm::scale(glm::mat4(1), glm::vec3(size));
+        renderer->volume = std::make_shared<voldata::Volume>();
+        renderer->volume->grids.push_back(box);
+        renderer->commit();
     }
 
     // setup timers
