@@ -93,7 +93,7 @@ RendererOptix::RendererOptix() : params(0) {
     CUcontext cuCtx = 0;
     OptixDeviceContextOptions options = {};
     options.logCallbackFunction       = &optix_log_cb;
-    options.logCallbackLevel          = 4;
+    options.logCallbackLevel          = 3;//4;
     optixCheckError(optixDeviceContextCreate(cuCtx, &options, &context));
 
     // init optix module

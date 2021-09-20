@@ -376,9 +376,9 @@ int main(int argc, char** argv) {
     } else {
         // load box
         const float values[4] = { 0.1, 1, 10, 100 };
-        const float size = 1.f;
+        const float size = 4.f;
         auto box = std::make_shared<voldata::DenseGrid>(1, 2, 2, values);
-        box->transform = glm::scale(glm::mat4(1), glm::vec3(size));
+        box->transform = glm::translate(glm::scale(glm::mat4(1), glm::vec3(size)), size * current_camera()->dir);
         renderer->volume = std::make_shared<voldata::Volume>();
         renderer->volume->grids.push_back(box);
         renderer->commit();
