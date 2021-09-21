@@ -26,8 +26,8 @@ void main() {
         if (tc.x < 0.5) {
             // bottom left: l2_grad
             const vec2 tc_adj = vec2(tc.x * 2, tc.y * 2);
-            out_col.rgb = visualize_grad(sum(texture(color_debug, tc_adj).rgb));
-            // out_col.rgb = abs(texture(color_debug, tc_adj).rgb);
+            // out_col.rgb = visualize_grad(sum(texture(color_debug, tc_adj).rgb));
+            out_col.rgb = abs(texture(color_debug, tc_adj).rgb);
         } else {
             // bottom right: diff randiance
             const vec2 tc_adj = vec2((tc.x - 0.5) * 2, tc.y * 2);

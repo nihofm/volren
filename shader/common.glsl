@@ -254,127 +254,16 @@ float lookup_majorant(const vec3 ipos, int mip) {
 }
 
 // density lookup
-// TODO better filter on axis-aligned view and high density scale?
-float lookup_density(const vec3 ipos, inout uint seed) {
+float lookup_density(const vec3 ipos) {
     if (vol_grid_type > 0)
-        return vol_density_scale * lookup_voxel_dense(ipos + rng3(seed) - .5f);
+        return vol_density_scale * lookup_voxel_dense(ipos);
     else
-        return vol_density_scale * lookup_voxel_brick(ipos + rng3(seed) - .5f);
+        return vol_density_scale * lookup_voxel_brick(ipos);
 }
 
-// ---------------------------------
-// ray marching based methods
-
-float integrate_density(const vec3 ipos, const vec3 idir, const vec2 near_far, inout uint seed, out float last_interpolant) {
-    const int steps = 32;
-    const float dt = (near_far.y - near_far.x) / float(steps);
-    // first step
-    const float t0 = near_far.x + rng(seed) * dt;
-    float last_value = lookup_density(ipos + t0 * idir, seed),  tau = 0.f;
-    // integrate density
-    for (int i = 1; i < steps; ++i) {
-        const vec3 curr_pos = ipos + min(t0 + i * dt, near_far.y) * idir;
-        const float curr_value = lookup_density(curr_pos, seed);
-        last_interpolant = (last_value + curr_value) * 0.5f;
-        tau += last_interpolant * dt;
-        last_value = curr_value;
-    }
-    return tau;
-}
-
-float integrate_density(const vec3 ipos, const vec3 idir, const vec2 near_far, inout uint seed) {
-    float dummy;
-    return integrate_density(ipos, idir, near_far, seed, dummy);
-}
-
-// TODO DEBUG
-float transmittance_raymarch(const vec3 wpos, const vec3 wdir, inout uint seed, const float t_max = FLT_MAX) {
-    vec2 near_far;
-    if (!intersect_box(wpos, wdir, vol_bb_min, vol_bb_max, near_far)) return 1.f;
-    near_far.y = min(near_far.y, t_max);
-    // to index-space
-    const vec3 ipos = vec3(vol_inv_model * vec4(wpos, 1));
-    const vec3 idir = vec3(vol_inv_model * vec4(wdir, 0)); // non-normalized!
-    const float tau = integrate_density(ipos, idir, near_far, seed);
-    return exp(-tau);
-}
-
-// TODO DEBUG
-bool sample_volume_raymarch(const vec3 wpos, const vec3 wdir, out float t, inout vec3 throughput, inout uint seed) {
-    // clip volume
-    vec2 near_far;
-    if (!intersect_box(wpos, wdir, vol_bb_min, vol_bb_max, near_far)) return false;
-    // to index-space
-    const vec3 ipos = vec3(vol_inv_model * vec4(wpos, 1));
-    const vec3 idir = vec3(vol_inv_model * vec4(wdir, 0)); // non-normalized!
-    // compute step size and jitter starting point
-    const int steps = 32;
-    const float dt = (near_far.y - near_far.x) / float(steps);
-    const float sampled_tau = -log(1.f - rng(seed));
-    // first step
-    const float t0 = near_far.x + rng(seed) * dt;
-    float last_d = lookup_density(ipos + min(t0, near_far.y) * idir, seed), tau = 0.f;
-    // raymarch
-    for (int i = 1; i < steps; ++i) {
-        const vec3 curr_p = ipos + min(t0 + i * dt, near_far.y) * idir;
-        const float curr_d = lookup_density(curr_p, seed);
-        const float d = (last_d + curr_d) * 0.5f;
-        tau += d * dt;
-        last_d = curr_d;
-        if (tau >= sampled_tau) {
-            const float f = max(0.f, tau - sampled_tau) / d;
-            t = t0 + (i - f) * dt;
-            throughput *= vol_albedo;
-            return true;
-        }
-    }
-    return false;
-}
-
-// TODO DEBUG
-bool sample_volume_raymarch_pdf(const vec3 wpos, const vec3 wdir, out float t, out float tr_pdf, inout vec3 throughput, inout uint seed) {
-    // clip volume
-    vec2 near_far;
-    if (!intersect_box(wpos, wdir, vol_bb_min, vol_bb_max, near_far)) return false;
-    // to index-space
-    const vec3 ipos = vec3(vol_inv_model * vec4(wpos, 1));
-    const vec3 idir = vec3(vol_inv_model * vec4(wdir, 0)); // non-normalized!
-    // compute step size and jitter starting point
-    const int steps = 32;
-    const float dt = (near_far.y - near_far.x) / float(steps);
-    const float sampled_tau = -log(1.f - rng(seed));
-    t = near_far.x + rng(seed) * dt, tr_pdf = 0.f;
-    // raymarch
-    float tau = 0.f, density = 0.f;
-    for (int i = 0; i < steps; ++i) {
-        const vec3 curr_p = ipos + min(t, near_far.y) * idir;
-        density = lookup_density(curr_p, seed);
-        tau += density * dt;
-        t = min(t + dt, near_far.y);
-        if (tau >= sampled_tau) {
-            // solve for exact collision
-            const float f = (tau - sampled_tau) / density;
-            t -= f * dt;
-            tr_pdf = density * exp(-sampled_tau);
-            throughput *= vol_albedo;
-            return true;
-        }
-    }
-    t = near_far.y;
-    tr_pdf = exp(-tau);
-    return false;
-}
-
-float pdf_distance(const vec3 wpos, const vec3 wdir, inout uint seed, const float t) {
-    vec2 near_far;
-    if (!intersect_box(wpos, wdir, vol_bb_min, vol_bb_max, near_far)) return 0.f;
-    near_far.y = min(near_far.y, t);
-    // to index-space
-    const vec3 ipos = vec3(vol_inv_model * vec4(wpos, 1));
-    const vec3 idir = vec3(vol_inv_model * vec4(wdir, 0)); // non-normalized!
-    float last_interpolant;
-    const float tau = integrate_density(ipos, idir, near_far, seed, last_interpolant);
-    return last_interpolant * exp(-tau);
+// density lookup with stochastic filter
+float lookup_density(const vec3 ipos, inout uint seed) {
+    return lookup_density(ipos + rng3(seed) - .5f);
 }
 
 // ---------------------------------

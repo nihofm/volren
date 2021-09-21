@@ -318,7 +318,7 @@ void BackpropRendererOpenGL::radiative_backprop() {
     uint32_t tex_unit = 0;
     backprop_shader->uniform("sppx", backprop_sppx);
     backprop_shader->uniform("bounces", bounces);
-    backprop_shader->uniform("seed", seed);
+    backprop_shader->uniform("seed", seed + 42); // use different seed than forward
     backprop_shader->uniform("show_environment", show_environment ? 1 : 0);
     // camera
     backprop_shader->uniform("cam_pos", current_camera()->pos);
