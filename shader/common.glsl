@@ -253,7 +253,7 @@ float lookup_majorant(const vec3 ipos, int mip) {
     return vol_density_scale * texelFetch(vol_range, brick, mip).y;
 }
 
-// density lookup
+// nearest neighbor density lookup
 float lookup_density(const vec3 ipos) {
     if (vol_grid_type > 0)
         return vol_density_scale * lookup_voxel_dense(ipos);
@@ -261,9 +261,9 @@ float lookup_density(const vec3 ipos) {
         return vol_density_scale * lookup_voxel_brick(ipos);
 }
 
-// density lookup with stochastic filter
+// density lookup with stochastic trilinear filter
 float lookup_density(const vec3 ipos, inout uint seed) {
-    return lookup_density(ipos + rng3(seed) - .5f);
+    return lookup_density(ipos);// + rng3(seed) - .5f); // XXX DEBUG
 }
 
 // ---------------------------------

@@ -231,8 +231,10 @@ void BackpropRendererOpenGL::init() {
     // compile shaders
     if (!backprop_shader)
         backprop_shader = Shader("backprop", "shader/radiative_backprop.glsl");
-    if (!gradient_apply_shader)
-        gradient_apply_shader = Shader("apply gradients", "shader/apply_gradients.glsl");
+    if (!zero_grad_shader)
+        zero_grad_shader = Shader("zero grad", "shader/zero_gradients.glsl");
+    if (!adam_shader)
+        adam_shader = Shader("adam step", "shader/step_adam.glsl");
     if (!draw_shader)
         draw_shader = Shader("draw adjoint", "shader/quad.vs", "shader/adjoint.fs");
 }
@@ -306,7 +308,7 @@ void BackpropRendererOpenGL::trace() {
     RendererOpenGL::trace();
 }
 
-void BackpropRendererOpenGL::radiative_backprop() {
+void BackpropRendererOpenGL::backprop() {
     // bind
     backprop_shader->bind();
     prediction->bind_image(0, GL_READ_WRITE, GL_RGBA32F);
@@ -368,30 +370,68 @@ void BackpropRendererOpenGL::radiative_backprop() {
     backprop_shader->unbind();
 }
 
-void BackpropRendererOpenGL::apply_gradients() {
+void BackpropRendererOpenGL::zero_gradients() {
     // TODO adam optimizer
-    gradient_apply_shader->bind();
+    zero_grad_shader->bind();
     vol_dense->bind_image(0, GL_READ_WRITE, GL_R32F);
     vol_grad->bind_image(1, GL_READ_WRITE, GL_R32F);
     adam_params->bind_image(2, GL_READ_WRITE, GL_RG32F);
 
-    gradient_apply_shader->uniform("learning_rate", learning_rate);
-    const auto [min, maj] = volume->minorant_majorant();
-    gradient_apply_shader->uniform("vol_majorant", maj);
-    gradient_apply_shader->uniform("size", glm::ivec3(vol_dense->w, vol_dense->h, vol_dense->d));
-    gradient_apply_shader->dispatch_compute(vol_dense->w, vol_dense->h, vol_dense->d);
+    zero_grad_shader->uniform("learning_rate", learning_rate);
+    zero_grad_shader->uniform("reset", reset_optimization ? 1 : 0);
+    zero_grad_shader->uniform("size", glm::ivec3(vol_grad->w, vol_grad->h, vol_grad->d));
+    zero_grad_shader->dispatch_compute(vol_grad->w, vol_grad->h, vol_grad->d);
 
     adam_params->unbind_image(2);
     vol_grad->unbind_image(1);
     vol_dense->unbind_image(0);
-    gradient_apply_shader->unbind();
+    zero_grad_shader->unbind();
+
+    reset_optimization = false;
+}
+
+void BackpropRendererOpenGL::step() {
+    // TODO adam optimizer
+    adam_shader->bind();
+    vol_dense->bind_image(0, GL_READ_WRITE, GL_R32F);
+    vol_grad->bind_image(1, GL_READ_WRITE, GL_R32F);
+    adam_params->bind_image(2, GL_READ_WRITE, GL_RG32F);
+
+    adam_shader->uniform("learning_rate", learning_rate);
+    const auto [min, maj] = volume->minorant_majorant();
+    adam_shader->uniform("vol_majorant", maj);
+    adam_shader->uniform("size", glm::ivec3(vol_dense->w, vol_dense->h, vol_dense->d));
+    adam_shader->dispatch_compute(vol_dense->w, vol_dense->h, vol_dense->d);
+
+    adam_params->unbind_image(2);
+    vol_grad->unbind_image(1);
+    vol_dense->unbind_image(0);
+    adam_shader->unbind();
 }
 
 void BackpropRendererOpenGL::draw_adjoint() {
     draw_shader->bind();
+    // textures
     draw_shader->uniform("color_prediction", prediction, 0);
     draw_shader->uniform("color_reference", color, 1);
     draw_shader->uniform("color_debug", radiative_debug, 2);
+    draw_shader->uniform("vol_gradients", vol_grad, 3);
+    // params
+    draw_shader->uniform("seed", seed + 42); // use different seed than forward
+    draw_shader->uniform("sppx", backprop_sppx);
+    draw_shader->uniform("current_sample", backprop_sample);
+    draw_shader->uniform("resolution", Context::resolution());
+    // camera
+    draw_shader->uniform("cam_pos", current_camera()->pos);
+    draw_shader->uniform("cam_fov", current_camera()->fov_degree);
+    draw_shader->uniform("cam_transform", glm::inverse(glm::mat3(current_camera()->view)));
+    // volume
+    const auto [bb_min, bb_max] = volume->AABB();
+    draw_shader->uniform("vol_model", volume->get_transform());
+    draw_shader->uniform("vol_inv_model", glm::inverse(volume->get_transform()));
+    draw_shader->uniform("vol_bb_min", bb_min + vol_clip_min * (bb_max - bb_min));
+    draw_shader->uniform("vol_bb_max", bb_min + vol_clip_max * (bb_max - bb_min));
+
     Quad::draw();
     draw_shader->unbind();
 }

@@ -36,8 +36,7 @@ void main() {
     // apply update
     const float y = clamp(x - learning_rate * m1_c / (sqrt(m2_c) + eps), 0.f, vol_majorant);
 
-    // write updated grid and zero gradients
+    // write updated grid and adam params
     imageStore(volume, gid, vec4(y));
-    imageStore(gradients, gid, vec4(0.f));
     imageStore(adam, gid, vec4(m1_m2, 0.f, 0.f));
 }

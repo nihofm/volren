@@ -34,16 +34,20 @@ struct BackpropRendererOpenGL : public RendererOpenGL {
     void draw() override;
     void draw_adjoint();
 
-    void radiative_backprop();
-    void apply_gradients();
+    void backprop();
+    void zero_gradients();
+    void step();
+
+    // TODO finite differences loss
 
     // OpenGL data
     Texture2D prediction, last_sample, radiative_debug;
-    Shader backprop_shader, gradient_apply_shader, draw_shader;
+    Shader backprop_shader, zero_grad_shader, adam_shader, draw_shader;
 
     // Optimization target and gradients:
     Texture3D vol_dense, vol_grad, adam_params;
-    float learning_rate = 0.01f;
+    float learning_rate = 0.1f;
     int backprop_sample = 0;
     int backprop_sppx = 8;
+    bool reset_optimization = false;
 };

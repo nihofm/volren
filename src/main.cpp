@@ -86,12 +86,35 @@ void handle_path(const std::string& path) {
         load_volume(path);
 }
 
-float randf() { return rand() / (RAND_MAX + 1.f); }
+inline float randf() { return rand() / (RAND_MAX + 1.f); }
+
+inline float vandercorput(uint32_t i, uint32_t scramble) {
+    i = (i << 16) | (i >> 16);
+    i = ((i & 0x00ff00ff) << 8) | ((i & 0xff00ff00) >> 8);
+    i = ((i & 0x0f0f0f0f) << 4) | ((i & 0xf0f0f0f0) >> 4);
+    i = ((i & 0x33333333) << 2) | ((i & 0xcccccccc) >> 2);
+    i = ((i & 0x55555555) << 1) | ((i & 0xaaaaaaaa) >> 1);
+    i ^= scramble;
+    return ((i >> 8) & 0xffffff) / float(1 << 24);
+}
+
+inline float sobol2(uint32_t i, uint32_t scramble) {
+    for (uint32_t v = 1 << 31; i != 0; i >>= 1, v ^= v >> 1)
+        if (i & 0x1)
+            scramble ^= v;
+    return ((scramble >> 8) & 0xffffff) / float(1 << 24);
+}
+
+inline glm::vec2 sample02(uint32_t i) {
+    return glm::vec2(vandercorput(i, 0xDEADBEEF), sobol2(i, 0x8BADF00D));
+}
 
 glm::vec3 uniform_sample_sphere() {
-    const float z = 1.f - 2.f * randf();
+    static uint32_t i = 0;
+    const glm::vec2 sample = sample02(++i);
+    const float z = 1.f - 2.f * sample.x;
     const float r = sqrtf(fmaxf(0.f, 1.f - z * z));
-    const float phi = 2.f * M_PI * randf();
+    const float phi = 2.f * M_PI * sample.y;
     return glm::vec3(r * cosf(phi), r * sinf(phi), z);
 }
 
@@ -104,8 +127,8 @@ void randomize_parameters() {
     current_camera()->dir = glm::normalize(center + uniform_sample_sphere() * .1f * radius - current_camera()->pos);
     current_camera()->up = glm::vec3(0, 1, 0);
     current_camera()->fov_degree = 40 + randf() * 60;
-    // randomize volume
-    renderer->volume->density_scale = 0.01 + randf() * 2.f;
+    // TODO randomize volume
+    // renderer->volume->density_scale = 0.01 + randf() * 2.f;
 }
 
 // ------------------------------------------
@@ -193,7 +216,7 @@ void gui_callback(void) {
         if (ImGui::Checkbox("Vsync", &use_vsync)) Context::set_swap_interval(use_vsync ? 1 : 0);
         ImGui::Checkbox("Use Optix", &use_optix);
         ImGui::Separator();
-        ImGui::Text("Radiative backprop:");
+        ImGui::Text("Backprop:");
         if (ImGui::InputInt("Backprop sppx", &renderer->backprop_sppx)) {
             renderer->sample = 0;
             renderer->backprop_sample = 0;
@@ -204,6 +227,8 @@ void gui_callback(void) {
             renderer->backprop_sample = 0;
         }
         ImGui::Checkbox("Randomize params", &randomize);
+        if (ImGui::Button("Reset optimization"))
+            renderer->reset_optimization = true;
         ImGui::Separator();
         if (ImGui::Checkbox("Environment", &renderer->show_environment)) renderer->sample = 0;
         if (ImGui::DragFloat("Env strength", &renderer->environment->strength, 0.1f)) {
@@ -375,10 +400,14 @@ int main(int argc, char** argv) {
         renderer->transferfunc->window_width = maj - min;
     } else {
         // load box
-        const float values[4] = { 0.1, 1, 10, 100 };
-        const float size = 4.f;
-        auto box = std::make_shared<voldata::DenseGrid>(1, 2, 2, values);
-        box->transform = glm::translate(glm::scale(glm::mat4(1), glm::vec3(size)), size * current_camera()->dir);
+        const float size = 4;
+        const float scale = 4.f;
+        std::vector<float> values;
+        for (uint32_t h = 0; h < size; ++h)
+            for (uint32_t w = 0; w < size; ++w)
+                values.push_back(glm::distance(glm::vec2(w + .5f, h + .5f), glm::vec2(size * .5f)));
+        auto box = std::make_shared<voldata::DenseGrid>(1, size, size, values.data());
+        box->transform = glm::translate(glm::scale(glm::mat4(1), glm::vec3(scale)), scale * current_camera()->dir);
         renderer->volume = std::make_shared<voldata::Volume>();
         renderer->volume->grids.push_back(box);
         renderer->commit();
@@ -421,15 +450,17 @@ int main(int argc, char** argv) {
             timer_trace->end();
         } else if (adjoint) {
             if (renderer->backprop_sample < renderer->backprop_sppx) {
+                if (renderer->backprop_sample == 0)
+                    renderer->zero_gradients();
                 // radiative backprop
                 renderer->backprop_sample++;
                 timer_backprop->begin();
-                renderer->radiative_backprop();
+                renderer->backprop();
                 timer_backprop->end();
             } else {
                 // gradient update step
                 timer_update->begin();
-                renderer->apply_gradients();
+                renderer->step();
                 timer_update->end();
                 if (randomize) randomize_parameters();
                 // reset

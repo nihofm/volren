@@ -172,16 +172,19 @@ vec3 radiative_backprop(vec3 pos, vec3 dir, inout uint seed, const vec3 dy) {
 // ---------------------------------------------------
 // adjoint delta tracking
 
+// TODO check gradients
 void backward_real(const vec3 ipos, const float P_real, const vec3 grad) {
-    const float dx = -vol_inv_majorant * sum(grad); // TODO where does the sign come from??
+    const float dx = sum(vol_albedo) * vol_density_scale * vol_inv_majorant * sum(grad);
     imageAtomicAdd(gradients, ivec3(ipos), sanitize(dx));
 }
 
+// TODO check gradients
 void backward_null(const vec3 ipos, const float P_null, const vec3 grad) {
-    const float dx = -vol_inv_majorant * sum(grad);
+    const float dx = -vol_density_scale * vol_inv_majorant * sum(grad);
     imageAtomicAdd(gradients, ivec3(ipos), sanitize(dx));
 }
 
+// TODO check gradients
 bool sample_volume_adjoint(const vec3 wpos, const vec3 wdir, out float t, inout uint seed, const vec3 weight) {
     // clip volume
     vec2 near_far;
@@ -193,12 +196,13 @@ bool sample_volume_adjoint(const vec3 wpos, const vec3 wdir, out float t, inout 
     t = near_far.x;
     while (t < near_far.y) {
         t -= log(1 - rng(seed)) * vol_inv_majorant;
-        const vec3 curr = ipos + t * idir + rng3(seed) - .5f; // apply stochastic filter once for replayability
+        // apply stochastic filter once for replayability
+        const vec3 curr = ipos + t * idir;// + rng3(seed) - .5f; // XXX DEBUG
         const float d = lookup_density(curr);
         const float P_real = d * vol_inv_majorant;
         if (rng(seed) < P_real) {
             // real collision
-            backward_real(curr, P_real * mean(vol_albedo), weight / (P_real * mean(vol_albedo)));
+            backward_real(curr, P_real, weight / (P_real * vol_albedo));
             return true;
         }
         // null collision
@@ -208,6 +212,7 @@ bool sample_volume_adjoint(const vec3 wpos, const vec3 wdir, out float t, inout 
     return false;
 }
 
+// TODO check gradients
 float transmittance_adjoint(const vec3 wpos, const vec3 wdir, inout uint seed, const vec3 weight) {
     // clip volume
     vec2 near_far;
@@ -219,7 +224,8 @@ float transmittance_adjoint(const vec3 wpos, const vec3 wdir, inout uint seed, c
     float t = near_far.x, Tr = 1.f;
     while (t < near_far.y) {
         t -= log(1 - rng(seed)) * vol_inv_majorant;
-        const vec3 curr = ipos + t * idir + rng3(seed) - .5f; // apply stochastic filter once for replayability
+        // apply stochastic filter once for replayability
+        const vec3 curr = ipos + t * idir;// + rng3(seed) - .5f; // XXX DEBUG
         const float d = lookup_density(curr);
         const float P_null = 1.f - d * vol_inv_majorant;
         Tr *= P_null;
@@ -237,6 +243,7 @@ float transmittance_adjoint(const vec3 wpos, const vec3 wdir, inout uint seed, c
 // ---------------------------------------------------
 // path replay backprop
 
+// TODO check gradients
 vec3 path_replay_backprop(vec3 pos, vec3 dir, inout uint seed, vec3 L, const vec3 dL) {
     vec3 radiance = vec3(0), throughput = vec3(1);
     bool free_path = true;
@@ -252,9 +259,9 @@ vec3 path_replay_backprop(vec3 pos, vec3 dir, inout uint seed, vec3 L, const vec
         const vec4 Le_pdf = sample_environment(rng2(seed), w_i);
         if (Le_pdf.w > 0) {
             f_p = phase_henyey_greenstein(dot(-dir, w_i), vol_phase_g);
-            const float mis_weight = power_heuristic(Le_pdf.w, f_p);
+            const float mis_weight = 1.f;//power_heuristic(Le_pdf.w, f_p);
             const vec3 Li = throughput * mis_weight * f_p * Le_pdf.rgb / Le_pdf.w;
-            const float Tr = transmittance_adjoint(pos, w_i, seed, throughput * Li.rgb * dL);
+            const float Tr = transmittance_adjoint(pos, w_i, seed, Li * dL);
             L -= Tr * Li;
             radiance += Tr * Li;
         }
@@ -278,7 +285,7 @@ vec3 path_replay_backprop(vec3 pos, vec3 dir, inout uint seed, vec3 L, const vec
     // free path? -> add envmap contribution
     if (free_path && show_environment > 0) {
         const vec3 Le = lookup_environment(dir);
-        const float mis_weight = n_paths > 0 ? power_heuristic(f_p, pdf_environment(dir)) : 1.f;
+        const float mis_weight = 1.f;//n_paths > 0 ? power_heuristic(f_p, pdf_environment(dir)) : 1.f;
         radiance += throughput * mis_weight * Le;
     }
 
@@ -305,7 +312,7 @@ void main() {
     const vec3 L_ref = imageLoad(color_reference, pixel).rgb;
     const vec3 dL = 2 * (L - L_ref);
     
-#if 0
+#if 1
     // radiative backprop
     const vec3 Lr = radiative_backprop(pos, dir, seed, dL / float(sppx));
 #else
