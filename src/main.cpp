@@ -400,14 +400,11 @@ int main(int argc, char** argv) {
         renderer->transferfunc->window_width = maj - min;
     } else {
         // load box
-        const float size = 4;
-        const float scale = 4.f;
-        std::vector<float> values;
-        for (uint32_t h = 0; h < size; ++h)
-            for (uint32_t w = 0; w < size; ++w)
-                values.push_back(glm::distance(glm::vec2(w + .5f, h + .5f), glm::vec2(size * .5f)));
-        auto box = std::make_shared<voldata::DenseGrid>(1, size, size, values.data());
-        box->transform = glm::translate(glm::scale(glm::mat4(1), glm::vec3(scale)), scale * current_camera()->dir);
+        const uint32_t size = 4;
+        const float scale = 1.f;
+        std::vector<float> values = { 1, 2.5, 5, 10 };
+        auto box = std::make_shared<voldata::DenseGrid>(1, 1, 4, values.data());
+        box->transform = glm::translate(glm::scale(glm::mat4(1), glm::vec3(scale)), 2 * scale * current_camera()->dir + glm::vec3(0, -0.5, -2));
         renderer->volume = std::make_shared<voldata::Volume>();
         renderer->volume->grids.push_back(box);
         renderer->commit();
@@ -467,6 +464,8 @@ int main(int argc, char** argv) {
                 renderer->sample = 0;
                 renderer->backprop_sample = 0;
                 renderer->seed = rand();
+                // print loss
+                std::cout << "loss: " << std::setw(15) << renderer->compute_loss() << "\r" << std::flush;
             }
         } else
             glfwWaitEventsTimeout(1.f / 10); // 10fps idle

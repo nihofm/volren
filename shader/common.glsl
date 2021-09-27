@@ -1,17 +1,4 @@
 // --------------------------------------------------------------
-// common ray state struct
-
-struct ray_state {
-    vec3 pos;
-    float near;
-    vec3 dir;
-    float far;
-    ivec2 pixel;
-    uint seed;
-    uint n_paths;
-};
-
-// --------------------------------------------------------------
 // constants and helper funcs
 
 #define M_PI float(3.14159265358979323846)
@@ -263,7 +250,8 @@ float lookup_density(const vec3 ipos) {
 
 // density lookup with stochastic trilinear filter
 float lookup_density(const vec3 ipos, inout uint seed) {
-    return lookup_density(ipos);// + rng3(seed) - .5f); // XXX DEBUG
+    return lookup_density(ipos); // XXX DEBUG
+    return lookup_density(ipos + rng3(seed) - .5f);
 }
 
 // ---------------------------------

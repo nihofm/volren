@@ -23,7 +23,7 @@ void main() {
 
     // reset?
     if (reset > 0) {
-        imageStore(volume, gid, vec4(.1f));
+        imageStore(volume, gid, vec4(1.f));
         imageStore(adam, gid, vec4(0, 1, 0, 0));
     }
 }

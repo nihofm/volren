@@ -39,10 +39,12 @@ struct BackpropRendererOpenGL : public RendererOpenGL {
     void step();
 
     // TODO finite differences loss
+    float compute_loss();
 
     // OpenGL data
     Texture2D prediction, last_sample, radiative_debug;
-    Shader backprop_shader, zero_grad_shader, adam_shader, draw_shader;
+    Shader backprop_shader, zero_grad_shader, adam_shader, draw_shader, loss_shader;
+    SSBO loss_buffer;
 
     // Optimization target and gradients:
     Texture3D vol_dense, vol_grad, adam_params;

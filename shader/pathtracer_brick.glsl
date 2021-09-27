@@ -19,7 +19,7 @@ vec3 sanitize(const vec3 data) { return mix(data, vec3(0), isnan(data) || isinf(
 
 vec3 trace_path(vec3 pos, vec3 dir, inout uint seed) {
     // trace path
-    vec3 radiance = vec3(0), throughput = vec3(1);
+    vec3 L = vec3(0), throughput = vec3(1);
     bool free_path = true;
     uint n_paths = 0;
     float t, f_p; // t: end of ray segment (i.e. sampled position or out of volume), f_p: last phase function sample for MIS
@@ -34,7 +34,7 @@ vec3 trace_path(vec3 pos, vec3 dir, inout uint seed) {
             f_p = phase_henyey_greenstein(dot(-dir, w_i), vol_phase_g);
             const float mis_weight = show_environment > 0 ? power_heuristic(Li_pdf.w, f_p) : 1.f;
             const float Tr = transmittanceDDA(pos, w_i, seed);
-            radiance += throughput * mis_weight * f_p * Tr * Li_pdf.rgb / Li_pdf.w;
+            L += throughput * mis_weight * f_p * Tr * Li_pdf.rgb / Li_pdf.w;
         }
 
         // early out?
@@ -57,10 +57,10 @@ vec3 trace_path(vec3 pos, vec3 dir, inout uint seed) {
     if (free_path && show_environment > 0) {
         const vec3 Le = lookup_environment(dir);
         const float mis_weight = n_paths > 0 ? power_heuristic(f_p, pdf_environment(dir)) : 1.f;
-        radiance += throughput * mis_weight * Le;
+        L += throughput * mis_weight * Le;
     }
 
-    return radiance;
+    return L;
 }
 
 // ---------------------------------------------------
@@ -76,10 +76,8 @@ void main() {
     const vec3 dir = view_dir(pixel, resolution, rng2(seed));
 
     // trace ray
-    float t;
-    vec3 throughput;
-    const vec3 radiance = trace_path(pos, dir, seed);
+    const vec3 L = trace_path(pos, dir, seed);
 
     // write result
-    imageStore(color, pixel, vec4(mix(imageLoad(color, pixel).rgb, sanitize(radiance), 1.f / current_sample), 1));
+    imageStore(color, pixel, vec4(mix(imageLoad(color, pixel).rgb, sanitize(L), 1.f / current_sample), 1));
 }

@@ -237,6 +237,8 @@ void BackpropRendererOpenGL::init() {
         adam_shader = Shader("adam step", "shader/step_adam.glsl");
     if (!draw_shader)
         draw_shader = Shader("draw adjoint", "shader/quad.vs", "shader/adjoint.fs");
+    if (!loss_shader)
+        loss_shader = Shader("finite differences loss", "shader/loss.glsl");
 }
 
 void BackpropRendererOpenGL::resize(uint32_t w, uint32_t h) {
@@ -301,6 +303,8 @@ void BackpropRendererOpenGL::commit() {
     glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
     glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
     adam_params->unbind();
+    // loss target buffer
+    loss_buffer = SSBO("finite differences loss buffer", sizeof(float));
 }
 
 void BackpropRendererOpenGL::trace() {
@@ -371,7 +375,6 @@ void BackpropRendererOpenGL::backprop() {
 }
 
 void BackpropRendererOpenGL::zero_gradients() {
-    // TODO adam optimizer
     zero_grad_shader->bind();
     vol_dense->bind_image(0, GL_READ_WRITE, GL_R32F);
     vol_grad->bind_image(1, GL_READ_WRITE, GL_R32F);
@@ -391,7 +394,6 @@ void BackpropRendererOpenGL::zero_gradients() {
 }
 
 void BackpropRendererOpenGL::step() {
-    // TODO adam optimizer
     adam_shader->bind();
     vol_dense->bind_image(0, GL_READ_WRITE, GL_R32F);
     vol_grad->bind_image(1, GL_READ_WRITE, GL_R32F);
@@ -407,6 +409,27 @@ void BackpropRendererOpenGL::step() {
     vol_grad->unbind_image(1);
     vol_dense->unbind_image(0);
     adam_shader->unbind();
+}
+
+float BackpropRendererOpenGL::compute_loss() {
+    loss_buffer->clear();
+    loss_shader->bind();
+    loss_buffer->bind_base(0);
+    const glm::ivec3 size = glm::ivec3(vol_dense->w, vol_dense->h, vol_dense->d);
+    loss_shader->uniform("size", size);
+    int tex_unit = 0;
+    loss_shader->uniform("vol_dense", vol_dense, tex_unit++);
+    loss_shader->uniform("vol_indirection", vol_indirection, tex_unit++);
+    loss_shader->uniform("vol_range", vol_range, tex_unit++);
+    loss_shader->uniform("vol_atlas", vol_atlas, tex_unit++);
+    loss_shader->dispatch_compute(size.x, size.y, size.z);
+    loss_buffer->unbind_base(0);
+    loss_shader->unbind();
+    glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
+    const float* data = (float*)loss_buffer->map();
+    const float loss = data[0];
+    loss_buffer->unmap();
+    return loss / float(size.x * size.y * size.z);
 }
 
 void BackpropRendererOpenGL::draw_adjoint() {
