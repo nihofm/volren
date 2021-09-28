@@ -58,6 +58,7 @@ void main() {
             const vec3 l2_grad = 2 * (col_adj - col_ref);
             out_col.rgb = visualize_grad(sum(l2_grad));
             // out_col.rgb = texture(color_debug, tc_adj).rgb;
+            // out_col.rgb = abs(texture(color_debug, tc_adj).rgb - col_adj);
         }
     } else {
         if (tc.x < 0.5) {

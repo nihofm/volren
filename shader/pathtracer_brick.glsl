@@ -76,7 +76,11 @@ void main() {
     const vec3 dir = view_dir(pixel, resolution, rng2(seed));
 
     // trace ray
-    const vec3 L = trace_path(pos, dir, seed);
+    // const vec3 L = trace_path(pos, dir, seed);
+    float t = 0.f;
+    vec3 throughput = vec3(1);
+    // const vec3 L = sample_volume(pos, dir, t, throughput, seed) ? vec3(0) : vec3(1);
+    const vec3 L = vec3(transmittance(pos, dir, seed));
 
     // write result
     imageStore(color, pixel, vec4(mix(imageLoad(color, pixel).rgb, sanitize(L), 1.f / current_sample), 1));

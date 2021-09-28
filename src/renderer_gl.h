@@ -48,6 +48,7 @@ struct BackpropRendererOpenGL : public RendererOpenGL {
 
     // Optimization target and gradients:
     Texture3D vol_dense, vol_grad, adam_params;
+    SSBO gradient_buffer; // vec4(grad, N, m1, m2)
     float learning_rate = 0.1f;
     int backprop_sample = 0;
     int backprop_sppx = 8;

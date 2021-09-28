@@ -325,7 +325,7 @@ float transmittanceDDA(const vec3 wpos, const vec3 wdir, inout uint seed) {
     const vec3 idir = (vec3(vol_inv_model * vec4(wdir, 0))); // non-normalized!
     const vec3 ri = 1.f / idir;
     // march brick grid
-    float t = near_far.x + 1e-4f, Tr = 1.f, tau = -log(1.f - rng(seed)), mip = MIP_START;
+    float t = near_far.x + 1e-8, Tr = 1.f, tau = -log(1.f - rng(seed)), mip = MIP_START;
     while (t < near_far.y) {
         const vec3 curr = ipos + t * idir;
 #ifdef USE_TRANSFERFUNC
@@ -371,7 +371,7 @@ bool sample_volumeDDA(const vec3 wpos, const vec3 wdir, out float t, inout vec3 
     const vec3 idir = vec3(vol_inv_model * vec4(wdir, 0)); // non-normalized!
     const vec3 ri = 1.f / idir;
     // march brick grid
-    t = near_far.x + 1e-4f;
+    t = near_far.x + 1e-8;
     float tau = -log(1.f - rng(seed)), mip = MIP_START;
     while (t < near_far.y) {
         const vec3 curr = ipos + t * idir;
