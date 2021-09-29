@@ -208,18 +208,9 @@ uniform float vol_inv_majorant;
 uniform vec3 vol_albedo;
 uniform float vol_phase_g;
 uniform float vol_density_scale;
-uniform int vol_grid_type; // underlying grid data type
+uniform int vol_grid_type; // underlying grid data type (0 = brick grid, 1 = dense grid)
 
-// dense grid (only valid if vol_grid_type == 1)
-uniform sampler3D vol_dense;
-
-// dense grid voxel lookup
-float lookup_voxel_dense(const vec3 ipos) {
-    return texelFetch(vol_dense, ivec3(floor(ipos)), 0).r;
-    return vol_minorant + texelFetch(vol_dense, ivec3(floor(ipos)), 0).r * (vol_majorant - vol_minorant);
-}
-
-// brick grid (only valid if vol_grid_type == 0)
+// brick grid stored as textures (only valid if vol_grid_type == 0)
 uniform usampler3D vol_indirection;
 uniform sampler3D vol_range;
 uniform sampler3D vol_atlas;
@@ -240,6 +231,19 @@ float lookup_majorant(const vec3 ipos, int mip) {
     return vol_density_scale * texelFetch(vol_range, brick, mip).y;
 }
 
+// dense grid data, i.e. optimization parameters, stored in SSBO (only valid if vol_grid_type == 1)
+uniform ivec3 vol_size;
+layout(std430, binding = 0) buffer ParameterBuffer {
+    vec4 parameters[]; // vec4(x, dx, m1, m2)
+};
+
+// dense grid voxel lookup
+float lookup_voxel_dense(const vec3 ipos) {
+    const ivec3 iipos = ivec3(floor(ipos));
+    const uint idx = iipos.z * vol_size.x * vol_size.y + iipos.y * vol_size.x + iipos.x;
+    return parameters[idx].x;
+}
+
 // nearest neighbor density lookup
 float lookup_density(const vec3 ipos) {
     if (vol_grid_type > 0)
@@ -250,7 +254,7 @@ float lookup_density(const vec3 ipos) {
 
 // density lookup with stochastic trilinear filter
 float lookup_density(const vec3 ipos, inout uint seed) {
-    return lookup_density(ipos); // XXX DEBUG
+    return lookup_density(ipos); // XXX TODO DEBUG
     return lookup_density(ipos + rng3(seed) - .5f);
 }
 
@@ -265,16 +269,19 @@ float transmittance(const vec3 wpos, const vec3 wdir, inout uint seed) {
     const vec3 ipos = vec3(vol_inv_model * vec4(wpos, 1));
     const vec3 idir = vec3(vol_inv_model * vec4(wdir, 0)); // non-normalized!
     // ratio tracking
-    float t = near_far.x, Tr = 1.f;
+    float t = near_far.x - log(1 - rng(seed)) * vol_inv_majorant, Tr = 1.f;
     while (t < near_far.y) {
-        t -= log(1 - rng(seed)) * vol_inv_majorant;
-        Tr *= max(0.f, 1 - lookup_density(ipos + t * idir, seed) * vol_inv_majorant);
+        const float d = lookup_density(ipos + t * idir, seed);
+        // track ratio of real to null particles
+        Tr *= max(0.f, 1 - d * vol_inv_majorant);
         // russian roulette
         if (Tr < .1f) {
             const float prob = 1 - Tr;
             if (rng(seed) < prob) return 0.f;
             Tr /= 1 - prob;
         }
+        // advance
+        t -= log(1 - rng(seed)) * vol_inv_majorant;
     }
     return Tr;
 }
@@ -287,14 +294,16 @@ bool sample_volume(const vec3 wpos, const vec3 wdir, out float t, inout vec3 thr
     const vec3 ipos = vec3(vol_inv_model * vec4(wpos, 1));
     const vec3 idir = vec3(vol_inv_model * vec4(wdir, 0)); // non-normalized!
     // delta tracking
-    t = near_far.x;
+    t = near_far.x - log(1 - rng(seed)) * vol_inv_majorant;
     while (t < near_far.y) {
-        t -= log(1 - rng(seed)) * vol_inv_majorant;
         const float d = lookup_density(ipos + t * idir, seed);
+        // classify as real or null collison
         if (rng(seed) * vol_majorant < d) {
             throughput *= vol_albedo;
             return true;
         }
+        // advance
+        t -= log(1 - rng(seed)) * vol_inv_majorant;
     }
     return false;
 }

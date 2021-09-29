@@ -20,7 +20,7 @@ namespace py = pybind11;
 // ------------------------------------------
 // settings
 
-static bool adjoint = false, randomize = false;
+static bool adjoint = false, randomize = false, print_loss = false;
 
 static int sppx = 1024;
 static bool use_vsync = true;
@@ -164,6 +164,8 @@ void keyboard_callback(int key, int scancode, int action, int mods) {
         renderer->sample = 0;
         renderer->backprop_sample = 0;
     }
+    if (key == GLFW_KEY_L && action == GLFW_PRESS)
+        print_loss = !print_loss;
     if (key == GLFW_KEY_O && action == GLFW_PRESS)
         use_optix = !use_optix;
     if (key == GLFW_KEY_T && action == GLFW_PRESS)
@@ -227,6 +229,7 @@ void gui_callback(void) {
             renderer->backprop_sample = 0;
         }
         ImGui::Checkbox("Randomize params", &randomize);
+        ImGui::Checkbox("Print loss", &print_loss);
         if (ImGui::Button("Reset optimization"))
             renderer->reset_optimization = true;
         ImGui::Separator();
@@ -447,8 +450,6 @@ int main(int argc, char** argv) {
             timer_trace->end();
         } else if (adjoint) {
             if (renderer->backprop_sample < renderer->backprop_sppx) {
-                if (renderer->backprop_sample == 0)
-                    renderer->zero_gradients();
                 // radiative backprop
                 renderer->backprop_sample++;
                 timer_backprop->begin();
@@ -464,8 +465,11 @@ int main(int argc, char** argv) {
                 renderer->sample = 0;
                 renderer->backprop_sample = 0;
                 renderer->seed = rand();
-                // print loss
-                std::cout << "loss: " << std::setw(15) << renderer->compute_loss() << "\r" << std::flush;
+                // print loss?
+                if (print_loss) {
+                    std::cout << "loss: " << std::setw(15) << renderer->compute_loss() << std::endl;
+                    print_loss = false;
+                }
             }
         } else
             glfwWaitEventsTimeout(1.f / 10); // 10fps idle

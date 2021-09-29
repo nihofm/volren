@@ -6,7 +6,7 @@ layout (local_size_x = 8, local_size_y = 8, local_size_z = 8) in;
 
 uniform ivec3 size;
 
-layout(std430, binding = 0) buffer Buffer {
+layout(std430, binding = 1) buffer LossBuffer {
     float loss[];
 };
 

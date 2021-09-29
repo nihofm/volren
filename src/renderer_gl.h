@@ -35,20 +35,21 @@ struct BackpropRendererOpenGL : public RendererOpenGL {
     void draw_adjoint();
 
     void backprop();
-    void zero_gradients();
     void step();
 
     // TODO finite differences loss
     float compute_loss();
 
     // OpenGL data
-    Texture2D prediction, last_sample, radiative_debug;
-    Shader backprop_shader, zero_grad_shader, adam_shader, draw_shader, loss_shader;
+    Texture2D color_prediction, color_backprop;
+    Shader backprop_shader, adam_shader, draw_shader, loss_shader;
     SSBO loss_buffer;
 
-    // Optimization target and gradients:
-    Texture3D vol_dense, vol_grad, adam_params;
-    SSBO gradient_buffer; // vec4(grad, N, m1, m2)
+    // Optimization target:
+    SSBO parameter_buffer;      // vec4(param, grad, m1, m2)
+    glm::ivec3 n_parameters;    // ivec3(w, h, d)
+
+    // Optimization parameters:
     float learning_rate = 0.1f;
     int backprop_sample = 0;
     int backprop_sppx = 8;

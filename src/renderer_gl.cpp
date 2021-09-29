@@ -221,94 +221,36 @@ void BackpropRendererOpenGL::init() {
 
     // setup textures
     const glm::ivec2 res = Context::resolution();
-    if (!prediction)
-        prediction = Texture2D("prediction", res.x, res.y, GL_RGBA32F, GL_RGBA, GL_FLOAT);
-    if (!last_sample)
-        last_sample = Texture2D("grad last sample", res.x, res.y, GL_RGBA32F, GL_RGBA, GL_FLOAT);
-    if (!radiative_debug)
-        radiative_debug = Texture2D("grad debug2", res.x, res.y, GL_RGBA32F, GL_RGBA, GL_FLOAT);
+    if (!color_prediction)
+        color_prediction = Texture2D("prediction color", res.x, res.y, GL_RGBA32F, GL_RGBA, GL_FLOAT);
+    if (!color_backprop)
+        color_backprop = Texture2D("debug color", res.x, res.y, GL_RGBA32F, GL_RGBA, GL_FLOAT);
 
     // compile shaders
     if (!backprop_shader)
         backprop_shader = Shader("backprop", "shader/radiative_backprop.glsl");
-    if (!zero_grad_shader)
-        zero_grad_shader = Shader("zero grad", "shader/zero_gradients.glsl");
     if (!adam_shader)
-        adam_shader = Shader("adam step", "shader/step_adam.glsl");
+        adam_shader = Shader("adam optimizer", "shader/step_adam.glsl");
     if (!draw_shader)
         draw_shader = Shader("draw adjoint", "shader/quad.vs", "shader/adjoint.fs");
     if (!loss_shader)
-        loss_shader = Shader("finite differences loss", "shader/loss.glsl");
+        loss_shader = Shader("finite differences", "shader/loss.glsl");
 }
 
 void BackpropRendererOpenGL::resize(uint32_t w, uint32_t h) {
     RendererOpenGL::resize(w, h);
-    if (prediction) prediction->resize(w, h);
-    if (last_sample) last_sample->resize(w, h);
-    if (radiative_debug) radiative_debug->resize(w, h);
+    if (color_prediction) color_prediction->resize(w, h);
+    if (color_backprop) color_backprop->resize(w, h);
 }
 
 void BackpropRendererOpenGL::commit() {
     RendererOpenGL::commit();
-    // initialize dense grid and gradients for optimization
-    const auto n_voxels = volume->current_grid()->index_extent();
-    const auto data = std::vector<float>(n_voxels.x * n_voxels.y * n_voxels.z, 0.1f);
-    // upload dense texture
-    vol_dense = Texture3D("dense grid data",
-            n_voxels.x,
-            n_voxels.y,
-            n_voxels.z,
-            GL_R32F,
-            GL_RED,
-            GL_FLOAT,
-            data.data());
-    vol_dense->bind(0);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_R, GL_CLAMP_TO_EDGE);
-    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-    vol_dense->unbind();
-    // upload dense texture gradients
-    const auto grad = std::vector<float>(n_voxels.x * n_voxels.y * n_voxels.z, 0.f);
-    vol_grad = Texture3D("dense grid gradients",
-            n_voxels.x,
-            n_voxels.y,
-            n_voxels.z,
-            GL_R32F,
-            GL_RED,
-            GL_FLOAT,
-            grad.data());
-    vol_grad->bind(0);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_R, GL_CLAMP_TO_EDGE);
-    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-    vol_grad->unbind();
-    // upload adam parameters
-    const auto adam_data = std::vector<float>(n_voxels.x * n_voxels.y * n_voxels.z * 2, 0.f);
-    adam_params = Texture3D("dense grid gradients",
-            n_voxels.x,
-            n_voxels.y,
-            n_voxels.z,
-            GL_RG32F,
-            GL_RG,
-            GL_FLOAT,
-            adam_data.data());
-    adam_params->bind(0);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_R, GL_CLAMP_TO_EDGE);
-    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-    adam_params->unbind();
-    // gradients buffer (inkl counter and adam params)
-    gradient_buffer = SSBO("gradient buffer");
-    const size_t n_params = n_voxels.x * n_voxels.y * n_voxels.z;
-    const auto grad_data = std::vector<glm::vec4>(n_params, glm::vec4(0, 0, 0, 1));
-    gradient_buffer->upload_data(grad_data.data(), sizeof(glm::vec4) * grad_data.size());
-    // loss target buffer
+    // init parameter buffer: vec4(x, dx, m1, m2)
+    parameter_buffer = SSBO("parameter buffer");
+    n_parameters = volume->current_grid()->index_extent();
+    const auto param_data = std::vector<glm::vec4>(n_parameters.x * n_parameters.y * n_parameters.z, glm::vec4(0.1, 0, 0, 1));
+    parameter_buffer->upload_data(param_data.data(), sizeof(glm::vec4) * param_data.size());
+    // init loss buffer
     loss_buffer = SSBO("finite differences loss buffer", sizeof(float));
 }
 
@@ -320,11 +262,10 @@ void BackpropRendererOpenGL::trace() {
 void BackpropRendererOpenGL::backprop() {
     // bind
     backprop_shader->bind();
-    prediction->bind_image(0, GL_READ_WRITE, GL_RGBA32F);
+    parameter_buffer->bind_base(0);
+    color_prediction->bind_image(0, GL_READ_WRITE, GL_RGBA32F);
     color->bind_image(1, GL_READ_ONLY, GL_RGBA32F);
-    vol_grad->bind_image(2, GL_READ_WRITE, GL_R32F);
-    radiative_debug->bind_image(3, GL_WRITE_ONLY, GL_RGBA32F);
-    gradient_buffer->bind_base(0);
+    color_backprop->bind_image(2, GL_WRITE_ONLY, GL_RGBA32F);
 
     // uniforms
     uint32_t tex_unit = 0;
@@ -350,9 +291,9 @@ void BackpropRendererOpenGL::backprop() {
     backprop_shader->uniform("vol_albedo", volume->albedo);
     backprop_shader->uniform("vol_phase_g", volume->phase);
     backprop_shader->uniform("vol_density_scale", volume->density_scale);
-    // dense grid data
+    // dense grid data (= optimization parameters)
     backprop_shader->uniform("vol_grid_type", 1);
-    if (vol_dense) backprop_shader->uniform("vol_dense", vol_dense, tex_unit++);
+    backprop_shader->uniform("vol_size", n_parameters);
     // transfer function
     backprop_shader->uniform("tf_window_left", transferfunc->window_left);
     backprop_shader->uniform("tf_window_width", transferfunc->window_width);
@@ -373,84 +314,59 @@ void BackpropRendererOpenGL::backprop() {
     backprop_shader->dispatch_compute(resolution.x, resolution.y);
 
     // unbind
-    gradient_buffer->unbind_base(0);
-    radiative_debug->unbind_image(3);
-    vol_grad->unbind_image(2);
+    color_backprop->unbind_image(2);
     color->unbind_image(1);
-    prediction->unbind_image(0);
+    color_prediction->unbind_image(0);
+    parameter_buffer->unbind_base(0);
     backprop_shader->unbind();
-}
-
-void BackpropRendererOpenGL::zero_gradients() {
-    zero_grad_shader->bind();
-    vol_dense->bind_image(0, GL_READ_WRITE, GL_R32F);
-    vol_grad->bind_image(1, GL_READ_WRITE, GL_R32F);
-    adam_params->bind_image(2, GL_READ_WRITE, GL_RG32F);
-    gradient_buffer->bind_base(0);
-
-    zero_grad_shader->uniform("learning_rate", learning_rate);
-    zero_grad_shader->uniform("reset", reset_optimization ? 1 : 0);
-    zero_grad_shader->uniform("size", glm::ivec3(vol_grad->w, vol_grad->h, vol_grad->d));
-    zero_grad_shader->dispatch_compute(vol_grad->w, vol_grad->h, vol_grad->d);
-
-    gradient_buffer->unbind_base(0);
-    adam_params->unbind_image(2);
-    vol_grad->unbind_image(1);
-    vol_dense->unbind_image(0);
-    zero_grad_shader->unbind();
-
-    reset_optimization = false;
 }
 
 void BackpropRendererOpenGL::step() {
     adam_shader->bind();
-    vol_dense->bind_image(0, GL_READ_WRITE, GL_R32F);
-    vol_grad->bind_image(1, GL_READ_WRITE, GL_R32F);
-    adam_params->bind_image(2, GL_READ_WRITE, GL_RG32F);
-    gradient_buffer->bind_base(0);
+    parameter_buffer->bind_base(0);
 
+    adam_shader->uniform("size", n_parameters);
     adam_shader->uniform("learning_rate", learning_rate);
-    const auto [min, maj] = volume->minorant_majorant();
-    adam_shader->uniform("vol_majorant", maj);
-    adam_shader->uniform("size", glm::ivec3(vol_dense->w, vol_dense->h, vol_dense->d));
-    adam_shader->dispatch_compute(vol_dense->w, vol_dense->h, vol_dense->d);
+    adam_shader->uniform("vol_majorant", volume->minorant_majorant().second);
+    adam_shader->uniform("reset", reset_optimization ? 1 : 0);
+    
+    adam_shader->dispatch_compute(n_parameters.x, n_parameters.y, n_parameters.z);
 
-    gradient_buffer->unbind_base(0);
-    adam_params->unbind_image(2);
-    vol_grad->unbind_image(1);
-    vol_dense->unbind_image(0);
+    parameter_buffer->unbind_base(0);
     adam_shader->unbind();
+
+    reset_optimization = false;
 }
 
 float BackpropRendererOpenGL::compute_loss() {
     loss_buffer->clear();
     loss_shader->bind();
-    loss_buffer->bind_base(0);
-    const glm::ivec3 size = glm::ivec3(vol_dense->w, vol_dense->h, vol_dense->d);
-    loss_shader->uniform("size", size);
+    parameter_buffer->bind_base(0);
+    loss_buffer->bind_base(1);
+    loss_shader->uniform("size", n_parameters);
     int tex_unit = 0;
-    loss_shader->uniform("vol_dense", vol_dense, tex_unit++);
     loss_shader->uniform("vol_indirection", vol_indirection, tex_unit++);
     loss_shader->uniform("vol_range", vol_range, tex_unit++);
     loss_shader->uniform("vol_atlas", vol_atlas, tex_unit++);
-    loss_shader->dispatch_compute(size.x, size.y, size.z);
-    loss_buffer->unbind_base(0);
+    loss_shader->uniform("vol_size", n_parameters);
+    loss_shader->dispatch_compute(n_parameters.x, n_parameters.y, n_parameters.z);
+    loss_buffer->unbind_base(1);
+    parameter_buffer->bind_base(0);
     loss_shader->unbind();
     glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
-    const float* data = (float*)loss_buffer->map();
+    const float* data = (float*)loss_buffer->map(GL_READ_ONLY);
     const float loss = data[0];
     loss_buffer->unmap();
-    return loss / float(size.x * size.y * size.z);
+    return loss / float(n_parameters.x * n_parameters.y * n_parameters.z);
 }
 
 void BackpropRendererOpenGL::draw_adjoint() {
     draw_shader->bind();
-    gradient_buffer->bind_base(0);
+    parameter_buffer->bind_base(0);
     // textures
-    draw_shader->uniform("color_prediction", prediction, 0);
+    draw_shader->uniform("color_prediction", color_prediction, 0);
     draw_shader->uniform("color_reference", color, 1);
-    draw_shader->uniform("color_debug", radiative_debug, 2);
-    draw_shader->uniform("vol_gradients", vol_grad, 3);
+    draw_shader->uniform("color_backprop", color_backprop, 2);
     // params
     draw_shader->uniform("seed", seed + 42); // use different seed than forward
     draw_shader->uniform("sppx", backprop_sppx);
@@ -466,9 +382,11 @@ void BackpropRendererOpenGL::draw_adjoint() {
     draw_shader->uniform("vol_inv_model", glm::inverse(volume->get_transform()));
     draw_shader->uniform("vol_bb_min", bb_min + vol_clip_min * (bb_max - bb_min));
     draw_shader->uniform("vol_bb_max", bb_min + vol_clip_max * (bb_max - bb_min));
+    draw_shader->uniform("vol_size", n_parameters);
 
     Quad::draw();
-    gradient_buffer->unbind_base(0);
+
+    parameter_buffer->unbind_base(0);
     draw_shader->unbind();
 }
 

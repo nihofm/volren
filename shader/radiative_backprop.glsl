@@ -1,19 +1,11 @@
 #version 450 core
-
 #extension GL_NV_shader_atomic_float : enable
 
 layout (local_size_x = 16, local_size_y = 16) in;
 
 layout (binding = 0, rgba32f)   uniform image2D color_prediction;
 layout (binding = 1, rgba32f)   uniform image2D color_reference;
-layout (binding = 2, r32f)      uniform image3D grads;
-layout (binding = 3, rgba32f)   uniform image2D color_backprop;
-
-// TODO use this SSBO instead of textures
-// TODO: mean of gradients instead of sum?
-layout(std430, binding = 0) buffer Buffer0 {
-    vec4 gradients[]; // vec4(grad, N, m1, m2)
-};
+layout (binding = 2, rgba32f)   uniform image2D color_backprop;
 
 uniform int current_sample;
 uniform int sppx;
@@ -31,6 +23,12 @@ float sum(const vec3 x) { return x.x + x.y + x.z; }
 float mean(const vec3 x) { return sum(x) / 3.f; }
 float sanitize(const float x) { return isnan(x) || isinf(x) ? 0.f : x; }
 vec3 sanitize(const vec3 x) { return mix(x, vec3(0), isnan(x) || isinf(x)); }
+
+void add_gradient(const vec3 ipos, const float dx) {
+    const ivec3 iipos = ivec3(floor(ipos));
+    const uint idx = iipos.z * vol_size.x * vol_size.y + iipos.y * vol_size.x + iipos.x;
+    atomicAdd(parameters[idx].y, dx);
+}
 
 // ---------------------------------------------------
 // forward path tracing
@@ -117,7 +115,7 @@ float raymarch_transmittance_adjoint(const vec3 wpos, const vec3 wdir, inout uin
     float t0 = near_far.x + rng(seed) * dt;
     for (int i = 0; i < steps; ++i) {
         const vec3 curr_p = ipos + min(t0 + i * dt, near_far.y) * idir;
-        imageAtomicAdd(grads, ivec3(floor(curr_p)), dx);// + rng3(seed) - .5f)), dx); // TODO trilin?
+        add_gradient(curr_p, dx);
     }
     return dx;
 }
@@ -180,14 +178,14 @@ vec3 radiative_backprop(vec3 pos, vec3 dir, inout uint seed, const vec3 dy) {
 
 // TODO check gradients
 void backward_real(const vec3 ipos, const float P_real, const vec3 dy) {
-    const float dx = sum(dy) / max(1e-8, vol_majorant * P_real);
-    imageAtomicAdd(grads, ivec3(floor(ipos)), sanitize(dx));
+    const float dx = sum(dy) / max(1e-8, vol_majorant * P_real); // TODO sign?
+    add_gradient(ipos, dx);
 }
 
 // TODO check gradients
 void backward_null(const vec3 ipos, const float P_null, const vec3 dy) {
     const float dx = -sum(dy) / max(1e-8, vol_majorant * P_null);
-    imageAtomicAdd(grads, ivec3(floor(ipos)), sanitize(dx));
+    add_gradient(ipos, dx);
 }
 
 // TODO check gradients
@@ -199,9 +197,8 @@ bool sample_volume_adjoint(const vec3 wpos, const vec3 wdir, out float t, inout 
     const vec3 ipos = vec3(vol_inv_model * vec4(wpos, 1));
     const vec3 idir = vec3(vol_inv_model * vec4(wdir, 0)); // non-normalized!
     // delta tracking
-    t = near_far.x;
+    t = near_far.x - log(1 - rng(seed)) * vol_inv_majorant;
     while (t < near_far.y) {
-        t -= log(1 - rng(seed)) * vol_inv_majorant;
         // apply stochastic filter once for replayability
         const vec3 curr = ipos + t * idir;// + rng3(seed) - .5f; // XXX DEBUG
         const float d = lookup_density(curr);
@@ -214,6 +211,8 @@ bool sample_volume_adjoint(const vec3 wpos, const vec3 wdir, out float t, inout 
         // null collision
         const float P_null = 1.f - P_real;
         backward_null(curr, P_null, dy);
+        // advance
+        t -= log(1 - rng(seed)) * vol_inv_majorant;
     }
     return false;
 }
@@ -227,9 +226,8 @@ float transmittance_adjoint(const vec3 wpos, const vec3 wdir, inout uint seed, c
     const vec3 ipos = vec3(vol_inv_model * vec4(wpos, 1));
     const vec3 idir = vec3(vol_inv_model * vec4(wdir, 0)); // non-normalized!
     // ratio tracking
-    float t = near_far.x, Tr = 1.f;
+    float t = near_far.x - log(1 - rng(seed)) * vol_inv_majorant, Tr = 1.f;
     while (t < near_far.y) {
-        t -= log(1 - rng(seed)) * vol_inv_majorant;
         // apply stochastic filter once for replayability
         const vec3 curr = ipos + t * idir;// + rng3(seed) - .5f; // XXX DEBUG
         const float d = lookup_density(curr);
@@ -242,6 +240,8 @@ float transmittance_adjoint(const vec3 wpos, const vec3 wdir, inout uint seed, c
             if (rng(seed) < prob) return 0.f;
             Tr /= 1 - prob;
         }
+        // advance
+        t -= log(1 - rng(seed)) * vol_inv_majorant;
     }
     return Tr;
 }
@@ -310,7 +310,7 @@ void main() {
     vec3 throughput = vec3(1);
     float t = 0.f;
     // const vec3 L = sample_volume(pos, dir, t, throughput, seed) ? vec3(0) : vec3(1);
-    const vec3 L = vec3(transmittance(pos, dir, seed));
+    const vec3 L = lookup_environment(dir) * transmittance(pos, dir, seed);
 
     // compute gradient of l2 loss between Lo (1spp) and reference (Nspp)
     const vec3 L_ref = imageLoad(color_reference, pixel).rgb;
@@ -324,10 +324,10 @@ void main() {
     seed = forward_seed;
     // const vec3 Lr = path_replay_backprop(pos, dir, seed, L, dL);
 
-    // TODO these should produce identical and correct results, TODO: L * dL vs dL
-    // const vec3 Lr = sample_volume_adjoint(pos, dir, t, seed, dL) ? vec3(0) : vec3(1);
-    // const vec3 Lr = vec3(transmittance_adjoint(pos, dir, seed, dL));
-    const vec3 Lr = vec3(raymarch_transmittance_adjoint(pos, dir, seed, dL));
+    // TODO these should produce identical and correct results, TODO: L * dL vs dL, add lookup_environment(dir)!
+    // const vec3 Lr = sample_volume_adjoint(pos, dir, t, seed, (L + lookup_environment(dir)) * dL) ? vec3(0) : vec3(1);
+    const vec3 Lr = vec3(transmittance_adjoint(pos, dir, seed, lookup_environment(dir) * dL));
+    // const vec3 Lr = vec3(raymarch_transmittance_adjoint(pos, dir, seed, dL));
 #endif
 
     // store results
