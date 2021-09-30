@@ -49,7 +49,7 @@ vec3 trace_path(vec3 pos, vec3 dir, inout uint seed) {
             f_p = phase_henyey_greenstein(dot(-dir, w_i), vol_phase_g);
             const float mis_weight = power_heuristic(Li_pdf.w, f_p);
             const float Tr = transmittance(pos, w_i, seed);
-            L+= throughput * mis_weight * f_p * Tr * Li_pdf.rgb / Li_pdf.w;
+            L += throughput * mis_weight * f_p * Tr * Li_pdf.rgb / Li_pdf.w;
         }
 
         // early out?
@@ -178,7 +178,7 @@ vec3 radiative_backprop(vec3 pos, vec3 dir, inout uint seed, const vec3 dy) {
 
 // TODO check gradients
 void backward_real(const vec3 ipos, const float P_real, const vec3 dy) {
-    const float dx = sum(dy) / max(1e-8, vol_majorant * P_real); // TODO sign?
+    const float dx = -sum(dy) / max(1e-8, vol_majorant * P_real); // TODO why sign flip?
     add_gradient(ipos, dx);
 }
 
@@ -186,35 +186,6 @@ void backward_real(const vec3 ipos, const float P_real, const vec3 dy) {
 void backward_null(const vec3 ipos, const float P_null, const vec3 dy) {
     const float dx = -sum(dy) / max(1e-8, vol_majorant * P_null);
     add_gradient(ipos, dx);
-}
-
-// TODO check gradients
-bool sample_volume_adjoint(const vec3 wpos, const vec3 wdir, out float t, inout uint seed, const vec3 dy) {
-    // clip volume
-    vec2 near_far;
-    if (!intersect_box(wpos, wdir, vol_bb_min, vol_bb_max, near_far)) return false;
-    // to index-space
-    const vec3 ipos = vec3(vol_inv_model * vec4(wpos, 1));
-    const vec3 idir = vec3(vol_inv_model * vec4(wdir, 0)); // non-normalized!
-    // delta tracking
-    t = near_far.x - log(1 - rng(seed)) * vol_inv_majorant;
-    while (t < near_far.y) {
-        // apply stochastic filter once for replayability
-        const vec3 curr = ipos + t * idir;// + rng3(seed) - .5f; // XXX DEBUG
-        const float d = lookup_density(curr);
-        const float P_real = d * vol_inv_majorant;
-        if (rng(seed) < P_real) {
-            // real collision
-            backward_real(curr, P_real, dy); // TODO include albedo?
-            return true;
-        }
-        // null collision
-        const float P_null = 1.f - P_real;
-        backward_null(curr, P_null, dy);
-        // advance
-        t -= log(1 - rng(seed)) * vol_inv_majorant;
-    }
-    return false;
 }
 
 // TODO check gradients
@@ -246,17 +217,48 @@ float transmittance_adjoint(const vec3 wpos, const vec3 wdir, inout uint seed, c
     return Tr;
 }
 
+// TODO check gradients
+bool sample_volume_adjoint(const vec3 wpos, const vec3 wdir, out float t, inout uint seed, const vec3 dy) {
+    // clip volume
+    vec2 near_far;
+    if (!intersect_box(wpos, wdir, vol_bb_min, vol_bb_max, near_far)) return false;
+    // to index-space
+    const vec3 ipos = vec3(vol_inv_model * vec4(wpos, 1));
+    const vec3 idir = vec3(vol_inv_model * vec4(wdir, 0)); // non-normalized!
+    // delta tracking
+    t = near_far.x - log(1 - rng(seed)) * vol_inv_majorant;
+    while (t < near_far.y) {
+        // apply stochastic filter once for replayability
+        const vec3 curr = ipos + t * idir;// + rng3(seed) - .5f; // XXX DEBUG
+        const float d = lookup_density(curr);
+        const float P_real = d * vol_inv_majorant;
+        if (rng(seed) < P_real) {
+            // real collision
+            backward_real(curr, P_real, dy); // TODO include albedo
+            return true;
+        }
+        // null collision
+        const float P_null = 1.f - P_real;
+        backward_null(curr, P_null, dy);
+        // advance
+        t -= log(1 - rng(seed)) * vol_inv_majorant;
+    }
+    return false;
+}
+
 // ---------------------------------------------------
 // path replay backprop
 
 vec3 path_replay_backprop(vec3 pos, vec3 dir, inout uint seed, vec3 L, const vec3 dL) {
     vec3 throughput = vec3(1);
+    bool free_path = true;
     uint n_paths = 0;
     float t, f_p; // t: end of ray segment (i.e. sampled position or out of volume), f_p: last phase function sample for MIS
-    while (sample_volume_adjoint(pos, dir, t, seed, L * dL)) {
+    while (sample_volume_adjoint(pos, dir, t, seed, L * dL)) { // TODO wtf gradients
+    // while (sample_volume(pos, dir, t, throughput, seed)) {
         // advance ray
         pos += t * dir;
-        throughput *= vol_albedo;
+        // throughput *= vol_albedo;
 
         // sample light source (environment)
         vec3 w_i;
@@ -268,18 +270,18 @@ vec3 path_replay_backprop(vec3 pos, vec3 dir, inout uint seed, vec3 L, const vec
             const float Tr = transmittance(pos, w_i, seed);
             const vec3 Li = throughput * Tr * mis_weight * f_p * Le_pdf.rgb / Le_pdf.w;
             // backprop
-            // seed = saved_seed;
-            // transmittance_adjoint(pos, w_i, seed, dL * Li);
+            seed = saved_seed;
+            transmittance_adjoint(pos - t * dir, dir, seed, (Li + vec3(1)) * dL);
             L -= Li;
         }
 
         // early out?
-        if (++n_paths >= bounces) break;
+        if (++n_paths >= bounces) { free_path = false; break; }
         // russian roulette
         const float rr_val = luma(throughput);
         if (rr_val < .1f) {
             const float prob = 1 - rr_val;
-            if (rng(seed) < prob) break;
+            if (rng(seed) < prob) { free_path = false; break; }
             throughput /= 1 - prob;
         }
 
@@ -288,6 +290,8 @@ vec3 path_replay_backprop(vec3 pos, vec3 dir, inout uint seed, vec3 L, const vec
         f_p = phase_henyey_greenstein(dot(-dir, scatter_dir), vol_phase_g);
         dir = scatter_dir;
     }
+
+    // TODO handle free path?
 
     return abs(L);
 }
@@ -307,9 +311,6 @@ void main() {
     // forward path tracing
     const uint forward_seed = seed;
     // const vec3 L = trace_path(pos, dir, seed);
-    vec3 throughput = vec3(1);
-    float t = 0.f;
-    // const vec3 L = sample_volume(pos, dir, t, throughput, seed) ? vec3(0) : vec3(1);
     const vec3 L = lookup_environment(dir) * transmittance(pos, dir, seed);
 
     // compute gradient of l2 loss between Lo (1spp) and reference (Nspp)
@@ -325,8 +326,9 @@ void main() {
     // const vec3 Lr = path_replay_backprop(pos, dir, seed, L, dL);
 
     // TODO these should produce identical and correct results, TODO: L * dL vs dL, add lookup_environment(dir)!
-    // const vec3 Lr = sample_volume_adjoint(pos, dir, t, seed, (L + lookup_environment(dir)) * dL) ? vec3(0) : vec3(1);
-    const vec3 Lr = vec3(transmittance_adjoint(pos, dir, seed, lookup_environment(dir) * dL));
+    float t;
+    const vec3 Lr = sample_volume_adjoint(pos, dir, t, seed, (lookup_environment(dir)) * dL) ? vec3(0) : vec3(1);
+    // const vec3 Lr = vec3(transmittance_adjoint(pos, dir, seed, lookup_environment(dir) * dL));
     // const vec3 Lr = vec3(raymarch_transmittance_adjoint(pos, dir, seed, dL));
 #endif
 
