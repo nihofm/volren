@@ -308,6 +308,26 @@ bool sample_volume(const vec3 wpos, const vec3 wdir, out float t, inout vec3 thr
     return false;
 }
 
+bool sample_volume_with_transmittance(const vec3 wpos, const vec3 wdir, out float t, out float Tr, inout uint seed) {
+    // clip volume
+    vec2 near_far;
+    if (!intersect_box(wpos, wdir, vol_bb_min, vol_bb_max, near_far)) return false;
+    // to index-space
+    const vec3 ipos = vec3(vol_inv_model * vec4(wpos, 1));
+    const vec3 idir = vec3(vol_inv_model * vec4(wdir, 0)); // non-normalized!
+    // delta tracking
+    t = near_far.x - log(1 - rng(seed)) * vol_inv_majorant, Tr = 1.f;
+    while (t < near_far.y) {
+        const float d = lookup_density(ipos + t * idir, seed);
+        Tr *= max(0.f, 1 - d * vol_inv_majorant);
+        // classify as real or null collison
+        if (rng(seed) * vol_majorant < d) return true;
+        // advance
+        t -= log(1 - rng(seed)) * vol_inv_majorant;
+    }
+    return false;
+}
+
 // ---------------------------------
 // DDA-based null-collision methods
 
@@ -321,7 +341,7 @@ float stepDDA(const vec3 pos, const vec3 inv_dir, const int mip) {
     const float dim = 8 << mip;
     const vec3 offs = mix(vec3(-0.5f), vec3(dim + 0.5f), greaterThanEqual(inv_dir, vec3(0)));
     const vec3 tmax = (floor(pos * (1.f / dim)) * dim + offs - pos) * inv_dir;
-    return min(tmax.x, min(tmax.y , tmax.z));
+    return min(tmax.x, min(tmax.y, tmax.z));
 }
 
 // DDA-based transmittance
@@ -334,7 +354,7 @@ float transmittanceDDA(const vec3 wpos, const vec3 wdir, inout uint seed) {
     const vec3 idir = (vec3(vol_inv_model * vec4(wdir, 0))); // non-normalized!
     const vec3 ri = 1.f / idir;
     // march brick grid
-    float t = near_far.x + 1e-8, Tr = 1.f, tau = -log(1.f - rng(seed)), mip = MIP_START;
+    float t = near_far.x + 1e-6f, Tr = 1.f, tau = -log(1.f - rng(seed)), mip = MIP_START;
     while (t < near_far.y) {
         const vec3 curr = ipos + t * idir;
 #ifdef USE_TRANSFERFUNC
@@ -380,7 +400,7 @@ bool sample_volumeDDA(const vec3 wpos, const vec3 wdir, out float t, inout vec3 
     const vec3 idir = vec3(vol_inv_model * vec4(wdir, 0)); // non-normalized!
     const vec3 ri = 1.f / idir;
     // march brick grid
-    t = near_far.x + 1e-8;
+    t = near_far.x + 1e-6f;
     float tau = -log(1.f - rng(seed)), mip = MIP_START;
     while (t < near_far.y) {
         const vec3 curr = ipos + t * idir;
