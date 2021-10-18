@@ -4,14 +4,11 @@
 
 layout (local_size_x = 8, local_size_y = 8, local_size_z = 8) in;
 
-layout(std430, binding = 0) buffer ParameterBuffer {
-    vec4 parameters[]; // vec4(param, grad, m1, m2)
-};
+#include "common.glsl"
 
-uniform ivec3 size;
 uniform float learning_rate;
-uniform float vol_majorant;
 uniform int reset;
+uniform int solve;
 
 const float b1 = 0.9;
 const float b2 = 0.999;
@@ -22,12 +19,18 @@ const float eps = 1e-8;
 
 void main() {
 	const ivec3 gid = ivec3(gl_GlobalInvocationID.xyz);
-    if (any(greaterThanEqual(gid, size))) return;
-    const uint idx = gid.z * size.x * size.y + gid.y * size.x + gid.x;
+    if (any(greaterThanEqual(gid, vol_size))) return;
+    const uint idx = gid.z * vol_size.x * vol_size.y + gid.y * vol_size.x + gid.x;
 
-    // reset experiment?
+    // debug: reset experiment?
     if (reset > 0) {
         parameters[idx] = vec4(0.1, 0.0, 0.0, 1.0);
+        return;
+    }
+
+    // debug: solve experiment?
+    if (solve > 0) {
+        parameters[idx] = vec4(lookup_voxel_brick(gid), 0.0, 0.0, 1.0);
         return;
     }
 

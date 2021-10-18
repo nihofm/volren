@@ -57,7 +57,7 @@ vec3 trace_path(vec3 pos, vec3 dir, inout uint seed) {
     if (free_path && show_environment > 0) {
         const vec3 Le = lookup_environment(dir);
         const float mis_weight = n_paths > 0 ? power_heuristic(f_p, pdf_environment(dir)) : 1.f;
-        // L += throughput * mis_weight * Le;
+        L += throughput * mis_weight * Le;
     }
 
     return L;

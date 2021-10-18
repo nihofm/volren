@@ -434,3 +434,15 @@ bool sample_volumeDDA(const vec3 wpos, const vec3 wdir, out float t, inout vec3 
     }
     return false;
 }
+
+// --------------------------------------------------------------
+// point light helpers
+
+vec4 sample_pointlight(const vec3 wpos, const vec2 rng, out vec3 w_i) {
+    const vec3 light_pos = vol_bb_max + 0.1;
+    const vec3 light_color = vec3(1.0, 0.5, 0.25) * 1e+5;
+    const vec3 to_light = light_pos - wpos;
+    w_i = normalize(to_light);
+    const float r = length(to_light);
+    return vec4(light_color, r * r);
+}

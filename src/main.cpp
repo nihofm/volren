@@ -232,6 +232,8 @@ void gui_callback(void) {
         ImGui::Checkbox("Print loss", &print_loss);
         if (ImGui::Button("Reset optimization"))
             renderer->reset_optimization = true;
+        if (ImGui::Button("Solve optimization")) 
+            renderer->solve_optimization = true;
         ImGui::Separator();
         if (ImGui::Checkbox("Environment", &renderer->show_environment)) renderer->sample = 0;
         if (ImGui::DragFloat("Env strength", &renderer->environment->strength, 0.1f)) {

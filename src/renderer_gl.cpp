@@ -178,9 +178,9 @@ void RendererOpenGL::trace() {
     trace_shader->uniform("vol_density_scale", volume->density_scale);
     // brick grid data
     trace_shader->uniform("vol_grid_type", 0);
-    if (vol_indirection) trace_shader->uniform("vol_indirection", vol_indirection, tex_unit++);
-    if (vol_range) trace_shader->uniform("vol_range", vol_range, tex_unit++);
-    if (vol_atlas) trace_shader->uniform("vol_atlas", vol_atlas, tex_unit++);
+    trace_shader->uniform("vol_indirection", vol_indirection, tex_unit++);
+    trace_shader->uniform("vol_range", vol_range, tex_unit++);
+    trace_shader->uniform("vol_atlas", vol_atlas, tex_unit++);
     // transfer function
     trace_shader->uniform("tf_window_left", transferfunc->window_left);
     trace_shader->uniform("tf_window_width", transferfunc->window_width);
@@ -325,16 +325,23 @@ void BackpropRendererOpenGL::step() {
     adam_shader->bind();
     parameter_buffer->bind_base(0);
 
-    adam_shader->uniform("size", n_parameters);
     adam_shader->uniform("learning_rate", learning_rate);
+    adam_shader->uniform("vol_size", n_parameters);
     adam_shader->uniform("vol_majorant", volume->minorant_majorant().second);
+    // debug: reset optimization
     adam_shader->uniform("reset", reset_optimization ? 1 : 0);
+    // debug: solve optimization
+    adam_shader->uniform("solve", solve_optimization ? 1 : 0);
+    adam_shader->uniform("vol_indirection", vol_indirection, 0);
+    adam_shader->uniform("vol_range", vol_range, 1);
+    adam_shader->uniform("vol_atlas", vol_atlas, 2);
     
     adam_shader->dispatch_compute(n_parameters.x, n_parameters.y, n_parameters.z);
 
     parameter_buffer->unbind_base(0);
     adam_shader->unbind();
 
+    solve_optimization = false;
     reset_optimization = false;
 }
 

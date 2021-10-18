@@ -54,4 +54,5 @@ struct BackpropRendererOpenGL : public RendererOpenGL {
     int backprop_sample = 0;
     int backprop_sppx = 8;
     bool reset_optimization = false;
+    bool solve_optimization = false;
 };
