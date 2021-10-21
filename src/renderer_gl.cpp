@@ -63,7 +63,7 @@ void RendererOpenGL::init() {
 
     // load default transfer function
     if (!transferfunc)
-        transferfunc = std::make_shared<TransferFunction>(std::vector<glm::vec4>({ glm::vec4(1) }));
+        transferfunc = std::make_shared<TransferFunction>(std::vector<glm::vec4>({ glm::vec4(0), glm::vec4(1) }));
 
     // compile trace shader
     if (!trace_shader)
@@ -170,14 +170,12 @@ void RendererOpenGL::trace() {
     trace_shader->uniform("vol_bb_min", bb_min + vol_clip_min * (bb_max - bb_min));
     trace_shader->uniform("vol_bb_max", bb_min + vol_clip_max * (bb_max - bb_min));
     trace_shader->uniform("vol_minorant", min * volume->density_scale);
-    trace_shader->uniform("vol_inv_minorant", 1.f / (min * volume->density_scale));
     trace_shader->uniform("vol_majorant", maj * volume->density_scale);
     trace_shader->uniform("vol_inv_majorant", 1.f / (maj * volume->density_scale));
     trace_shader->uniform("vol_albedo", volume->albedo);
     trace_shader->uniform("vol_phase_g", volume->phase);
     trace_shader->uniform("vol_density_scale", volume->density_scale);
     // brick grid data
-    trace_shader->uniform("vol_grid_type", 0);
     trace_shader->uniform("vol_indirection", vol_indirection, tex_unit++);
     trace_shader->uniform("vol_range", vol_range, tex_unit++);
     trace_shader->uniform("vol_atlas", vol_atlas, tex_unit++);
@@ -245,11 +243,28 @@ void BackpropRendererOpenGL::resize(uint32_t w, uint32_t h) {
 
 void BackpropRendererOpenGL::commit() {
     RendererOpenGL::commit();
-    // init parameter buffer: vec4(x, dx, m1, m2)
-    parameter_buffer = SSBO("parameter buffer");
-    n_parameters = volume->current_grid()->index_extent();
-    const auto param_data = std::vector<glm::vec4>(n_parameters.x * n_parameters.y * n_parameters.z, glm::vec4(0.1, 0, 0, 1));
-    parameter_buffer->upload_data(param_data.data(), sizeof(glm::vec4) * param_data.size());
+    // init parameter, gradient and moments buffers
+    n_parameters = transferfunc->lut.size();
+    {
+        parameter_buffer = SSBO("parameter buffer");
+        std::vector<glm::vec4> param_data = TransferFunction::compute_lut_cdf(std::vector<glm::vec4>(n_parameters, glm::vec4(1)));
+        parameter_buffer->upload_data(param_data.data(), param_data.size() * sizeof(glm::vec4));
+    }
+    {
+        gradient_buffer = SSBO("gradients buffer");
+        std::vector<glm::vec4> grad_data = std::vector<glm::vec4>(n_parameters, glm::vec4(0));
+        gradient_buffer->upload_data(grad_data.data(), grad_data.size() * sizeof(glm::vec4));
+    }
+    {
+        m1_buffer = SSBO("first moments buffer");
+        std::vector<glm::vec4> m1_data = std::vector<glm::vec4>(n_parameters, glm::vec4(0));
+        m1_buffer->upload_data(m1_data.data(), m1_data.size() * sizeof(glm::vec4));
+    }
+    {
+        m2_buffer = SSBO("second moments buffer");
+        std::vector<glm::vec4> m2_data = std::vector<glm::vec4>(n_parameters, glm::vec4(1));
+        m2_buffer->upload_data(m2_data.data(), m2_data.size() * sizeof(glm::vec4));
+    }
     // init loss buffer
     loss_buffer = SSBO("finite differences loss buffer", sizeof(float));
 }
@@ -263,6 +278,7 @@ void BackpropRendererOpenGL::backprop() {
     // bind
     backprop_shader->bind();
     parameter_buffer->bind_base(0);
+    gradient_buffer->bind_base(1);
     color_prediction->bind_image(0, GL_READ_WRITE, GL_RGBA32F);
     color->bind_image(1, GL_READ_ONLY, GL_RGBA32F);
     color_backprop->bind_image(2, GL_WRITE_ONLY, GL_RGBA32F);
@@ -285,19 +301,22 @@ void BackpropRendererOpenGL::backprop() {
     backprop_shader->uniform("vol_bb_min", bb_min + vol_clip_min * (bb_max - bb_min));
     backprop_shader->uniform("vol_bb_max", bb_min + vol_clip_max * (bb_max - bb_min));
     backprop_shader->uniform("vol_minorant", min * volume->density_scale);
-    backprop_shader->uniform("vol_inv_minorant", 1.f / (min * volume->density_scale));
     backprop_shader->uniform("vol_majorant", maj * volume->density_scale);
     backprop_shader->uniform("vol_inv_majorant", 1.f / (maj * volume->density_scale));
     backprop_shader->uniform("vol_albedo", volume->albedo);
     backprop_shader->uniform("vol_phase_g", volume->phase);
     backprop_shader->uniform("vol_density_scale", volume->density_scale);
-    // dense grid data (= optimization parameters)
-    backprop_shader->uniform("vol_grid_type", 1);
-    backprop_shader->uniform("vol_size", n_parameters);
+    // brick grid data
+    backprop_shader->uniform("vol_indirection", vol_indirection, tex_unit++);
+    backprop_shader->uniform("vol_range", vol_range, tex_unit++);
+    backprop_shader->uniform("vol_atlas", vol_atlas, tex_unit++);
     // transfer function
+    // TODO XXX use optimization target param buffer
     backprop_shader->uniform("tf_window_left", transferfunc->window_left);
     backprop_shader->uniform("tf_window_width", transferfunc->window_width);
     backprop_shader->uniform("tf_texture", transferfunc->texture, tex_unit++);
+    backprop_shader->uniform("tf_optimization", 1);
+    backprop_shader->uniform("n_parameters", n_parameters);
     // environment
     backprop_shader->uniform("env_model", environment->model);
     backprop_shader->uniform("env_inv_model", glm::inverse(environment->model));
@@ -317,6 +336,7 @@ void BackpropRendererOpenGL::backprop() {
     color_backprop->unbind_image(2);
     color->unbind_image(1);
     color_prediction->unbind_image(0);
+    gradient_buffer->unbind_base(1);
     parameter_buffer->unbind_base(0);
     backprop_shader->unbind();
 }
@@ -324,20 +344,23 @@ void BackpropRendererOpenGL::backprop() {
 void BackpropRendererOpenGL::step() {
     adam_shader->bind();
     parameter_buffer->bind_base(0);
+    gradient_buffer->bind_base(1);
+    m1_buffer->bind_base(2);
+    m2_buffer->bind_base(3);
 
+    adam_shader->uniform("n_parameters", n_parameters);
     adam_shader->uniform("learning_rate", learning_rate);
-    adam_shader->uniform("vol_size", n_parameters);
-    adam_shader->uniform("vol_majorant", volume->minorant_majorant().second);
     // debug: reset optimization
     adam_shader->uniform("reset", reset_optimization ? 1 : 0);
     // debug: solve optimization
     adam_shader->uniform("solve", solve_optimization ? 1 : 0);
-    adam_shader->uniform("vol_indirection", vol_indirection, 0);
-    adam_shader->uniform("vol_range", vol_range, 1);
-    adam_shader->uniform("vol_atlas", vol_atlas, 2);
+    adam_shader->uniform("tf_texture", transferfunc->texture, 0);
     
-    adam_shader->dispatch_compute(n_parameters.x, n_parameters.y, n_parameters.z);
+    adam_shader->dispatch_compute(n_parameters);
 
+    m2_buffer->unbind_base(3);
+    m1_buffer->unbind_base(2);
+    gradient_buffer->unbind_base(1);
     parameter_buffer->unbind_base(0);
     adam_shader->unbind();
 
@@ -346,17 +369,14 @@ void BackpropRendererOpenGL::step() {
 }
 
 float BackpropRendererOpenGL::compute_loss() {
+    // TODO update this to new optimization target
     loss_buffer->clear();
     loss_shader->bind();
     parameter_buffer->bind_base(0);
     loss_buffer->bind_base(1);
-    loss_shader->uniform("size", n_parameters);
-    int tex_unit = 0;
-    loss_shader->uniform("vol_indirection", vol_indirection, tex_unit++);
-    loss_shader->uniform("vol_range", vol_range, tex_unit++);
-    loss_shader->uniform("vol_atlas", vol_atlas, tex_unit++);
-    loss_shader->uniform("vol_size", n_parameters);
-    loss_shader->dispatch_compute(n_parameters.x, n_parameters.y, n_parameters.z);
+    loss_shader->uniform("n_parameters", n_parameters);
+    loss_shader->uniform("tf_texture", transferfunc->texture, 0);
+    loss_shader->dispatch_compute(n_parameters);
     loss_buffer->unbind_base(1);
     parameter_buffer->bind_base(0);
     loss_shader->unbind();
@@ -364,35 +384,27 @@ float BackpropRendererOpenGL::compute_loss() {
     const float* data = (float*)loss_buffer->map(GL_READ_ONLY);
     const float loss = data[0];
     loss_buffer->unmap();
-    return loss / float(n_parameters.x * n_parameters.y * n_parameters.z);
+    return loss / float(n_parameters);
 }
 
 void BackpropRendererOpenGL::draw_adjoint() {
     draw_shader->bind();
     parameter_buffer->bind_base(0);
+    gradient_buffer->bind_base(1);
+    draw_shader->uniform("n_parameters", n_parameters);
     // textures
-    draw_shader->uniform("color_prediction", color_prediction, 0);
-    draw_shader->uniform("color_reference", color, 1);
-    draw_shader->uniform("color_backprop", color_backprop, 2);
-    // params
-    draw_shader->uniform("seed", seed + 42); // use different seed than forward
-    draw_shader->uniform("sppx", backprop_sppx);
-    draw_shader->uniform("current_sample", backprop_sample);
-    draw_shader->uniform("resolution", Context::resolution());
-    // camera
-    draw_shader->uniform("cam_pos", current_camera()->pos);
-    draw_shader->uniform("cam_fov", current_camera()->fov_degree);
-    draw_shader->uniform("cam_transform", glm::inverse(glm::mat3(current_camera()->view)));
-    // volume
-    const auto [bb_min, bb_max] = volume->AABB();
-    draw_shader->uniform("vol_model", volume->get_transform());
-    draw_shader->uniform("vol_inv_model", glm::inverse(volume->get_transform()));
-    draw_shader->uniform("vol_bb_min", bb_min + vol_clip_min * (bb_max - bb_min));
-    draw_shader->uniform("vol_bb_max", bb_min + vol_clip_max * (bb_max - bb_min));
-    draw_shader->uniform("vol_size", n_parameters);
+    uint32_t tex_unit = 0;
+    draw_shader->uniform("color_prediction", color_prediction, tex_unit++);
+    draw_shader->uniform("color_reference", color, tex_unit++);
+    draw_shader->uniform("color_backprop", color_backprop, tex_unit++);
+    // transferfunc
+    draw_shader->uniform("tf_window_left", transferfunc->window_left);
+    draw_shader->uniform("tf_window_width", transferfunc->window_width);
+    draw_shader->uniform("tf_texture", transferfunc->texture, tex_unit++);
 
     Quad::draw();
 
+    gradient_buffer->unbind_base(1);
     parameter_buffer->unbind_base(0);
     draw_shader->unbind();
 }

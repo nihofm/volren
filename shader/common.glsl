@@ -182,16 +182,53 @@ vec3 sample_phase_henyey_greenstein(const vec3 dir, const float g, const vec2 ph
 }
 
 // --------------------------------------------------------------
+// optimization target parameters, gradients and moments stored in SSBOs
+
+uniform uint n_parameters;
+
+layout(std430, binding = 0) buffer ParameterBuffer {
+    vec4 parameters[];
+};
+
+layout(std430, binding = 1) buffer GradientBuffer {
+    vec4 gradients[];
+};
+
+layout(std430, binding = 2) buffer FirstMomentsBuffer {
+    vec4 first_moments[];
+};
+
+layout(std430, binding = 3) buffer SecondMomentsBuffer {
+    vec4 second_moments[];
+};
+
+// --------------------------------------------------------------
 // transfer function helper
 
 uniform float tf_window_left;
 uniform float tf_window_width;
 uniform sampler2D tf_texture;
+uniform int tf_optimization;
 
 // TODO stochastic lookup filter for transferfunc
+vec4 tf_lookup_texture(float d) {
+    const float tc = clamp((d - tf_window_left) / tf_window_width, 0.0, 1.0 - 1e-6);
+    return texture(tf_texture, vec2(tc, 0.5));
+}
+
+// TODO stochastic lookup filter for transferfunc
+vec4 tf_lookup_ssbo(float d) {
+    // TODO lerp
+    const float tc = clamp((d - tf_window_left) / tf_window_width, 0.0, 1.0 - 1e-6);
+    const int idx = int(floor(tc * n_parameters));
+    return parameters[idx];
+}
+
 vec4 tf_lookup(float d) {
-    const vec4 lut = texture(tf_texture, vec2(max(0.f, d - tf_window_left) / tf_window_width, 0));
-    return vec4(lut.rgb, lut.a);
+    if (tf_optimization > 0)
+        return tf_lookup_ssbo(d);
+    else
+        return tf_lookup_texture(d);
 }
 
 // --------------------------------------------------------------
@@ -202,15 +239,13 @@ uniform mat4 vol_inv_model;
 uniform vec3 vol_bb_min;
 uniform vec3 vol_bb_max;
 uniform float vol_minorant;
-uniform float vol_inv_minorant;
 uniform float vol_majorant;
 uniform float vol_inv_majorant;
 uniform vec3 vol_albedo;
 uniform float vol_phase_g;
 uniform float vol_density_scale;
-uniform int vol_grid_type; // underlying grid data type (0 = brick grid, 1 = dense grid)
 
-// brick grid stored as textures (only valid if vol_grid_type == 0)
+// brick grid stored as textures
 uniform usampler3D vol_indirection;
 uniform sampler3D vol_range;
 uniform sampler3D vol_atlas;
@@ -231,35 +266,20 @@ float lookup_majorant(const vec3 ipos, int mip) {
     return vol_density_scale * texelFetch(vol_range, brick, mip).y;
 }
 
-// dense grid data, i.e. optimization parameters, stored in SSBO (only valid if vol_grid_type == 1)
-uniform ivec3 vol_size;
-layout(std430, binding = 0) buffer ParameterBuffer {
-    vec4 parameters[]; // vec4(x, dx, m1, m2)
-};
-
-// dense grid voxel lookup
-float lookup_voxel_dense(const vec3 ipos) {
-    const ivec3 iipos = ivec3(floor(ipos));
-    const uint idx = iipos.z * vol_size.x * vol_size.y + iipos.y * vol_size.x + iipos.x;
-    return parameters[idx].x;
-}
-
-// nearest neighbor density lookup
+// density lookup with nearest neighbor filter
 float lookup_density(const vec3 ipos) {
-    if (vol_grid_type > 0)
-        return vol_density_scale * lookup_voxel_dense(ipos);
-    else
-        return vol_density_scale * lookup_voxel_brick(ipos);
+    return vol_density_scale * lookup_voxel_brick(ipos);
 }
 
 // density lookup with stochastic trilinear filter
 float lookup_density(const vec3 ipos, inout uint seed) {
-    return lookup_density(ipos); // XXX TODO DEBUG
     return lookup_density(ipos + rng3(seed) - .5f);
 }
 
 // ---------------------------------
 // null-collision methods
+
+#define USE_TRANSFERFUNC
 
 float transmittance(const vec3 wpos, const vec3 wdir, inout uint seed) {
     // clip volume
@@ -271,7 +291,12 @@ float transmittance(const vec3 wpos, const vec3 wdir, inout uint seed) {
     // ratio tracking
     float t = near_far.x - log(1 - rng(seed)) * vol_inv_majorant, Tr = 1.f;
     while (t < near_far.y) {
+#ifdef USE_TRANSFERFUNC
+        const vec4 rgba = tf_lookup(lookup_density(ipos + t * idir, seed) * vol_inv_majorant);
+        const float d = vol_majorant * rgba.a;
+#else
         const float d = lookup_density(ipos + t * idir, seed);
+#endif
         // track ratio of real to null particles
         Tr *= max(0.f, 1 - d * vol_inv_majorant);
         // russian roulette
@@ -296,32 +321,21 @@ bool sample_volume(const vec3 wpos, const vec3 wdir, out float t, inout vec3 thr
     // delta tracking
     t = near_far.x - log(1 - rng(seed)) * vol_inv_majorant;
     while (t < near_far.y) {
+#ifdef USE_TRANSFERFUNC
+        const vec4 rgba = tf_lookup(lookup_density(ipos + t * idir, seed) * vol_inv_majorant);
+        const float d = vol_majorant * rgba.a;
+#else
         const float d = lookup_density(ipos + t * idir, seed);
+#endif
         // classify as real or null collison
         if (rng(seed) * vol_majorant < d) {
+#ifdef USE_TRANSFERFUNC
+            throughput *= rgba.rgb * vol_albedo;
+#else
             throughput *= vol_albedo;
+#endif
             return true;
         }
-        // advance
-        t -= log(1 - rng(seed)) * vol_inv_majorant;
-    }
-    return false;
-}
-
-bool sample_volume_with_transmittance(const vec3 wpos, const vec3 wdir, out float t, out float Tr, inout uint seed) {
-    // clip volume
-    vec2 near_far;
-    if (!intersect_box(wpos, wdir, vol_bb_min, vol_bb_max, near_far)) return false;
-    // to index-space
-    const vec3 ipos = vec3(vol_inv_model * vec4(wpos, 1));
-    const vec3 idir = vec3(vol_inv_model * vec4(wdir, 0)); // non-normalized!
-    // delta tracking
-    t = near_far.x - log(1 - rng(seed)) * vol_inv_majorant, Tr = 1.f;
-    while (t < near_far.y) {
-        const float d = lookup_density(ipos + t * idir, seed);
-        Tr *= max(0.f, 1 - d * vol_inv_majorant);
-        // classify as real or null collison
-        if (rng(seed) * vol_majorant < d) return true;
         // advance
         t -= log(1 - rng(seed)) * vol_inv_majorant;
     }
@@ -331,7 +345,6 @@ bool sample_volume_with_transmittance(const vec3 wpos, const vec3 wdir, out floa
 // ---------------------------------
 // DDA-based null-collision methods
 
-// #define USE_TRANSFERFUNC
 #define MIP_START 3
 #define MIP_SPEED_UP 0.25
 #define MIP_SPEED_DOWN 2
@@ -433,16 +446,4 @@ bool sample_volumeDDA(const vec3 wpos, const vec3 wdir, out float t, inout vec3 
         mip = max(0.f, mip - MIP_SPEED_DOWN);
     }
     return false;
-}
-
-// --------------------------------------------------------------
-// point light helpers
-
-vec4 sample_pointlight(const vec3 wpos, const vec2 rng, out vec3 w_i) {
-    const vec3 light_pos = vol_bb_max + 0.1;
-    const vec3 light_color = vec3(1.0, 0.5, 0.25) * 1e+5;
-    const vec3 to_light = light_pos - wpos;
-    w_i = normalize(to_light);
-    const float r = length(to_light);
-    return vec4(light_color, r * r);
 }

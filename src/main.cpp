@@ -60,6 +60,7 @@ void load_transferfunc(const std::string& path) {
     try {
         renderer->transferfunc = std::make_shared<TransferFunction>(path);
         renderer->sample = 0;
+        renderer->commit();
     } catch (std::runtime_error& e) {
         std::cerr << "Unable to load transferfunc from " << path << ": " << e.what() << std::endl;
     }
@@ -255,18 +256,21 @@ void gui_callback(void) {
             renderer->transferfunc->lut = std::vector<glm::vec4>({ glm::vec4(1) });
             renderer->transferfunc->upload_gpu();
             renderer->sample = 0;
+            renderer->commit();
         }
         ImGui::SameLine();
         if (ImGui::Button("Gradient TF")) {
             renderer->transferfunc->lut = std::vector<glm::vec4>({ glm::vec4(0), glm::vec4(1) });
             renderer->transferfunc->upload_gpu();
             renderer->sample = 0;
+            renderer->commit();
         }
         ImGui::SameLine();
         if (ImGui::Button("Triangle TF")) {
             renderer->transferfunc->lut = std::vector<glm::vec4>({ glm::vec4(0), glm::vec4(1), glm::vec4(0) });
             renderer->transferfunc->upload_gpu();
             renderer->sample = 0;
+            renderer->commit();
         }
         if (ImGui::Button("Gray background")) {
             glm::vec3 color(.5f);
@@ -401,10 +405,8 @@ int main(int argc, char** argv) {
         const auto [min, maj] = renderer->volume->current_grid()->minorant_majorant();
         current_camera()->pos = bb_min + (bb_max - bb_min) * glm::vec3(-.5f, .5f, 0.f);
         current_camera()->dir = glm::normalize((bb_max + bb_min) * .5f - current_camera()->pos);
-        renderer->transferfunc->window_left = min;
-        renderer->transferfunc->window_width = maj - min;
     } else {
-        // load box
+        // load debug box
         const uint32_t size = 4;
         const float scale = 1.f;
         std::vector<float> values = { 1, 2.5, 5, 10 };

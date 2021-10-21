@@ -4,22 +4,22 @@
 
 layout (local_size_x = 8, local_size_y = 8, local_size_z = 8) in;
 
-uniform ivec3 size;
+#include "common.glsl"
 
 layout(std430, binding = 1) buffer LossBuffer {
     float loss[];
 };
 
-#include "common.glsl"
-
 // ---------------------------------------------------
 // main
 
 void main() {
-	const ivec3 gid = ivec3(gl_GlobalInvocationID.xyz);
-    if (any(greaterThanEqual(gid, size))) return;
+	const uint idx = gl_GlobalInvocationID.x;
+    if (idx >= n_parameters) return;
 
-    const float A = lookup_voxel_dense(gid);
-    const float B = lookup_voxel_brick(gid);
-    atomicAdd(loss[0], abs(A - B));
+    const vec4 x = parameters[idx];
+    const vec4 y = texelFetch(tf_texture, ivec2(idx, 0), 0);
+    const vec4 diff = abs(x - y);
+    const float L = diff.x + diff.y + diff.z + diff.w;
+    atomicAdd(loss[0], L);
 }

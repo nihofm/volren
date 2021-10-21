@@ -13,7 +13,10 @@ public:
 
     void set_uniforms(const Shader& shader, uint32_t& texture_unit) const;
 
-    // push cpu LUT data to GPU texture
+    // compute density-CDF lut from given lut
+    static std::vector<glm::vec4> compute_lut_cdf(const std::vector<glm::vec4>& lut);
+
+    // push cdf lut data to GPU texture
     void upload_gpu();
 
     // data

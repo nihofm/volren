@@ -45,11 +45,14 @@ struct BackpropRendererOpenGL : public RendererOpenGL {
     Shader backprop_shader, adam_shader, draw_shader, loss_shader;
     SSBO loss_buffer;
 
-    // Optimization target:
-    SSBO parameter_buffer;      // vec4(param, grad, m1, m2)
-    glm::ivec3 n_parameters;    // ivec3(w, h, d)
+    // Optimization target
+    uint32_t n_parameters;      // parameter count
+    SSBO parameter_buffer;      // parameters
+    SSBO gradient_buffer;       // gradients per parameter
+    SSBO m1_buffer;             // first moments per parameter
+    SSBO m2_buffer;             // second moments per parameter
 
-    // Optimization parameters:
+    // Optimization parameters
     float learning_rate = 0.1f;
     int backprop_sample = 0;
     int backprop_sppx = 8;

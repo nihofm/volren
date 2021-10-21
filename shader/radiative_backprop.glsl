@@ -25,9 +25,18 @@ float sanitize(const float x) { return isnan(x) || isinf(x) ? 0.f : x; }
 vec3 sanitize(const vec3 x) { return mix(x, vec3(0), isnan(x) || isinf(x)); }
 
 void add_gradient(const vec3 ipos, const float dx) {
-    const ivec3 iipos = ivec3(floor(ipos));
-    const uint idx = iipos.z * vol_size.x * vol_size.y + iipos.y * vol_size.x + iipos.x;
-    atomicAdd(parameters[idx].y, dx);
+    // XXX TODO update to new optimization target
+    // const ivec3 iipos = ivec3(floor(ipos));
+    // const uint idx = iipos.z * vol_size.x * vol_size.y + iipos.y * vol_size.x + iipos.x;
+    // atomicAdd(parameters[idx].y, dx);
+}
+
+void add_gradient(const float d, const vec3 dx) {
+    const float tc = clamp((d - tf_window_left) / tf_window_width, 0.0, 1.0 - 1e-6);
+    const int idx = int(floor(tc * n_parameters));
+    atomicAdd(gradients[idx].x, sanitize(dx.x));
+    atomicAdd(gradients[idx].y, sanitize(dx.y));
+    atomicAdd(gradients[idx].z, sanitize(dx.z));
 }
 
 // ---------------------------------------------------
@@ -38,7 +47,7 @@ vec3 trace_path(vec3 pos, vec3 dir, inout uint seed) {
     bool free_path = true;
     uint n_paths = 0;
     float t, f_p; // t: end of ray segment (i.e. sampled position or out of volume), f_p: last phase function sample for MIS
-    while (sample_volume(pos, dir, t, throughput, seed)) {
+    while (sample_volumeDDA(pos, dir, t, throughput, seed)) {
         // advance ray
         pos += t * dir;
 
@@ -47,9 +56,9 @@ vec3 trace_path(vec3 pos, vec3 dir, inout uint seed) {
         const vec4 Le_pdf = sample_environment(rng2(seed), w_i);
         if (Le_pdf.w > 0) {
             f_p = phase_henyey_greenstein(dot(-dir, w_i), vol_phase_g);
-            const float mis_weight = show_environment > 0 ? power_heuristic(Le_pdf.w, f_p) : 1.f;
-            const float Tr = transmittance(pos, w_i, seed);
-            L += throughput * mis_weight * f_p * Tr * Le_pdf.rgb / Le_pdf.w;
+            const float mis_weight = 1.f;//show_environment > 0 ? power_heuristic(Le_pdf.w, f_p) : 1.f;
+            const float Tr = transmittanceDDA(pos, w_i, seed);
+            // L += throughput * mis_weight * f_p * Tr * Le_pdf.rgb / Le_pdf.w;
         }
 
         // early out?
@@ -71,7 +80,7 @@ vec3 trace_path(vec3 pos, vec3 dir, inout uint seed) {
     // free path? -> add envmap contribution
     if (free_path && show_environment > 0) {
         const vec3 Le = lookup_environment(dir);
-        const float mis_weight = n_paths > 0 ? power_heuristic(f_p, pdf_environment(dir)) : 1.f;
+        const float mis_weight = 1.f;//n_paths > 0 ? power_heuristic(f_p, pdf_environment(dir)) : 1.f;
         L += throughput * mis_weight * Le;
     }
 
@@ -137,11 +146,11 @@ float raymarch_transmittance_adjoint(const vec3 wpos, const vec3 wdir, inout uin
 // radiative backprop
 
 vec3 radiative_backprop(vec3 pos, vec3 dir, inout uint seed, const vec3 grad) {
-    vec3 Lr = vec3(0), path_throughput = vec3(1), vol_throughput = vec3(1);
+    vec3 Lr = vec3(0), throughput = vec3(1);
     bool free_path = true;
     uint n_paths = 0;
     float t;
-    while (sample_volume(pos, dir, t, vol_throughput, seed)) {
+    while (sample_volume(pos, dir, t, throughput, seed)) {
         // Term: Q2 * K * Li
         // Approximate Li to avoid recursion (biased)
         vec3 Li = vec3(1);
@@ -154,21 +163,17 @@ vec3 radiative_backprop(vec3 pos, vec3 dir, inout uint seed, const vec3 grad) {
             Li += f_p * Tr * env.rgb / env.w;
         }
         // backprop transmittance
-        const vec3 weight = path_throughput * Li * grad;
+        const vec3 weight = throughput * Li * grad;
         Lr += vec3(raymarch_transmittance_adjoint(pos, dir, seed, sanitize(weight), t));
-
-        // adjust throughput
-        path_throughput *= vol_throughput;
-        vol_throughput = vec3(1);
 
         // early out?
         if (++n_paths >= bounces) { free_path = false; break; }
         // russian roulette
-        const float rr_val = luma(path_throughput);
+        const float rr_val = luma(throughput);
         if (rr_val < .1f) {
             const float prob = 1 - rr_val;
             if (rng(seed) < prob) { free_path = false; break; }
-            path_throughput /= 1 - prob;
+            throughput /= 1 - prob;
         }
 
         // advance and scatter ray
@@ -179,7 +184,7 @@ vec3 radiative_backprop(vec3 pos, vec3 dir, inout uint seed, const vec3 grad) {
     // Term: Q2 * Le
     if (free_path && show_environment > 0) {
         const vec3 Le = lookup_environment(dir);
-        const vec3 weight = path_throughput * Le * grad;
+        const vec3 weight = throughput * Le * grad;
         Lr += vec3(raymarch_transmittance_adjoint(pos, dir, seed, sanitize(weight)));
     }
 
@@ -188,16 +193,19 @@ vec3 radiative_backprop(vec3 pos, vec3 dir, inout uint seed, const vec3 grad) {
 
 // ---------------------------------------------------
 // adjoint delta tracking
-// TODO check provided python code
 
-// TODO check gradients
 void backward_real(const vec3 ipos, const float P_real, const vec3 dy) {
     if (P_real <= 0.f) return;
-    const float dx = -sum(dy) / (vol_majorant * P_real); // TODO sign flip?
+    const float dx = sum(dy) / (vol_majorant * P_real);
     add_gradient(ipos, sanitize(dx));
 }
 
-// TODO check gradients
+void backward_real(const float P_real, const vec3 dy) {
+    if (P_real <= 0.f) return;
+    // TODO actually differentiate
+    add_gradient(P_real, dy);
+}
+
 void backward_null(const vec3 ipos, const float P_null, const vec3 dy) {
     if (P_null <= 0.f) return;
     const float dx = -sum(dy) / (vol_majorant * P_null);
@@ -256,8 +264,8 @@ bool sample_volume_adjoint(const vec3 wpos, const vec3 wdir, out float t, inout 
             return true;
         }
         // null collision
-        const float P_null = 1.f - P_real;
-        backward_null(curr, P_null, grad);
+        // const float P_null = 1.f - P_real;
+        // backward_null(curr, P_null, grad);
         // advance
         t -= log(1 - rng(seed)) * vol_inv_majorant;
     }
@@ -272,34 +280,46 @@ vec3 path_replay_backprop(vec3 pos, vec3 dir, inout uint seed, vec3 L, const vec
     bool free_path = true;
     uint n_paths = 0;
     float t, f_p; // t: end of ray segment (i.e. sampled position or out of volume), f_p: last phase function sample for MIS
-    while (sample_volume_adjoint(pos, dir, t, seed, L * grad)) {
-    // while (sample_volume(pos, dir, t, throughput, seed)) {
-        // backprop
+    // while (sample_volume_adjoint(pos, dir, t, seed, L * grad)) {
+    while (sample_volumeDDA(pos, dir, t, throughput, seed)) {
+        // backprop transmittance
         {
             const uint saved_seed = seed;
-            transmittance_adjoint(pos, dir, seed, throughput * lookup_environment(dir) * grad);
+            // transmittance_adjoint(pos, dir, seed, throughput * lookup_environment(dir) * grad);
             seed = saved_seed;
         }
 
         // advance ray
         pos += t * dir;
-        throughput *= vol_albedo;
+        // throughput *= vol_albedo;
 
         // sample light source (environment)
         vec3 w_i;
         const vec4 Le_pdf = sample_environment(rng2(seed), w_i);
         if (Le_pdf.w > 0) {
             f_p = phase_henyey_greenstein(dot(-dir, w_i), vol_phase_g);
-            const float mis_weight = show_environment > 0 ? power_heuristic(Le_pdf.w, f_p) : 1.f;
-            const float Tr = transmittance(pos, w_i, seed);
+            const float mis_weight = 1.f;//show_environment > 0 ? power_heuristic(Le_pdf.w, f_p) : 1.f;
+            const float Tr = transmittanceDDA(pos, w_i, seed);
             const vec3 Li = throughput * f_p * mis_weight * Tr * Le_pdf.rgb / Le_pdf.w;
-            L -= Li;
-            // backprop
+            // L -= Li;
+            // backprop transmittance
             {
                 const uint saved_seed = seed;
                 // transmittance_adjoint(pos, dir, seed, Li * grad / max(1e-8, Tr));
                 seed = saved_seed;
             }
+        }
+
+        // TODO backprop scattering
+        {
+            const uint saved_seed = seed;
+            const vec3 ipos = vec3(vol_inv_model * vec4(pos, 1));
+            const float d = lookup_density(ipos, seed);
+            const float P_real = d * vol_inv_majorant;
+            const vec3 tf = tf_lookup(P_real).rgb;
+            // TODO differentiate and include vol_albedo
+            backward_real(P_real, L * grad / tf);
+            seed = saved_seed;
         }
 
         // early out?
@@ -312,8 +332,6 @@ vec3 path_replay_backprop(vec3 pos, vec3 dir, inout uint seed, vec3 L, const vec
             throughput /= 1 - prob;
         }
 
-        { free_path = false; break; }
-
         // scatter ray
         const vec3 scatter_dir = sample_phase_henyey_greenstein(dir, vol_phase_g, rng2(seed));
         f_p = phase_henyey_greenstein(dot(-dir, scatter_dir), vol_phase_g);
@@ -322,7 +340,7 @@ vec3 path_replay_backprop(vec3 pos, vec3 dir, inout uint seed, vec3 L, const vec
 
     if (free_path && show_environment > 0) {
         // backprop
-        transmittance_adjoint(pos, dir, seed, L * grad);
+        // transmittance_adjoint(pos, dir, seed, L * grad);
         
         const vec3 Le = lookup_environment(dir);
         const float mis_weight = n_paths > 0 ? power_heuristic(f_p, pdf_environment(dir)) : 1.f;
@@ -348,7 +366,6 @@ void main() {
     // forward path tracing
     const uint forward_seed = seed;
     const vec3 L = trace_path(pos, dir, seed);
-    // const vec3 L = lookup_environment(dir) * transmittance(pos, dir, seed);
 
     // compute gradient of l2 loss between Lo (1spp) and reference (Nspp)
     const vec3 L_ref = imageLoad(color_reference, pixel).rgb;
@@ -359,15 +376,8 @@ void main() {
     const vec3 Lr = radiative_backprop(pos, dir, seed, grad);
 #else
     // path replay backprop
-    // TODO experiment with ONE bounce only using simple lighting, i.e. POINT or DIRECTIONAL light, NEE only
     seed = forward_seed;
     const vec3 Lr = path_replay_backprop(pos, dir, seed, L, grad);
-
-    // transmittance only experiment
-    float t;
-    // const vec3 Lr = sample_volume_adjoint(pos, dir, t, seed, (lookup_environment(dir)) * grad) ? vec3(0) : vec3(1);
-    // const vec3 Lr = vec3(transmittance_adjoint(pos, dir, seed, lookup_environment(dir) * grad));
-    // const vec3 Lr = vec3(raymarch_transmittance_adjoint(pos, dir, seed, grad));
 #endif
 
     // store results
