@@ -26,13 +26,17 @@ void main() {
         if (tc.x < 0.5) {
             // bottom left: transferfunc and gradients visualization
             const vec2 tc_adj = tc * 2;
-            if (tc_adj.y < 0.33)
-                out_col.rgb = abs(gradients[int(tc_adj.x * n_parameters)].rgb);
+            if (tc_adj.y < 0.33) {
+                if (tc_adj.y < 0.33 * 1 / 3.f) out_col.rgb = visualize_grad(gradients[int(tc_adj.x * n_parameters)].b);
+                else if (tc_adj.y < 0.33 * 2 / 3.f) out_col.rgb = visualize_grad(gradients[int(tc_adj.x * n_parameters)].g);
+                else out_col.rgb = visualize_grad(gradients[int(tc_adj.x * n_parameters)].b);
+                // out_col.rgb = abs(gradients[int(tc_adj.x * n_parameters)].rgb);
                 // out_col.rgb = visualize_grad(sum(gradients[int(tc_adj.x * n_parameters)].rgb));
-            else if (tc_adj.y < 0.66)
-                out_col.rgb = texelFetch(tf_texture, ivec2(tc_adj.x * n_parameters, 0), 0).rgb;
-            else
+            } else if (tc_adj.y < 0.66) {
+                out_col.rgb = tf_lut[int(tc_adj.x * tf_size)].rgb;
+            } else {
                 out_col.rgb = parameters[int(tc_adj.x * n_parameters)].rgb;
+            }
             // out_col.rgb = texture(color_backprop, tc_adj).rgb;
         } else {
             // bottom right: l2 grad

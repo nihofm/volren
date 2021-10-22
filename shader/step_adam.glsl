@@ -23,14 +23,14 @@ void main() {
 
     // debug: reset experiment?
     if (reset > 0) {
-        parameters[idx] = vec4(1.0, 1.0, 1.0, texelFetch(tf_texture, ivec2(idx, 0), 0).a);
+        parameters[idx] = vec4(0, 0, 0, tf_lut[idx].a);
         // parameters[idx] = vec4(1.0, 1.0, 1.0, (idx + 1) / float(n_parameters));
         return;
     }
 
     // debug: solve experiment?
     if (solve > 0) {
-        parameters[idx] = texelFetch(tf_texture, ivec2(idx, 0), 0);
+        parameters[idx] = tf_lut[idx];
         return;
     }
 

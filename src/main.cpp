@@ -59,8 +59,9 @@ void load_envmap(const std::string& path) {
 void load_transferfunc(const std::string& path) {
     try {
         renderer->transferfunc = std::make_shared<TransferFunction>(path);
-        renderer->sample = 0;
         renderer->commit();
+        renderer->sample = 0;
+        renderer->reset_optimization = true;
     } catch (std::runtime_error& e) {
         std::cerr << "Unable to load transferfunc from " << path << ": " << e.what() << std::endl;
     }
@@ -128,8 +129,11 @@ void randomize_parameters() {
     current_camera()->dir = glm::normalize(center + uniform_sample_sphere() * .1f * radius - current_camera()->pos);
     current_camera()->up = glm::vec3(0, 1, 0);
     current_camera()->fov_degree = 40 + randf() * 60;
-    // TODO randomize volume
-    // renderer->volume->density_scale = 0.01 + randf() * 2.f;
+    // randomize volume
+    renderer->volume->density_scale = 0.01 + randf() * 2.f;
+    // randomize TF
+    renderer->transferfunc->window_left = randf() * 0.5;
+    renderer->transferfunc->window_width = 0.5 + randf() * 0.5;
 }
 
 // ------------------------------------------
@@ -257,6 +261,7 @@ void gui_callback(void) {
             renderer->transferfunc->upload_gpu();
             renderer->sample = 0;
             renderer->commit();
+            renderer->reset_optimization = true;
         }
         ImGui::SameLine();
         if (ImGui::Button("Gradient TF")) {
@@ -264,13 +269,15 @@ void gui_callback(void) {
             renderer->transferfunc->upload_gpu();
             renderer->sample = 0;
             renderer->commit();
+            renderer->reset_optimization = true;
         }
         ImGui::SameLine();
-        if (ImGui::Button("Triangle TF")) {
-            renderer->transferfunc->lut = std::vector<glm::vec4>({ glm::vec4(0), glm::vec4(1), glm::vec4(0) });
+        if (ImGui::Button("RGB TF")) {
+            renderer->transferfunc->lut = std::vector<glm::vec4>({ glm::vec4(0), glm::vec4(1,0,0,0.25), glm::vec4(0,1,0,0.5), glm::vec4(0,0,1,0.75), glm::vec4(1) });
             renderer->transferfunc->upload_gpu();
             renderer->sample = 0;
             renderer->commit();
+            renderer->reset_optimization = true;
         }
         if (ImGui::Button("Gray background")) {
             glm::vec3 color(.5f);
@@ -402,7 +409,6 @@ int main(int argc, char** argv) {
     // set some defaults if volume has been loaded
     if (renderer->volume->grids.size() > 0) {
         const auto [bb_min, bb_max] = renderer->volume->AABB();
-        const auto [min, maj] = renderer->volume->current_grid()->minorant_majorant();
         current_camera()->pos = bb_min + (bb_max - bb_min) * glm::vec3(-.5f, .5f, 0.f);
         current_camera()->dir = glm::normalize((bb_max + bb_min) * .5f - current_camera()->pos);
     } else {

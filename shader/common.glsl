@@ -205,30 +205,23 @@ layout(std430, binding = 3) buffer SecondMomentsBuffer {
 // --------------------------------------------------------------
 // transfer function helper
 
+layout(std430, binding = 4) buffer LUTBuffer {
+    vec4 tf_lut[];
+};
+
+uniform uint tf_size;
 uniform float tf_window_left;
 uniform float tf_window_width;
-uniform sampler2D tf_texture;
 uniform int tf_optimization;
 
-// TODO stochastic lookup filter for transferfunc
-vec4 tf_lookup_texture(float d) {
-    const float tc = clamp((d - tf_window_left) / tf_window_width, 0.0, 1.0 - 1e-6);
-    return texture(tf_texture, vec2(tc, 0.5));
-}
-
-// TODO stochastic lookup filter for transferfunc
-vec4 tf_lookup_ssbo(float d) {
-    // TODO lerp
-    const float tc = clamp((d - tf_window_left) / tf_window_width, 0.0, 1.0 - 1e-6);
-    const int idx = int(floor(tc * n_parameters));
-    return parameters[idx];
-}
-
+ // TODO bilinear or stochastic lerp
 vec4 tf_lookup(float d) {
+    const float tc = clamp((d - tf_window_left) / tf_window_width, 0.0, 1.0 - 1e-6);
+    const int idx = clamp(int(floor(tc * tf_size)), 0, int(tf_size) - 1);
     if (tf_optimization > 0)
-        return tf_lookup_ssbo(d);
+        return parameters[idx];
     else
-        return tf_lookup_texture(d);
+        return tf_lut[idx];
 }
 
 // --------------------------------------------------------------
@@ -273,6 +266,7 @@ float lookup_density(const vec3 ipos) {
 
 // density lookup with stochastic trilinear filter
 float lookup_density(const vec3 ipos, inout uint seed) {
+    // return lookup_density(ipos); // XXX DEBUG
     return lookup_density(ipos + rng3(seed) - .5f);
 }
 

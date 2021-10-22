@@ -18,7 +18,7 @@ void main() {
     if (idx >= n_parameters) return;
 
     const vec4 x = parameters[idx];
-    const vec4 y = texelFetch(tf_texture, ivec2(idx, 0), 0);
+    const vec4 y = tf_lut[idx];
     const vec4 diff = abs(x - y);
     const float L = diff.x + diff.y + diff.z + diff.w;
     atomicAdd(loss[0], L);

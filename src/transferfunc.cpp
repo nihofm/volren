@@ -26,16 +26,17 @@ TransferFunction::TransferFunction(const std::vector<glm::vec4>& lut) : Transfer
 
 TransferFunction::~TransferFunction() {}
 
-void TransferFunction::set_uniforms(const Shader& shader, uint32_t& texture_unit) const {
+void TransferFunction::set_uniforms(const Shader& shader, uint32_t& texture_unit, uint32_t buffer_binding) const {
+    lut_ssbo->bind_base(buffer_binding);
+    shader->uniform("tf_size", uint32_t(lut_ssbo->size_bytes / sizeof(glm::vec4)));
     shader->uniform("tf_window_left", window_left);
     shader->uniform("tf_window_width", window_width);
-    shader->uniform("tf_texture", texture, texture_unit++);
 }
 
 std::vector<glm::vec4> TransferFunction::compute_lut_cdf(const std::vector<glm::vec4>& lut) {
     // copy
     auto lut_cdf = lut;
-    // build density CDF
+    // build density CDF (we need to ensure a monotonically nondecreasing function)
     for (uint32_t i = 1; i < lut_cdf.size(); ++i)
         lut_cdf[i].a += lut_cdf[i-1].a;
     const float integral = lut_cdf[lut_cdf.size()-1].a;
@@ -46,13 +47,9 @@ std::vector<glm::vec4> TransferFunction::compute_lut_cdf(const std::vector<glm::
 
 void TransferFunction::upload_gpu() {
     // prepare lut
-    const auto lut_cdf = compute_lut_cdf(lut);
-    // setup GL texture
-    texture = Texture2D("transferfunc_lut", lut_cdf.size(), 1, GL_RGBA16F, GL_RGBA, GL_FLOAT, lut_cdf.data(), false);
-    texture->bind(0);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);//GL_CLAMP_TO_BORDER);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);//GL_CLAMP_TO_BORDER);
-    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-    texture->unbind();
+    const std::vector<glm::vec4> lut_cdf = compute_lut_cdf(lut);
+    // setup SSBO
+    lut_ssbo = SSBO("transferfunc_ssbo");
+    lut_ssbo->upload_data(lut_cdf.data(), lut_cdf.size() * sizeof(glm::vec4));
+
 }

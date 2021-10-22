@@ -11,7 +11,7 @@ public:
     TransferFunction(const std::vector<glm::vec4>& lut);
     virtual ~TransferFunction();
 
-    void set_uniforms(const Shader& shader, uint32_t& texture_unit) const;
+    void set_uniforms(const Shader& shader, uint32_t& texture_unit, uint32_t buffer_binding) const;
 
     // compute density-CDF lut from given lut
     static std::vector<glm::vec4> compute_lut_cdf(const std::vector<glm::vec4>& lut);
@@ -22,5 +22,5 @@ public:
     // data
     float window_left, window_width;
     std::vector<glm::vec4> lut;
-    Texture2D texture;
+    SSBO lut_ssbo;
 };

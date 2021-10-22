@@ -180,9 +180,7 @@ void RendererOpenGL::trace() {
     trace_shader->uniform("vol_range", vol_range, tex_unit++);
     trace_shader->uniform("vol_atlas", vol_atlas, tex_unit++);
     // transfer function
-    trace_shader->uniform("tf_window_left", transferfunc->window_left);
-    trace_shader->uniform("tf_window_width", transferfunc->window_width);
-    trace_shader->uniform("tf_texture", transferfunc->texture, tex_unit++);
+    transferfunc->set_uniforms(trace_shader, tex_unit, 4);
     // environment
     trace_shader->uniform("env_model", environment->model);
     trace_shader->uniform("env_inv_model", glm::inverse(environment->model));
@@ -226,7 +224,7 @@ void BackpropRendererOpenGL::init() {
 
     // compile shaders
     if (!backprop_shader)
-        backprop_shader = Shader("backprop", "shader/radiative_backprop.glsl");
+        backprop_shader = Shader("backprop", "shader/pathtracer_backprop.glsl");
     if (!adam_shader)
         adam_shader = Shader("adam optimizer", "shader/step_adam.glsl");
     if (!draw_shader)
@@ -289,6 +287,7 @@ void BackpropRendererOpenGL::backprop() {
     backprop_shader->uniform("bounces", bounces);
     backprop_shader->uniform("seed", seed + 42); // use different seed than forward
     backprop_shader->uniform("show_environment", show_environment ? 1 : 0);
+    backprop_shader->uniform("n_parameters", n_parameters);
     // camera
     backprop_shader->uniform("cam_pos", current_camera()->pos);
     backprop_shader->uniform("cam_fov", current_camera()->fov_degree);
@@ -311,12 +310,8 @@ void BackpropRendererOpenGL::backprop() {
     backprop_shader->uniform("vol_range", vol_range, tex_unit++);
     backprop_shader->uniform("vol_atlas", vol_atlas, tex_unit++);
     // transfer function
-    // TODO XXX use optimization target param buffer
-    backprop_shader->uniform("tf_window_left", transferfunc->window_left);
-    backprop_shader->uniform("tf_window_width", transferfunc->window_width);
-    backprop_shader->uniform("tf_texture", transferfunc->texture, tex_unit++);
+    transferfunc->set_uniforms(backprop_shader, tex_unit, 4);
     backprop_shader->uniform("tf_optimization", 1);
-    backprop_shader->uniform("n_parameters", n_parameters);
     // environment
     backprop_shader->uniform("env_model", environment->model);
     backprop_shader->uniform("env_inv_model", glm::inverse(environment->model));
@@ -354,7 +349,8 @@ void BackpropRendererOpenGL::step() {
     adam_shader->uniform("reset", reset_optimization ? 1 : 0);
     // debug: solve optimization
     adam_shader->uniform("solve", solve_optimization ? 1 : 0);
-    adam_shader->uniform("tf_texture", transferfunc->texture, 0);
+    uint32_t tex_unit = 0;
+    transferfunc->set_uniforms(adam_shader, tex_unit, 4);
     
     adam_shader->dispatch_compute(n_parameters);
 
@@ -375,7 +371,8 @@ float BackpropRendererOpenGL::compute_loss() {
     parameter_buffer->bind_base(0);
     loss_buffer->bind_base(1);
     loss_shader->uniform("n_parameters", n_parameters);
-    loss_shader->uniform("tf_texture", transferfunc->texture, 0);
+    uint32_t tex_unit = 0;
+    transferfunc->set_uniforms(loss_shader, tex_unit, 4);
     loss_shader->dispatch_compute(n_parameters);
     loss_buffer->unbind_base(1);
     parameter_buffer->bind_base(0);
@@ -398,9 +395,7 @@ void BackpropRendererOpenGL::draw_adjoint() {
     draw_shader->uniform("color_reference", color, tex_unit++);
     draw_shader->uniform("color_backprop", color_backprop, tex_unit++);
     // transferfunc
-    draw_shader->uniform("tf_window_left", transferfunc->window_left);
-    draw_shader->uniform("tf_window_width", transferfunc->window_width);
-    draw_shader->uniform("tf_texture", transferfunc->texture, tex_unit++);
+    transferfunc->set_uniforms(draw_shader, tex_unit, 4);
 
     Quad::draw();
 
