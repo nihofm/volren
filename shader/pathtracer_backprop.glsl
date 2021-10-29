@@ -36,6 +36,7 @@ vec3 trace_path(vec3 pos, vec3 dir, inout uint seed) {
         // advance ray
         pos += t * dir;
 
+        /*
         // sample light source (environment)
         vec3 w_i;
         const vec4 Le_pdf = sample_environment(rng2(seed), w_i);
@@ -45,6 +46,7 @@ vec3 trace_path(vec3 pos, vec3 dir, inout uint seed) {
             const float Tr = transmittanceDDA(pos, w_i, seed);
             L += throughput * mis_weight * f_p * Tr * Le_pdf.rgb / Le_pdf.w;
         }
+        */
 
         // early out?
         if (++n_paths >= bounces) { free_path = false; break; }
@@ -65,7 +67,7 @@ vec3 trace_path(vec3 pos, vec3 dir, inout uint seed) {
     // free path? -> add envmap contribution
     if (free_path && show_environment > 0) {
         const vec3 Le = lookup_environment(dir);
-        const float mis_weight = n_paths > 0 ? power_heuristic(f_p, pdf_environment(dir)) : 1.f;
+        const float mis_weight = 1.f;//n_paths > 0 ? power_heuristic(f_p, pdf_environment(dir)) : 1.f;
         L += throughput * mis_weight * Le;
     }
 
@@ -83,14 +85,28 @@ void backward_real(const vec3 ipos, const float P_real, const vec3 dy) {
 
 void backward_tf_color(const float d, const vec3 dy) {
     if (d <= 0.f) return;
-    // TODO actually differentiate
+    // TODO differentiation?
     const vec3 dx = dy;
     // add gradients
     const float tc = clamp((d - tf_window_left) / tf_window_width, 0.0, 1.0 - 1e-6);
+
+    // nearest neighbor
     const int idx = clamp(int(floor(tc * tf_size)), 0, int(tf_size) - 1); // TODO stochastic lerp
     atomicAdd(gradients[idx].x, sanitize(dx.x));
     atomicAdd(gradients[idx].y, sanitize(dx.y));
     atomicAdd(gradients[idx].z, sanitize(dx.z));
+
+    // bilinear
+    // const float xi = tc * tf_size - 0.5;
+    // const int x0 = max(0, int(floor(xi)));
+    // const int x1 = min(int(ceil(xi)), int(tf_size) - 1);
+    // const float f = fract(xi);
+    // atomicAdd(gradients[x0].x, sanitize(dx.x * (1.f - f)));
+    // atomicAdd(gradients[x0].y, sanitize(dx.y * (1.f - f)));
+    // atomicAdd(gradients[x0].z, sanitize(dx.z * (1.f - f)));
+    // atomicAdd(gradients[x1].x, sanitize(dx.x * f));
+    // atomicAdd(gradients[x1].y, sanitize(dx.y * f));
+    // atomicAdd(gradients[x1].z, sanitize(dx.z * f));
 }
 
 void backward_null(const vec3 ipos, const float P_null, const vec3 dy) {
@@ -139,6 +155,7 @@ bool sample_volume_adjoint(const vec3 wpos, const vec3 wdir, out float t, inout 
     const vec3 ipos = vec3(vol_inv_model * vec4(wpos, 1));
     const vec3 idir = vec3(vol_inv_model * vec4(wdir, 0)); // non-normalized!
     // delta tracking
+    float Tr = 1.f;
     t = near_far.x - log(1 - rng(seed)) * vol_inv_majorant;
     while (t < near_far.y) {
         // apply stochastic filter once for replayability
@@ -149,6 +166,7 @@ bool sample_volume_adjoint(const vec3 wpos, const vec3 wdir, out float t, inout 
         const float P_real = rgba.a;
 #else
         const float P_real = d * vol_inv_majorant;
+        Tr *= 1.f - P_real; // ratio tracking
 #endif
         if (rng(seed) < P_real) {
             // real collision
@@ -156,7 +174,7 @@ bool sample_volume_adjoint(const vec3 wpos, const vec3 wdir, out float t, inout 
             throughput *= rgba.rgb * vol_albedo;
             // backprop to transfer function
             // TODO include albedo
-            backward_tf_color(d * vol_inv_majorant, grad);
+            backward_tf_color(d * vol_inv_majorant, /*Tr * phase_isotropic() * */grad / rgba.rgb);
 #else
             throughput *= vol_albedo;
 #endif
@@ -180,8 +198,8 @@ vec3 path_replay_backprop(vec3 pos, vec3 dir, inout uint seed, vec3 L, const vec
     bool free_path = true;
     uint n_paths = 0;
     float t, f_p; // t: end of ray segment (i.e. sampled position or out of volume), f_p: last phase function sample for MIS
-    while (sample_volume_adjoint(pos, dir, t, throughput, seed, grad/* * L*/)) {
-    // while (sample_volumeDDA(pos, dir, t, throughput, seed)) {
+    // while (sample_volume_adjoint(pos, dir, t, throughput, seed, grad * L)) {
+    while (sample_volumeDDA(pos, dir, t, throughput, seed)) {
         // TODO backprop wrt density mapping
         {
             const uint saved_seed = seed;
@@ -192,6 +210,7 @@ vec3 path_replay_backprop(vec3 pos, vec3 dir, inout uint seed, vec3 L, const vec
         // advance ray
         pos += t * dir;
 
+        /*
         // sample light source (environment)
         vec3 w_i;
         const vec4 Le_pdf = sample_environment(rng2(seed), w_i);
@@ -208,6 +227,7 @@ vec3 path_replay_backprop(vec3 pos, vec3 dir, inout uint seed, vec3 L, const vec
                 seed = saved_seed;
             }
         }
+        */
 
         // early out?
         if (++n_paths >= bounces) { free_path = false; break; }
@@ -219,6 +239,16 @@ vec3 path_replay_backprop(vec3 pos, vec3 dir, inout uint seed, vec3 L, const vec
             throughput /= 1 - prob;
         }
 
+        // TODO backprop to TF
+        {
+            const uint saved_seed = seed;
+            const vec3 ipos = vec3(vol_inv_model * vec4(pos, 1));
+            const float d = lookup_density(ipos);
+            const vec4 rgba = tf_lookup(d * vol_inv_majorant);
+            backward_tf_color(d * vol_inv_majorant, /*Tr * f_p * */throughput * grad * L / rgba.rgb); // TODO wtf
+            seed = saved_seed;
+        }
+
         // scatter ray
         const vec3 scatter_dir = sample_phase_henyey_greenstein(dir, vol_phase_g, rng2(seed));
         f_p = phase_henyey_greenstein(dot(-dir, scatter_dir), vol_phase_g);
@@ -228,9 +258,8 @@ vec3 path_replay_backprop(vec3 pos, vec3 dir, inout uint seed, vec3 L, const vec
     if (free_path && show_environment > 0) {
         // backprop
         // transmittance_adjoint(pos, dir, seed, L * grad);
-        
         const vec3 Le = lookup_environment(dir);
-        const float mis_weight = n_paths > 0 ? power_heuristic(f_p, pdf_environment(dir)) : 1.f;
+        const float mis_weight = 1.f;//n_paths > 0 ? power_heuristic(f_p, pdf_environment(dir)) : 1.f;
         const vec3 Li = throughput * mis_weight * Le;
         L -= Li;
     }

@@ -23,7 +23,7 @@ void main() {
 
     // debug: reset experiment?
     if (reset > 0) {
-        parameters[idx] = vec4(0, 0, 0, tf_lut[idx].a);
+        parameters[idx] = vec4(1, 1, 1, tf_lut[idx].a);
         // parameters[idx] = vec4(1.0, 1.0, 1.0, (idx + 1) / float(n_parameters));
         return;
     }

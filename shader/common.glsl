@@ -243,7 +243,7 @@ uniform usampler3D vol_indirection;
 uniform sampler3D vol_range;
 uniform sampler3D vol_atlas;
 
-// brick grid voxel lookup
+// brick grid voxel lookup (nearest neighbor)
 float lookup_voxel_brick(const vec3 ipos) {
     const ivec3 iipos = ivec3(floor(ipos));
     const ivec3 brick = iipos >> 3;
@@ -253,18 +253,18 @@ float lookup_voxel_brick(const vec3 ipos) {
     return range.x + value_unorm * (range.y - range.x);
 }
 
-// brick majorant lookup
+// brick majorant lookup (nearest neighbor)
 float lookup_majorant(const vec3 ipos, int mip) {
     const ivec3 brick = ivec3(floor(ipos)) >> (3 + mip);
     return vol_density_scale * texelFetch(vol_range, brick, mip).y;
 }
 
-// density lookup with nearest neighbor filter
+// density lookup (nearest neighbor)
 float lookup_density(const vec3 ipos) {
     return vol_density_scale * lookup_voxel_brick(ipos);
 }
 
-// density lookup with stochastic trilinear filter
+// density lookup (stochastic trilinear filter)
 float lookup_density(const vec3 ipos, inout uint seed) {
     // return lookup_density(ipos); // XXX DEBUG
     return lookup_density(ipos + rng3(seed) - .5f);

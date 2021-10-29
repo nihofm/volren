@@ -16,6 +16,15 @@ float sum(const vec3 x) { return x.x + x.y + x.z; }
 float mean(const vec3 x) { return sum(x) * (1.f / 3.f); }
 vec3 sanitize(const vec3 x) { return mix(x, vec3(0), isnan(x) || isinf(x)); }
 vec3 visualize_grad(const float grad) { return abs(grad) * (abs(grad) <= 0.001f ? vec3(0) : (sign(grad) > 0.f ? vec3(1, 0, 0) : vec3(0, 0, 1))); }
+vec3 visualize_tf(const vec2 tc, bool use_ref = true) {
+    const float xi = tc.x * tf_size - 0.5;
+    const int x0 = max(0, int(floor(xi)));
+    const int x1 = min(int(ceil(xi)), int(tf_size)-1);
+    const vec4 rgba = use_ref ? mix(tf_lut[x0], tf_lut[x1], fract(xi)) : mix(parameters[x0], parameters[x1], fract(xi));
+    const vec3 color = smoothstep(vec3(0.1), vec3(0), abs(tc.y - rgba.rgb));
+    const float alpha = smoothstep(0.1, 0.0, tc.y - rgba.a) * 0.5;
+    return color + alpha;
+}
 
 // ---------------------------------------------------
 // main
@@ -37,6 +46,10 @@ void main() {
             } else {
                 out_col.rgb = parameters[int(tc_adj.x * n_parameters)].rgb;
             }
+            if (tc_adj.y < 0.5)
+                out_col.rgb = visualize_tf(tc_adj * vec2(1, 2), true);
+            else 
+                out_col.rgb = visualize_tf((tc_adj - vec2(0, 0.5)) * vec2(1, 2), false);
             // out_col.rgb = texture(color_backprop, tc_adj).rgb;
         } else {
             // bottom right: l2 grad

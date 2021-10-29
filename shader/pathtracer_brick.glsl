@@ -28,6 +28,7 @@ vec3 trace_path(vec3 pos, vec3 dir, inout uint seed) {
         pos = pos + t * dir;
 
         // sample light source (environment)
+        /*
         vec3 w_i;
         const vec4 Le_pdf = sample_environment(rng2(seed), w_i);
         if (Le_pdf.w > 0) {
@@ -36,6 +37,7 @@ vec3 trace_path(vec3 pos, vec3 dir, inout uint seed) {
             const float Tr = transmittanceDDA(pos, w_i, seed);
             L += throughput * mis_weight * f_p * Tr * Le_pdf.rgb / Le_pdf.w;
         }
+        */
 
         // early out?
         if (++n_paths >= bounces) { free_path = false; break; }
@@ -56,7 +58,7 @@ vec3 trace_path(vec3 pos, vec3 dir, inout uint seed) {
     // free path? -> add envmap contribution
     if (free_path && show_environment > 0) {
         const vec3 Le = lookup_environment(dir);
-        const float mis_weight = n_paths > 0 ? power_heuristic(f_p, pdf_environment(dir)) : 1.f;
+        const float mis_weight = 1.f;//n_paths > 0 ? power_heuristic(f_p, pdf_environment(dir)) : 1.f;
         L += throughput * mis_weight * Le;
     }
 
