@@ -50,7 +50,6 @@ void main() {
                 out_col.rgb = visualize_tf(tc_adj * vec2(1, 2), true);
             else 
                 out_col.rgb = visualize_tf((tc_adj - vec2(0, 0.5)) * vec2(1, 2), false);
-            // out_col.rgb = texture(color_backprop, tc_adj).rgb;
         } else {
             // bottom right: l2 grad
             const vec2 tc_adj = vec2((tc.x - 0.5) * 2, tc.y * 2);
@@ -59,6 +58,7 @@ void main() {
             const vec3 l2_grad = 2 * (col_adj - col_ref);
             out_col.rgb = abs(l2_grad);
             // out_col.rgb = visualize_grad(sum(l2_grad));
+            out_col.rgb += texture(color_backprop, tc_adj).rgb;
         }
     } else {
         if (tc.x < 0.5) {

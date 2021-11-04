@@ -266,7 +266,7 @@ float lookup_density(const vec3 ipos) {
 
 // density lookup (stochastic trilinear filter)
 float lookup_density(const vec3 ipos, inout uint seed) {
-    // return lookup_density(ipos); // XXX DEBUG
+    return lookup_density(ipos); // XXX DEBUG
     return lookup_density(ipos + rng3(seed) - .5f);
 }
 
