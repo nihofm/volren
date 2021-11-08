@@ -48,7 +48,7 @@ void main() {
     const vec4 m1_c = m1 / (1.f - b1);
     const vec4 m2_c = m2 / (1.f - b2);
     // update parameter
-    const vec4 y = clamp(x - learning_rate * m1_c / (sqrt(m2_c) + eps), 0.0, 1.0);
+    const vec4 y = clamp(x - learning_rate * m1_c / (sqrt(m2_c) + eps), 0.0 + eps, 1.0);
 
     // store updated parameters and zero gradients
     parameters[idx] = y;

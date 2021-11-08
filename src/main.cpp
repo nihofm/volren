@@ -195,9 +195,9 @@ void mouse_callback(double xpos, double ypos) {
     if (Context::mouse_button_pressed(GLFW_MOUSE_BUTTON_RIGHT)) {
         const auto [min, maj] = renderer->volume->current_grid()->minorant_majorant();
         if (Context::key_pressed(GLFW_KEY_LEFT_SHIFT))
-            renderer->transferfunc->window_width += (xpos - old_xpos) * (maj - min) * 0.001;
+            renderer->transferfunc->window_width = clamp(renderer->transferfunc->window_width + (xpos - old_xpos) * (maj - min) * 0.001, 0.f, 1.f);
         else
-            renderer->transferfunc->window_left += (xpos - old_xpos) * (maj - min) * 0.001;
+            renderer->transferfunc->window_left = clamp(renderer->transferfunc->window_left + (xpos - old_xpos) * (maj - min) * 0.001, -1.f, 1.f);
         renderer->sample = 0;
     }
     old_xpos = xpos;
@@ -254,8 +254,8 @@ void gui_callback(void) {
         if (ImGui::DragFloat("Density scale", &renderer->volume->density_scale, 0.01f, 0.01f, 1000.f)) renderer->sample = 0;
         if (ImGui::SliderFloat("Phase g", &renderer->volume->phase, -.95f, .95f)) renderer->sample = 0;
         ImGui::Separator();
-        if (ImGui::DragFloat("Window left", &renderer->transferfunc->window_left, 0.01f)) renderer->sample = 0;
-        if (ImGui::DragFloat("Window width", &renderer->transferfunc->window_width, 0.01f)) renderer->sample = 0;
+        if (ImGui::DragFloat("Window left", &renderer->transferfunc->window_left, 0.01f, -1.f, 1.f)) renderer->sample = 0;
+        if (ImGui::DragFloat("Window width", &renderer->transferfunc->window_width, 0.01f, 0.f, 1.f)) renderer->sample = 0;
         if (ImGui::Button("Neutral TF")) {
             renderer->transferfunc->lut = std::vector<glm::vec4>({ glm::vec4(1) });
             renderer->transferfunc->upload_gpu();
@@ -271,9 +271,19 @@ void gui_callback(void) {
             renderer->commit();
             renderer->reset_optimization = true;
         }
-        ImGui::SameLine();
         if (ImGui::Button("RGB TF")) {
             renderer->transferfunc->lut = std::vector<glm::vec4>({ glm::vec4(0), glm::vec4(1,0,0,0.25), glm::vec4(0,1,0,0.5), glm::vec4(0,0,1,0.75), glm::vec4(1) });
+            renderer->transferfunc->upload_gpu();
+            renderer->sample = 0;
+            renderer->commit();
+            renderer->reset_optimization = true;
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("RNG TF")) {
+            renderer->transferfunc->lut.clear();
+            const int N = 32;
+            for (int i = 0; i < N; ++i)
+                renderer->transferfunc->lut.push_back(glm::vec4(randf(), randf(), randf(), (i+1)/float(N)));
             renderer->transferfunc->upload_gpu();
             renderer->sample = 0;
             renderer->commit();

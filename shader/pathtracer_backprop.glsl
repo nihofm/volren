@@ -159,7 +159,7 @@ float transmittance_adjoint(const vec3 wpos, const vec3 wdir, inout uint seed, c
 }
 
 // TODO check gradients
-bool sample_volume_adjoint(const vec3 wpos, const vec3 wdir, out float t, inout vec3 throughput, inout uint seed, const vec3 grad) {
+bool sample_volume_adjoint(const vec3 wpos, const vec3 wdir, out float t, inout vec3 throughput, inout uint seed, const vec3 L, const vec3 grad) {
     // TODO: why are these not equivalent
     if (false) {
         // clip volume
@@ -197,7 +197,7 @@ bool sample_volume_adjoint(const vec3 wpos, const vec3 wdir, out float t, inout 
                 throughput *= vol_albedo;
     #ifdef USE_TRANSFERFUNC
                 throughput *= rgba.rgb;
-                backward_tf_color(tc, rgba.rgb, grad);
+                backward_tf_color(tc, rgba.rgb, throughput * grad); // TODO incorporate L
     #endif
                 return true;
             }
@@ -230,13 +230,12 @@ bool sample_volume_adjoint(const vec3 wpos, const vec3 wdir, out float t, inout 
 #endif
         if (rng(seed) < P_real) {
             // real collision
-#ifdef USE_TRANSFERFUNC
-            throughput *= rgba.rgb * vol_albedo;
-            // backprop to transfer function
-            backward_tf_color(d * vol_inv_majorant, rgba.rgb, grad);
-            // backward_tf_depth_real(d * vol_inv_majorant, P_real, grad);
-#else
             throughput *= vol_albedo;
+#ifdef USE_TRANSFERFUNC
+            throughput *= rgba.rgb;
+            // backprop to transfer function
+            backward_tf_color(d * vol_inv_majorant, rgba.rgb, throughput * grad); // TODO incorporate L
+            // backward_tf_depth_real(d * vol_inv_majorant, P_real, grad);
 #endif
             return true;
         }
@@ -257,7 +256,7 @@ vec3 path_replay_backprop(vec3 pos, vec3 dir, inout uint seed, vec3 L, const vec
     bool free_path = true;
     uint n_paths = 0;
     float t, f_p; // t: end of ray segment (i.e. sampled position or out of volume), f_p: last phase function sample for MIS
-    while (sample_volume_adjoint(pos, dir, t, throughput, seed, grad)) { // TODO grad * L ??
+    while (sample_volume_adjoint(pos, dir, t, throughput, seed, L, grad)) {
     // while (sample_volumeDDA(pos, dir, t, throughput, seed)) {
         // TODO backprop wrt density mapping
         {
@@ -321,7 +320,7 @@ vec3 path_replay_backprop(vec3 pos, vec3 dir, inout uint seed, vec3 L, const vec
         L -= throughput * mis_weight * Le;
     }
 
-    return luma(abs(L)) <= 1e-6 ? vec3(0) : vec3(1e10, 0, 1e10); // pink of doom
+    return luma(abs(L)) <= 1e-6 ? L : vec3(1e10, 0, 1e10); // pink of doom
 }
 
 // ---------------------------------------------------
