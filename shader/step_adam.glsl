@@ -25,7 +25,6 @@ void main() {
     if (reset > 0) {
         parameters[idx] = vec4(1, 1, 1, tf_lut[idx].a);
         // parameters[idx] = vec4(1.0, 1.0, 1.0, (idx + 1) / float(n_parameters));
-        // parameters[idx] = vec4(tf_lut[idx].rgb, tf_lut[idx].a);
         return;
     }
 

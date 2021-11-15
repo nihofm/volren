@@ -283,7 +283,7 @@ void gui_callback(void) {
             renderer->transferfunc->lut.clear();
             const int N = 32;
             for (int i = 0; i < N; ++i)
-                renderer->transferfunc->lut.push_back(glm::vec4(randf(), randf(), randf(), (i+1)/float(N)));
+                renderer->transferfunc->lut.push_back(glm::vec4(randf(), randf(), randf(), randf()));
             renderer->transferfunc->upload_gpu();
             renderer->sample = 0;
             renderer->commit();

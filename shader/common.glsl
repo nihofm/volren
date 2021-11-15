@@ -490,13 +490,13 @@ bool sample_volume_raymarch(const vec3 wpos, const vec3 wdir, out float t, inout
     float tau = 0.f;
     for (int i = 0; i < RAYMARCH_STEPS; ++i) {
         t = min(near_far.x + i * dt, near_far.y);
-#ifdef USE_TRANSFERFUNC
-        const vec4 rgba = tf_lookup(lookup_density(ipos + min(near_far.x + i * dt, near_far.y) * idir, seed) * vol_inv_majorant);
-        const float d = rgba.a * vol_majorant;
-#else
         const float d = lookup_density(ipos + t * idir, seed);
-#endif
+#ifdef USE_TRANSFERFUNC
+        const vec4 rgba = tf_lookup(d * vol_inv_majorant);
+        tau += rgba.a * vol_majorant * dt;
+#else
         tau += d * dt;
+#endif
         if (tau >= tau_target) {
             // TODO revert to hit
 #ifdef USE_TRANSFERFUNC
@@ -505,10 +505,35 @@ bool sample_volume_raymarch(const vec3 wpos, const vec3 wdir, out float t, inout
             const vec3 albedo = vol_albedo;
 #endif
             pdf = mean(albedo) * d * exp(-tau_target);
-            throughput *= albedo;// / pdf;
+            throughput *= albedo;
             return true;
         }
     }
     pdf = exp(-tau);
     return false;
+}
+
+// ---------------------------------
+// simple direct volume rendering
+
+vec3 direct_volume_rendering(vec3 pos, vec3 dir, inout uint seed) {
+    vec3 L = vec3(0);
+    // clip volume
+    vec2 near_far;
+    if (!intersect_box(pos, dir, vol_bb_min, vol_bb_max, near_far)) return lookup_environment(dir);
+    // to index-space
+    const vec3 ipos = vec3(vol_inv_model * vec4(pos, 1));
+    const vec3 idir = vec3(vol_inv_model * vec4(dir, 0)); // non-normalized!
+    // ray marching
+    const float dt = (near_far.y - near_far.x) / float(RAYMARCH_STEPS);
+    near_far.x += rng(seed) * dt; // jitter starting position
+    float Tr = 1.f;
+    for (int i = 0; i < RAYMARCH_STEPS; ++i) {
+        const vec4 rgba = tf_lookup(lookup_density(ipos + min(near_far.x + i * dt, near_far.y) * idir, seed) * vol_inv_majorant);
+        const float dtau = rgba.a * vol_majorant * dt;
+        L += rgba.rgb * dtau * Tr;
+        Tr *= exp(-dtau);
+        if (Tr <= 1e-6) return L;
+    }
+    return L + lookup_environment(dir) * Tr;
 }

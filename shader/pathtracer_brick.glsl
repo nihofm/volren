@@ -21,21 +21,22 @@ vec3 trace_path(vec3 pos, vec3 dir, inout uint seed) {
     bool free_path = true;
     uint n_paths = 0;
     float t, f_p; // t: end of ray segment (i.e. sampled position or out of volume), f_p: last phase function sample for MIS
-    while (sample_volumeDDA(pos, dir, t, throughput, seed)) {
+    // while (sample_volumeDDA(pos, dir, t, throughput, seed)) {
+    float pdf;
+    while (sample_volume_raymarch(pos, dir, t, throughput, pdf, seed)) {
         // advance ray
         pos = pos + t * dir;
 
-        /*
         // sample light source (environment)
         vec3 w_i;
         const vec4 Le_pdf = sample_environment(rng2(seed), w_i);
         if (Le_pdf.w > 0) {
             f_p = phase_henyey_greenstein(dot(-dir, w_i), vol_phase_g);
-            const float mis_weight = 1.f;//show_environment > 0 ? power_heuristic(Le_pdf.w, f_p) : 1.f;
-            const float Tr = transmittanceDDA(pos, w_i, seed);
+            const float mis_weight = show_environment > 0 ? power_heuristic(Le_pdf.w, f_p) : 1.f;
+            // const float Tr = transmittanceDDA(pos, w_i, seed);
+            const float Tr = transmittance_raymarch(pos, w_i, seed);
             L += throughput * mis_weight * f_p * Tr * Le_pdf.rgb / Le_pdf.w;
         }
-        */
 
         // early out?
         if (++n_paths >= bounces) { free_path = false; break; }
@@ -56,7 +57,7 @@ vec3 trace_path(vec3 pos, vec3 dir, inout uint seed) {
     // free path? -> add envmap contribution
     if (free_path && show_environment > 0) {
         const vec3 Le = lookup_environment(dir);
-        const float mis_weight = 1.f;//n_paths > 0 ? power_heuristic(f_p, pdf_environment(dir)) : 1.f;
+        const float mis_weight = n_paths > 0 ? power_heuristic(f_p, pdf_environment(dir)) : 1.f;
         L += throughput * mis_weight * Le;
     }
 
@@ -76,7 +77,8 @@ void main() {
     const vec3 dir = view_dir(pixel, resolution, rng2(seed));
 
     // trace ray
-    const vec3 L = trace_path(pos, dir, seed);
+    // const vec3 L = trace_path(pos, dir, seed);
+    const vec3 L = direct_volume_rendering(pos, dir, seed);
 
     // write result
     imageStore(color, pixel, vec4(mix(imageLoad(color, pixel).rgb, sanitize(L), 1.f / current_sample), 1));
