@@ -12,9 +12,6 @@ uniform sampler2D color_backprop;
 // ---------------------------------------------------
 // helper funcs
 
-float sum(const vec3 x) { return x.x + x.y + x.z; }
-float mean(const vec3 x) { return sum(x) * (1.f / 3.f); }
-vec3 sanitize(const vec3 x) { return mix(x, vec3(0), isnan(x) || isinf(x)); }
 vec3 visualize_grad(const float grad) { return abs(grad) * (abs(grad) <= 0.001f ? vec3(0) : (sign(grad) > 0.f ? vec3(1, 0, 0) : vec3(0, 0, 1))); }
 vec3 visualize_tf(const vec2 tc, bool use_ref = true) {
     const float xi = tc.x * tf_size - 0.5;

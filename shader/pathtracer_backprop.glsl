@@ -17,14 +17,6 @@ uniform ivec2 resolution;
 #include "common.glsl"
 
 // ---------------------------------------------------
-// helper funcs
-
-float sum(const vec3 x) { return x.x + x.y + x.z; }
-float mean(const vec3 x) { return sum(x) / 3.f; }
-float sanitize(const float x) { return isnan(x) || isinf(x) ? 0.f : x; }
-vec3 sanitize(const vec3 x) { return mix(x, vec3(0), isnan(x) || isinf(x)); }
-
-// ---------------------------------------------------
 // forward path tracing
 
 vec3 trace_path(vec3 pos, vec3 dir, inout uint seed) {
@@ -33,18 +25,23 @@ vec3 trace_path(vec3 pos, vec3 dir, inout uint seed) {
     uint n_paths = 0;
     float t, f_p; // t: end of ray segment (i.e. sampled position or out of volume), f_p: last phase function sample for MIS
     while (sample_volumeDDA(pos, dir, t, throughput, seed)) {
+    // float pdf;
+    // while (sample_volume_raymarch(pos, dir, t, throughput, pdf, seed)) {
+
         // advance ray
         pos += t * dir;
 
+        /*
         // sample light source (environment)
         vec3 w_i;
         const vec4 Le_pdf = sample_environment(rng2(seed), w_i);
         if (Le_pdf.w > 0) {
-            // f_p = phase_henyey_greenstein(dot(-dir, w_i), vol_phase_g);
-            // const float mis_weight = show_environment > 0 ? power_heuristic(Le_pdf.w, f_p) : 1.f;
-            // const float Tr = transmittanceDDA(pos, w_i, seed);
-            // L += throughput * mis_weight * f_p * Tr * Le_pdf.rgb / Le_pdf.w;
+            f_p = phase_henyey_greenstein(dot(-dir, w_i), vol_phase_g);
+            const float mis_weight = 1.f;//show_environment > 0 ? power_heuristic(Le_pdf.w, f_p) : 1.f;
+            const float Tr = transmittanceDDA(pos, w_i, seed);
+            L += throughput * mis_weight * f_p * Tr * Le_pdf.rgb / Le_pdf.w;
         }
+        */
 
         // early out?
         if (++n_paths >= bounces) { free_path = false; break; }
@@ -160,7 +157,7 @@ float transmittance_adjoint(const vec3 wpos, const vec3 wdir, inout uint seed, c
 
 // TODO check gradients
 bool sample_volume_adjoint(const vec3 wpos, const vec3 wdir, out float t, inout vec3 throughput, inout uint seed, const vec3 L, const vec3 grad) {
-    // TODO: why are these not equivalent
+    // TODO: why does the DDA version not converge?
     if (false) {
         // clip volume
         vec2 near_far;
@@ -197,7 +194,7 @@ bool sample_volume_adjoint(const vec3 wpos, const vec3 wdir, out float t, inout 
                 throughput *= vol_albedo;
     #ifdef USE_TRANSFERFUNC
                 throughput *= rgba.rgb;
-                backward_tf_color(tc, rgba.rgb, throughput * grad); // TODO incorporate L
+                backward_tf_color(tc, rgba.rgb, grad); // TODO incorporate L
     #endif
                 return true;
             }
@@ -207,7 +204,6 @@ bool sample_volume_adjoint(const vec3 wpos, const vec3 wdir, out float t, inout 
         return false;
     }
     
-    
     // clip volume
     vec2 near_far;
     if (!intersect_box(wpos, wdir, vol_bb_min, vol_bb_max, near_far)) return false;
@@ -215,27 +211,20 @@ bool sample_volume_adjoint(const vec3 wpos, const vec3 wdir, out float t, inout 
     const vec3 ipos = vec3(vol_inv_model * vec4(wpos, 1));
     const vec3 idir = vec3(vol_inv_model * vec4(wdir, 0)); // non-normalized!
     // delta tracking
-    float Tr = 1.f;
     t = near_far.x - log(1 - rng(seed)) * vol_inv_majorant;
     while (t < near_far.y) {
-        // apply stochastic filter once for replayability
-        const vec3 curr = ipos + t * idir;// + rng3(seed) - .5f; // XXX DEBUG
-        const float d = lookup_density(curr, seed);
+        const float d = lookup_density(ipos + t * idir, seed);
 #ifdef USE_TRANSFERFUNC
         const vec4 rgba = tf_lookup(d * vol_inv_majorant);
         const float P_real = rgba.a;
 #else
         const float P_real = d * vol_inv_majorant;
-        Tr *= 1.f - P_real; // ratio tracking
 #endif
-        if (rng(seed) < P_real) {
-            // real collision
+        if (rng(seed) < P_real) { // check if real or null collision
             throughput *= vol_albedo;
 #ifdef USE_TRANSFERFUNC
             throughput *= rgba.rgb;
-            // backprop to transfer function
-            backward_tf_color(d * vol_inv_majorant, rgba.rgb, throughput * grad); // TODO incorporate L
-            // backward_tf_depth_real(d * vol_inv_majorant, P_real, grad);
+            backward_tf_color(d * vol_inv_majorant, rgba.rgb * vol_albedo, throughput * grad); // TODO incorporate L
 #endif
             return true;
         }
@@ -256,8 +245,10 @@ vec3 path_replay_backprop(vec3 pos, vec3 dir, inout uint seed, vec3 L, const vec
     bool free_path = true;
     uint n_paths = 0;
     float t, f_p; // t: end of ray segment (i.e. sampled position or out of volume), f_p: last phase function sample for MIS
-    while (sample_volume_adjoint(pos, dir, t, throughput, seed, L, grad)) {
-    // while (sample_volumeDDA(pos, dir, t, throughput, seed)) {
+    // while (sample_volume_adjoint(pos, dir, t, throughput, seed, L, grad)) {
+    while (sample_volumeDDA(pos, dir, t, throughput, seed)) {
+    // float pdf;
+    // while (sample_volume_raymarch(pos, dir, t, throughput, pdf, seed)) {
         // TODO backprop wrt density mapping
         {
             const uint saved_seed = seed;
@@ -272,22 +263,23 @@ vec3 path_replay_backprop(vec3 pos, vec3 dir, inout uint seed, vec3 L, const vec
         {
             // TODO FIXME not matching with sample_volume_adjoint 
             const uint saved_seed = seed;
-            // const vec3 ipos = vec3(vol_inv_model * vec4(pos, 1));
-            // const float d = lookup_density(ipos);
-            // const vec4 rgba = tf_lookup(d * vol_inv_majorant);
-            // backward_tf_color(d * vol_inv_majorant, rgba.rgb, grad);
+            const vec3 ipos = vec3(vol_inv_model * vec4(pos, 1));
+            const float d = lookup_density(ipos, seed);
+            const vec4 rgba = tf_lookup(d * vol_inv_majorant);
+            backward_tf_color(d * vol_inv_majorant, vol_albedo * rgba.rgb, grad);// / pdf);//throughput * L * grad);
             seed = saved_seed;
         }
 
+        /*
         // sample light source (environment)
         vec3 w_i;
         const vec4 Le_pdf = sample_environment(rng2(seed), w_i);
         if (Le_pdf.w > 0) {
-            // f_p = phase_henyey_greenstein(dot(-dir, w_i), vol_phase_g);
-            // const float mis_weight = show_environment > 0 ? power_heuristic(Le_pdf.w, f_p) : 1.f;
-            // const float Tr = transmittanceDDA(pos, w_i, seed);
-            // const vec3 Li = throughput * f_p * mis_weight * Tr * Le_pdf.rgb / Le_pdf.w;
-            // L -= Li;
+            f_p = phase_henyey_greenstein(dot(-dir, w_i), vol_phase_g);
+            const float mis_weight = 1.f;//show_environment > 0 ? power_heuristic(Le_pdf.w, f_p) : 1.f;
+            const float Tr = transmittanceDDA(pos, w_i, seed);
+            const vec3 Li = throughput * f_p * mis_weight * Tr * Le_pdf.rgb / Le_pdf.w;
+            L -= Li;
             // TODO backprop wrt density mapping
             {
                 const uint saved_seed = seed;
@@ -295,6 +287,7 @@ vec3 path_replay_backprop(vec3 pos, vec3 dir, inout uint seed, vec3 L, const vec
                 seed = saved_seed;
             }
         }
+        */
 
         // early out?
         if (++n_paths >= bounces) { free_path = false; break; }
@@ -320,7 +313,8 @@ vec3 path_replay_backprop(vec3 pos, vec3 dir, inout uint seed, vec3 L, const vec
         L -= throughput * mis_weight * Le;
     }
 
-    return luma(abs(L)) <= 1e-6 ? L : vec3(1e10, 0, 1e10); // pink of doom
+    // return vec3(0);
+    return luma(abs(L)) <= 1e-6 ? vec3(0) : vec3(1e10, 0, 1e10); // pink of doom
 }
 
 // ---------------------------------------------------
@@ -343,7 +337,7 @@ void main() {
     const vec3 L_ref = imageLoad(color_reference, pixel).rgb;
     const vec3 grad = 2 * (L - L_ref);
     
-    // path replay backprop
+    // replay path to backprop gradients
     seed = forward_seed;
     const vec3 Lr = path_replay_backprop(pos, dir, seed, L, grad);
 

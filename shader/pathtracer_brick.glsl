@@ -15,8 +15,6 @@ uniform int seed;
 uniform int show_environment;
 uniform ivec2 resolution;
 
-vec3 sanitize(const vec3 data) { return mix(data, vec3(0), isnan(data) || isinf(data)); }
-
 vec3 trace_path(vec3 pos, vec3 dir, inout uint seed) {
     // trace path
     vec3 L = vec3(0), throughput = vec3(1);
@@ -27,15 +25,17 @@ vec3 trace_path(vec3 pos, vec3 dir, inout uint seed) {
         // advance ray
         pos = pos + t * dir;
 
+        /*
         // sample light source (environment)
         vec3 w_i;
         const vec4 Le_pdf = sample_environment(rng2(seed), w_i);
         if (Le_pdf.w > 0) {
-            // f_p = phase_henyey_greenstein(dot(-dir, w_i), vol_phase_g);
-            // const float mis_weight = show_environment > 0 ? power_heuristic(Le_pdf.w, f_p) : 1.f;
-            // const float Tr = transmittanceDDA(pos, w_i, seed);
-            // L += throughput * mis_weight * f_p * Tr * Le_pdf.rgb / Le_pdf.w;
+            f_p = phase_henyey_greenstein(dot(-dir, w_i), vol_phase_g);
+            const float mis_weight = 1.f;//show_environment > 0 ? power_heuristic(Le_pdf.w, f_p) : 1.f;
+            const float Tr = transmittanceDDA(pos, w_i, seed);
+            L += throughput * mis_weight * f_p * Tr * Le_pdf.rgb / Le_pdf.w;
         }
+        */
 
         // early out?
         if (++n_paths >= bounces) { free_path = false; break; }

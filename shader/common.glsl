@@ -9,6 +9,13 @@
 
 float sqr(float x) { return x * x; }
 
+float sum(const vec3 x) { return x.x + x.y + x.z; }
+
+float mean(const vec3 x) { return sum(x) / 3.f; }
+
+float sanitize(const float x) { return isnan(x) || isinf(x) ? 0.f : x; }
+vec3 sanitize(const vec3 x) { return mix(x, vec3(0), isnan(x) || isinf(x)); }
+
 float luma(const vec3 col) { return dot(col, vec3(0.212671f, 0.715160f, 0.072169f)); }
 
 float saturate(const float x) { return clamp(x, 0.f, 1.f); }
@@ -219,9 +226,9 @@ vec4 tf_lookup(float d) {
     const float tc = clamp((d - tf_window_left) / tf_window_width, 0.0, 1.0 - 1e-6);
     const int idx = clamp(int(floor(tc * tf_size)), 0, int(tf_size) - 1);
     if (tf_optimization > 0)
-        return parameters[idx] * vec4(vec3(1), d);
+        return parameters[idx];// * vec4(vec3(1), d);
     else
-        return tf_lut[idx] * vec4(vec3(1), d);
+        return tf_lut[idx];// * vec4(vec3(1), d);
 }
 
 // --------------------------------------------------------------
@@ -423,7 +430,7 @@ bool sample_volumeDDA(const vec3 wpos, const vec3 wdir, out float t, inout vec3 
         if (tau > 0) continue; // no collision, step ahead
         t += tau / majorant; // step back to point of collision
         if (t >= near_far.y) break;
-#ifdef USE_TRANSFERFUNC 
+#ifdef USE_TRANSFERFUNC
         const vec4 rgba = tf_lookup(lookup_density(ipos + t * idir, seed) * vol_inv_majorant);
         const float d = vol_majorant * rgba.a;
 #else
@@ -439,5 +446,69 @@ bool sample_volumeDDA(const vec3 wpos, const vec3 wdir, out float t, inout vec3 
         tau = -log(1.f - rng(seed));
         mip = max(0.f, mip - MIP_SPEED_DOWN);
     }
+    return false;
+}
+
+// ---------------------------------
+// ray-marching
+
+#define RAYMARCH_STEPS 64
+
+float transmittance_raymarch(const vec3 wpos, const vec3 wdir, inout uint seed) {
+    // clip volume
+    vec2 near_far;
+    if (!intersect_box(wpos, wdir, vol_bb_min, vol_bb_max, near_far)) return 1.f;
+    // to index-space
+    const vec3 ipos = vec3(vol_inv_model * vec4(wpos, 1));
+    const vec3 idir = vec3(vol_inv_model * vec4(wdir, 0)); // non-normalized!
+    // ray marching
+    const float dt = (near_far.y - near_far.x) / float(RAYMARCH_STEPS);
+    near_far.x += rng(seed) * dt; // jitter starting position
+    float tau = 0.f;
+    for (int i = 0; i < RAYMARCH_STEPS; ++i) {
+#ifdef USE_TRANSFERFUNC
+        tau += tf_lookup(lookup_density(ipos + min(near_far.x + i * dt, near_far.y) * idir, seed) * vol_inv_majorant).a * vol_majorant * dt;
+#else
+        tau += lookup_density(ipos + min(near_far.x + i * dt, near_far.y) * idir, seed) * dt;
+#endif
+    }
+    return exp(-tau);
+}
+
+bool sample_volume_raymarch(const vec3 wpos, const vec3 wdir, out float t, inout vec3 throughput, out float pdf, inout uint seed) {
+    pdf = 1.f;
+    // clip volume
+    vec2 near_far;
+    if (!intersect_box(wpos, wdir, vol_bb_min, vol_bb_max, near_far)) return false;
+    // to index-space
+    const vec3 ipos = vec3(vol_inv_model * vec4(wpos, 1));
+    const vec3 idir = vec3(vol_inv_model * vec4(wdir, 0)); // non-normalized!
+    // ray marching
+    const float tau_target = -log(1.f - rng(seed));
+    const float dt = (near_far.y - near_far.x) / float(RAYMARCH_STEPS);
+    near_far.x += rng(seed) * dt; // jitter starting position
+    float tau = 0.f;
+    for (int i = 0; i < RAYMARCH_STEPS; ++i) {
+        t = min(near_far.x + i * dt, near_far.y);
+#ifdef USE_TRANSFERFUNC
+        const vec4 rgba = tf_lookup(lookup_density(ipos + min(near_far.x + i * dt, near_far.y) * idir, seed) * vol_inv_majorant);
+        const float d = rgba.a * vol_majorant;
+#else
+        const float d = lookup_density(ipos + t * idir, seed);
+#endif
+        tau += d * dt;
+        if (tau >= tau_target) {
+            // TODO revert to hit
+#ifdef USE_TRANSFERFUNC
+            const vec3 albedo = rgba.rgb * vol_albedo;
+#else
+            const vec3 albedo = vol_albedo;
+#endif
+            pdf = mean(albedo) * d * exp(-tau_target);
+            throughput *= albedo;// / pdf;
+            return true;
+        }
+    }
+    pdf = exp(-tau);
     return false;
 }
