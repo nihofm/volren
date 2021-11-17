@@ -146,12 +146,17 @@ void RendererOpenGL::commit() {
     glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
     glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
     vol_atlas->unbind();
+    // create irradiance cache texture in same resolution as indirection grid
+    const glm::uvec3 n_probes = bricks->n_bricks;
+    vol_irradiance = SSBO("irradiance cache", sizeof(glm::vec4) * n_probes.x * n_probes.y * n_probes.z);
+    vol_irradiance->clear();
 }
 
 void RendererOpenGL::trace() {
     // bind
     trace_shader->bind();
     color->bind_image(0, GL_READ_WRITE, GL_RGBA32F);
+    vol_irradiance->bind_base(5);
 
     // uniforms
     uint32_t tex_unit = 0;
@@ -179,6 +184,8 @@ void RendererOpenGL::trace() {
     trace_shader->uniform("vol_indirection", vol_indirection, tex_unit++);
     trace_shader->uniform("vol_range", vol_range, tex_unit++);
     trace_shader->uniform("vol_atlas", vol_atlas, tex_unit++);
+    // irradiance cache
+    trace_shader->uniform("irradiance_size", glm::uvec3(vol_indirection->w, vol_indirection->h, vol_indirection->d));
     // transfer function
     transferfunc->set_uniforms(trace_shader, tex_unit, 4);
     // environment
@@ -197,6 +204,7 @@ void RendererOpenGL::trace() {
     trace_shader->dispatch_compute(resolution.x, resolution.y);
 
     // unbind
+    vol_irradiance->unbind_base(5);
     color->unbind_image(0);
     trace_shader->unbind();
 }

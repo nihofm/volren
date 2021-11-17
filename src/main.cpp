@@ -222,6 +222,23 @@ void gui_callback(void) {
         if (ImGui::InputInt("Bounces", &renderer->bounces)) renderer->sample = 0;
         if (ImGui::Checkbox("Vsync", &use_vsync)) Context::set_swap_interval(use_vsync ? 1 : 0);
         ImGui::Checkbox("Use Optix", &use_optix);
+        if (ImGui::Button("Use Brick PT")) {
+            renderer->trace_shader = Shader("trace brick", "shader/pathtracer_brick.glsl");
+            renderer->sample = 0;
+            renderer->backprop_sample = 0;
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Use Irradiance PT")) {
+            renderer->trace_shader = Shader("trace brick irradiance", "shader/pathtracer_irradiance.glsl");
+            renderer->sample = 0;
+            renderer->backprop_sample = 0;
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Clear Irradiance Cache")) {
+            renderer->vol_irradiance->clear();
+            renderer->sample = 0;
+            renderer->backprop_sample = 0;
+        }
         ImGui::Separator();
         ImGui::Text("Backprop:");
         if (ImGui::InputInt("Backprop sppx", &renderer->backprop_sppx)) {

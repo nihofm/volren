@@ -47,7 +47,7 @@ std::vector<glm::vec4> TransferFunction::compute_lut_cdf(const std::vector<glm::
 
 void TransferFunction::upload_gpu() {
     // prepare lut
-    const std::vector<glm::vec4> lut_cdf = lut;//compute_lut_cdf(lut); // TODO XXX monotonic constraint of DDA
+    const std::vector<glm::vec4> lut_cdf = compute_lut_cdf(lut);
     // setup SSBO
     lut_ssbo = SSBO("transferfunc_ssbo");
     lut_ssbo->upload_data(lut_cdf.data(), lut_cdf.size() * sizeof(glm::vec4));

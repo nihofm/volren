@@ -24,6 +24,7 @@ struct RendererOpenGL : public Renderer {
     Shader trace_shader;
     Texture2D color;
     Texture3D vol_indirection, vol_range, vol_atlas;
+    SSBO vol_irradiance;
 };
 
 struct BackpropRendererOpenGL : public RendererOpenGL {
