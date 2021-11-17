@@ -100,12 +100,12 @@ void update_cache(vec3 pos, vec3 dir, inout uint seed) {
             const float f_p = phase_isotropic();
             const float mis_weight = show_environment > 0 ? power_heuristic(Le_pdf.w, f_p) : 1.f;
             const float Tr = transmittanceDDA(pos, w_i, seed);
-            Li += mis_weight * f_p * Tr * Le_pdf.rgb / Le_pdf.w;
+            Li += throughput * mis_weight * f_p * Tr * Le_pdf.rgb / Le_pdf.w;
         }
 
         const vec3 scatter_dir = sample_phase_isotropic(rng2(seed));
         const float f_p = phase_isotropic();
-        Li += trace_path(pos, scatter_dir, f_p, seed);
+        Li += throughput * trace_path(pos, scatter_dir, f_p, seed);
         irradiance_update(vec3(vol_inv_model * vec4(pos, 1)), Li);
     }
 }
