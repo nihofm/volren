@@ -40,6 +40,13 @@ void load_volume(const std::string& path) {
         const auto [bb_min, bb_max] = renderer->volume->AABB();
         const auto extent = glm::abs(bb_max - bb_min);
         renderer->volume->model = glm::translate(glm::mat4(1), current_camera()->pos - .5f * extent + current_camera()->dir * .5f * glm::length(extent));
+        // try to load emission grid
+        try {
+            renderer->volume->update_current_grid(voldata::Volume::load_grid(path, "temperature"), "temperature");
+        } catch (std::runtime_error& e) {
+            // TODO: spam
+            std::cerr << "No emission (temperature) grid found in " << path << ": " << e.what() << std::endl;
+        }
         renderer->commit();
         renderer->sample = 0;
     } catch (std::runtime_error& e) {
@@ -235,7 +242,7 @@ void gui_callback(void) {
         }
         ImGui::SameLine();
         if (ImGui::Button("Clear Irradiance Cache")) {
-            renderer->vol_irradiance->clear();
+            renderer->irradiance_cache->clear();
             renderer->sample = 0;
             renderer->backprop_sample = 0;
         }
@@ -269,6 +276,7 @@ void gui_callback(void) {
         ImGui::Separator();
         if (ImGui::DragFloat3("Albedo", &renderer->volume->albedo.x, 0.01f, 0.f, 1.f)) renderer->sample = 0;
         if (ImGui::DragFloat("Density scale", &renderer->volume->density_scale, 0.01f, 0.01f, 1000.f)) renderer->sample = 0;
+        if (ImGui::DragFloat("Emission scale", &renderer->volume->emission_scale, 0.01f, 0.01f, 1000.f)) renderer->sample = 0;
         if (ImGui::SliderFloat("Phase g", &renderer->volume->phase, -.95f, .95f)) renderer->sample = 0;
         ImGui::Separator();
         if (ImGui::DragFloat("Window left", &renderer->transferfunc->window_left, 0.01f, -1.f, 1.f)) renderer->sample = 0;
@@ -412,7 +420,7 @@ static void parse_cmd(int argc, char** argv) {
 
 int main(int argc, char** argv) {
     // explicitly initialize OpenGL
-    RendererOpenGL::initOpenGL(1920, 1080, use_vsync, /*pinned = */false, /*visible = */true);
+    RendererOpenGL::init_opengl(1920, 1080, use_vsync, /*pinned = */false, /*visible = */true);
 
     // initialize the renderer(s)
     renderer = std::make_shared<BackpropRendererOpenGL>();
@@ -446,7 +454,7 @@ int main(int argc, char** argv) {
         auto box = std::make_shared<voldata::DenseGrid>(1, 1, 4, values.data());
         box->transform = glm::translate(glm::scale(glm::mat4(1), glm::vec3(scale)), 2 * scale * current_camera()->dir + glm::vec3(0, -0.5, -2));
         renderer->volume = std::make_shared<voldata::Volume>();
-        renderer->volume->grids.push_back(box);
+        renderer->volume->add_grid_to_new_frame(box);
         renderer->commit();
     }
 

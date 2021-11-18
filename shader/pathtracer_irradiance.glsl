@@ -30,7 +30,7 @@ vec3 direct_volume_rendering_irradiance_cache(vec3 pos, vec3 dir, inout uint see
     for (int i = 0; i < RAYMARCH_STEPS; ++i) {
         const vec3 curr = ipos + min(near_far.x + i * dt, near_far.y) * idir;
         const float d = lookup_density(curr, seed);
-        const vec3 Le = irradiance_query(curr);
+        const vec3 Le = lookup_emission(curr, seed);//irradiance_query(curr);
         const float dtau = d * dt;
         L += Le * dtau * Tr;
         Tr *= exp(-dtau);
@@ -110,8 +110,10 @@ void update_cache(vec3 pos, vec3 dir, inout uint seed) {
     }
 }
 
-vec3 direct_lighting(vec3 pos, vec3 dir, out float t, inout vec3 throughput, inout uint seed) {
+vec3 direct_lighting(vec3 pos, vec3 dir, inout uint seed) {
     vec3 L = vec3(0);
+    float t;
+    vec3 throughput = vec3(1);
     if (sample_volumeDDA(pos, dir, t, throughput, seed)) {
         // hit, sample environment map
         vec3 w_i;
@@ -121,7 +123,8 @@ vec3 direct_lighting(vec3 pos, vec3 dir, out float t, inout vec3 throughput, ino
             const float Tr = transmittanceDDA(pos + t * dir, w_i, seed);
             L += throughput * f_p * Tr * Le_pdf.rgb / Le_pdf.w;
         }
-    }
+    } else
+        L += lookup_environment(dir);
     return L;
 }
 
@@ -137,10 +140,10 @@ void main() {
     const vec3 pos = cam_pos;
     const vec3 dir = view_dir(pixel, resolution, rng2(seed));
 
+    // const vec3 L = trace_path(pos, dir, 1.f, seed);
+    // const vec3 L = direct_lighting(pos, dir, seed);
 
-    // const vec3 L = trace_path(pos, dir, seed);
-
-    update_cache(pos, dir, seed);
+    // update_cache(pos, dir, seed);
     const vec3 L = direct_volume_rendering_irradiance_cache(pos, dir, seed);
 
     // write result

@@ -8,7 +8,8 @@
 #include "transferfunc.h"
 
 struct RendererOpenGL : public Renderer {
-    static void initOpenGL(uint32_t w = 1920, uint32_t h = 1080, bool vsync = false, bool pinned = false, bool visible = true);
+    static void init_opengl(uint32_t w = 1920, uint32_t h = 1080, bool vsync = false, bool pinned = false, bool visible = true);
+    std::tuple<Texture3D, Texture3D, Texture3D> brick_grid_to_textures(const std::shared_ptr<voldata::BrickGrid>& grid);
 
     void init();
     void resize(uint32_t w, uint32_t h);
@@ -23,8 +24,11 @@ struct RendererOpenGL : public Renderer {
     // OpenGL data
     Shader trace_shader;
     Texture2D color;
-    Texture3D vol_indirection, vol_range, vol_atlas;
-    SSBO vol_irradiance;
+    // Texture3D density_indirection, density_range, density_atlas;
+    // Texture3D vol_indirection_emission, vol_range_emission, vol_atlas_emission;
+    std::vector<std::tuple<Texture3D, Texture3D, Texture3D>> density_grids;
+    std::vector<std::tuple<Texture3D, Texture3D, Texture3D>> emission_grids;
+    SSBO irradiance_cache;
 };
 
 struct BackpropRendererOpenGL : public RendererOpenGL {

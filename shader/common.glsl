@@ -8,6 +8,7 @@
 #define FLT_MAX float(3.402823466e+38)
 
 float sqr(float x) { return x * x; }
+vec3 sqr(vec3 x) { return x * x; }
 
 float sum(const vec3 x) { return x.x + x.y + x.z; }
 
@@ -244,37 +245,58 @@ uniform float vol_inv_majorant;
 uniform vec3 vol_albedo;
 uniform float vol_phase_g;
 uniform float vol_density_scale;
+uniform float vol_emission_scale;
 
-// brick grid stored as textures
-uniform usampler3D vol_indirection;
-uniform sampler3D vol_range;
-uniform sampler3D vol_atlas;
+// density brick grid stored as textures
+uniform usampler3D vol_density_indirection;
+uniform sampler3D vol_density_range;
+uniform sampler3D vol_density_atlas;
 
-// brick grid voxel lookup (nearest neighbor)
-float lookup_voxel_brick(const vec3 ipos) {
+// brick grid voxel density lookup (nearest neighbor)
+float lookup_density_brick(const vec3 ipos) {
     const ivec3 iipos = ivec3(floor(ipos));
     const ivec3 brick = iipos >> 3;
-    const uvec3 ptr = texelFetch(vol_indirection, brick, 0).xyz;
-    const vec2 range = texelFetch(vol_range, brick, 0).xy;
-    const float value_unorm = texelFetch(vol_atlas, ivec3(ptr << 3) + (iipos & 7), 0).x;
+    const uvec3 ptr = texelFetch(vol_density_indirection, brick, 0).xyz;
+    const vec2 range = texelFetch(vol_density_range, brick, 0).xy;
+    const float value_unorm = texelFetch(vol_density_atlas, ivec3(ptr << 3) + (iipos & 7), 0).x;
     return range.x + value_unorm * (range.y - range.x);
 }
 
 // brick majorant lookup (nearest neighbor)
 float lookup_majorant(const vec3 ipos, int mip) {
     const ivec3 brick = ivec3(floor(ipos)) >> (3 + mip);
-    return vol_density_scale * texelFetch(vol_range, brick, mip).y;
+    return vol_density_scale * texelFetch(vol_density_range, brick, mip).y;
 }
 
 // density lookup (nearest neighbor)
 float lookup_density(const vec3 ipos) {
-    return vol_density_scale * lookup_voxel_brick(ipos);
+    return vol_density_scale * lookup_density_brick(ipos);
 }
 
 // density lookup (stochastic trilinear filter)
 float lookup_density(const vec3 ipos, inout uint seed) {
-    // return lookup_density(ipos); // XXX DEBUG
     return lookup_density(ipos + rng3(seed) - .5f);
+}
+
+// temperature brick grid stored as textures
+uniform usampler3D vol_emission_indirection;
+uniform sampler3D vol_emission_range;
+uniform sampler3D vol_emission_atlas;
+
+// brick grid voxel temperature lookup (nearest neighbor)
+float lookup_temperature_brick(const vec3 ipos) {
+    const ivec3 iipos = ivec3(floor(ipos));
+    const ivec3 brick = iipos >> 3;
+    const uvec3 ptr = texelFetch(vol_emission_indirection, brick, 0).xyz;
+    const vec2 range = texelFetch(vol_emission_range, brick, 0).xy;
+    const float value_unorm = texelFetch(vol_emission_atlas, ivec3(ptr << 3) + (iipos & 7), 0).x;
+    return range.x + value_unorm * (range.y - range.x);
+}
+
+// emission lookup (stochastic trilinear filter)
+vec3 lookup_emission(const vec3 ipos, inout uint seed) {
+    const float t = clamp(lookup_temperature_brick(ipos + rng3(seed) - .5f), 0.f, 1.f);
+    return vol_emission_scale * sqr(vec3(t, sqr(t), sqr(sqr(t))));
 }
 
 // --------------------------------------------------------------

@@ -25,6 +25,9 @@ vec3 trace_path(vec3 pos, vec3 dir, inout uint seed) {
         // advance ray
         pos = pos + t * dir;
 
+        // TODO: properly add emission
+        L += throughput * lookup_emission(vec3(vol_inv_model * vec4(pos, 1)), seed);
+
         // sample light source (environment)
         vec3 w_i;
         const vec4 Le_pdf = sample_environment(rng2(seed), w_i);

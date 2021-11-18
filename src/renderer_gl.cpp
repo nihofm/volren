@@ -24,7 +24,7 @@ void tonemap(const Texture2D& tex, float exposure, float gamma) {
 // -----------------------------------------------------------
 // OpenGL renderer
 
-void RendererOpenGL::initOpenGL(uint32_t w, uint32_t h, bool vsync, bool pinned, bool visible) {
+void RendererOpenGL::init_opengl(uint32_t w, uint32_t h, bool vsync, bool pinned, bool visible) {
     static bool is_init = false;
     if (is_init) return;
 
@@ -48,8 +48,76 @@ void RendererOpenGL::initOpenGL(uint32_t w, uint32_t h, bool vsync, bool pinned,
     is_init = true;
 }
 
+std::tuple<Texture3D, Texture3D, Texture3D> RendererOpenGL::brick_grid_to_textures(const std::shared_ptr<voldata::BrickGrid>& bricks) {
+    // create indirection texture
+    Texture3D indirection = Texture3D("brick indirection",
+            bricks->indirection.stride.x,
+            bricks->indirection.stride.y,
+            bricks->indirection.stride.z,
+            GL_RGB10_A2UI,
+            GL_RGBA_INTEGER,
+            GL_UNSIGNED_INT_10_10_10_2,
+            bricks->indirection.data.data());
+    indirection->bind(0);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_BORDER);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_BORDER);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_R, GL_CLAMP_TO_BORDER);
+    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    indirection->unbind();
+    // create range texture
+    Texture3D range = Texture3D("brick range",
+            bricks->range.stride.x,
+            bricks->range.stride.y,
+            bricks->range.stride.z,
+            GL_RG16F,
+            GL_RG,
+            GL_HALF_FLOAT,
+            bricks->range.data.data());
+    range->bind(0);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_BORDER);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_BORDER);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_R, GL_CLAMP_TO_BORDER);
+    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    // create min/max mipmaps
+    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_BASE_LEVEL, 0);
+    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MAX_LEVEL, bricks->range_mipmaps.size());
+    for (uint32_t i = 0; i < bricks->range_mipmaps.size(); ++i) {
+        glTexImage3D(GL_TEXTURE_3D,
+                i + 1,
+                GL_RG16F,
+                bricks->range_mipmaps[i].stride.x,
+                bricks->range_mipmaps[i].stride.y,
+                bricks->range_mipmaps[i].stride.z,
+                0,
+                GL_RG,
+                GL_HALF_FLOAT,
+                bricks->range_mipmaps[i].data.data());
+    }
+    range->unbind();
+    // create atlas texture
+    Texture3D atlas = Texture3D("brick atlas",
+            bricks->atlas.stride.x,
+            bricks->atlas.stride.y,
+            bricks->atlas.stride.z,
+            GL_COMPRESSED_RED,
+            GL_RED,
+            GL_UNSIGNED_BYTE,
+            bricks->atlas.data.data());
+    atlas->bind(0);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_BORDER);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_BORDER);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_R, GL_CLAMP_TO_BORDER);
+    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    atlas->unbind();
+    // return as tuple
+    return { indirection, range, atlas };
+}
+
 void RendererOpenGL::init() {
-    initOpenGL();
+    init_opengl();
 
     // load default volume
     if (!volume)
@@ -81,82 +149,39 @@ void RendererOpenGL::resize(uint32_t w, uint32_t h) {
 }
 
 void RendererOpenGL::commit() {
+    density_grids.clear();
+    emission_grids.clear();
+    for (const auto& frame : volume->grids) {
+        density_grids.push_back(brick_grid_to_textures(voldata::Volume::to_brick_grid(frame.at("density"))));
+        if (frame.find("temperature") != frame.end())
+            emission_grids.push_back(brick_grid_to_textures(voldata::Volume::to_brick_grid(frame.at("temperature"))));
+    }
+    /*
     // convert volume to brick grid
     const auto bricks = volume->current_grid_brick();
-    // upload indirection texture
-    vol_indirection = Texture3D("brick indirection",
-            bricks->indirection.stride.x,
-            bricks->indirection.stride.y,
-            bricks->indirection.stride.z,
-            GL_RGB10_A2UI,
-            GL_RGBA_INTEGER,
-            GL_UNSIGNED_INT_2_10_10_10_REV,
-            bricks->indirection.data.data());
-    vol_indirection->bind(0);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_BORDER);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_BORDER);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_R, GL_CLAMP_TO_BORDER);
-    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-    vol_indirection->unbind();
-    // upload range texture
-    vol_range = Texture3D("brick range",
-            bricks->range.stride.x,
-            bricks->range.stride.y,
-            bricks->range.stride.z,
-            GL_RG16F,
-            GL_RG,
-            GL_HALF_FLOAT,
-            bricks->range.data.data());
-    vol_range->bind(0);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_BORDER);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_BORDER);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_R, GL_CLAMP_TO_BORDER);
-    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-    // upload min/max mipmaps
-    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_BASE_LEVEL, 0);
-    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MAX_LEVEL, bricks->range_mipmaps.size());
-    for (uint32_t i = 0; i < bricks->range_mipmaps.size(); ++i) {
-        glTexImage3D(GL_TEXTURE_3D,
-                i + 1,
-                GL_RG16F,
-                bricks->range_mipmaps[i].stride.x,
-                bricks->range_mipmaps[i].stride.y,
-                bricks->range_mipmaps[i].stride.z,
-                0,
-                GL_RG,
-                GL_HALF_FLOAT,
-                bricks->range_mipmaps[i].data.data());
+    std::tie(density_indirection, density_range, density_atlas) = brick_grid_to_textures(volume->current_grid_brick("density"));
+    if (volume->has_grid("temperature"))
+        std::tie(vol_indirection_emission, vol_range_emission, vol_atlas_emission) = brick_grid_to_textures(volume->current_grid_brick("temperature"));
+    else {
+        vol_indirection_emission = Texture3D();
+        vol_range_emission = Texture3D();
+        vol_atlas_emission = Texture3D();
     }
-    vol_range->unbind();
-    // upload atlas texture
-    vol_atlas = Texture3D("brick atlas",
-            bricks->atlas.stride.x,
-            bricks->atlas.stride.y,
-            bricks->atlas.stride.z,
-            GL_COMPRESSED_RED,
-            GL_RED,
-            GL_UNSIGNED_BYTE,
-            bricks->atlas.data.data());
-    vol_atlas->bind(0);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_BORDER);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_BORDER);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_R, GL_CLAMP_TO_BORDER);
-    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-    vol_atlas->unbind();
-    // create irradiance cache texture in same resolution as indirection grid
-    const glm::uvec3 n_probes = bricks->n_bricks;
-    vol_irradiance = SSBO("irradiance cache", sizeof(glm::vec4) * n_probes.x * n_probes.y * n_probes.z);
-    vol_irradiance->clear();
+    */
+    // create irradiance cache texture in same resolution as largest indirection grid
+    glm::uvec3 n_probes = glm::uvec3(0);
+    for (const auto& [indirection, range, atlas] : density_grids) {
+        n_probes = glm::max(n_probes, glm::uvec3(indirection->w, indirection->h, indirection->d));        
+    }
+    irradiance_cache = SSBO("irradiance cache", sizeof(glm::vec4) * n_probes.x * n_probes.y * n_probes.z);
+    irradiance_cache->clear();
 }
 
 void RendererOpenGL::trace() {
     // bind
     trace_shader->bind();
     color->bind_image(0, GL_READ_WRITE, GL_RGBA32F);
-    vol_irradiance->bind_base(5);
+    irradiance_cache->bind_base(5);
 
     // uniforms
     uint32_t tex_unit = 0;
@@ -180,12 +205,21 @@ void RendererOpenGL::trace() {
     trace_shader->uniform("vol_albedo", volume->albedo);
     trace_shader->uniform("vol_phase_g", volume->phase);
     trace_shader->uniform("vol_density_scale", volume->density_scale);
-    // brick grid data
-    trace_shader->uniform("vol_indirection", vol_indirection, tex_unit++);
-    trace_shader->uniform("vol_range", vol_range, tex_unit++);
-    trace_shader->uniform("vol_atlas", vol_atlas, tex_unit++);
+    trace_shader->uniform("vol_emission_scale", volume->emission_scale);
+    // density brick grid data
+    const auto [density_indirection, density_range, density_atlas] = density_grids[volume->grid_frame_counter];
+    trace_shader->uniform("vol_density_indirection", density_indirection, tex_unit++);
+    trace_shader->uniform("vol_density_range", density_range, tex_unit++);
+    trace_shader->uniform("vol_density_atlas", density_atlas, tex_unit++);
+    // TODO emission brick grid data
+    if (volume->grid_frame_counter < emission_grids.size()) {
+        const auto [emission_indirection, emission_range, emission_atlas] = emission_grids[volume->grid_frame_counter];
+        trace_shader->uniform("vol_emission_indirection", emission_indirection, tex_unit++);
+        trace_shader->uniform("vol_emission_range", emission_range, tex_unit++);
+        trace_shader->uniform("vol_emission_atlas", emission_atlas, tex_unit++);
+    }
     // irradiance cache
-    trace_shader->uniform("irradiance_size", glm::uvec3(vol_indirection->w, vol_indirection->h, vol_indirection->d));
+    trace_shader->uniform("irradiance_size", glm::uvec3(density_indirection->w, density_indirection->h, density_indirection->d));
     // transfer function
     transferfunc->set_uniforms(trace_shader, tex_unit, 4);
     // environment
@@ -204,7 +238,7 @@ void RendererOpenGL::trace() {
     trace_shader->dispatch_compute(resolution.x, resolution.y);
 
     // unbind
-    vol_irradiance->unbind_base(5);
+    irradiance_cache->unbind_base(5);
     color->unbind_image(0);
     trace_shader->unbind();
 }
@@ -313,10 +347,12 @@ void BackpropRendererOpenGL::backprop() {
     backprop_shader->uniform("vol_albedo", volume->albedo);
     backprop_shader->uniform("vol_phase_g", volume->phase);
     backprop_shader->uniform("vol_density_scale", volume->density_scale);
+    backprop_shader->uniform("vol_emission_scale", volume->emission_scale);
     // brick grid data
-    backprop_shader->uniform("vol_indirection", vol_indirection, tex_unit++);
-    backprop_shader->uniform("vol_range", vol_range, tex_unit++);
-    backprop_shader->uniform("vol_atlas", vol_atlas, tex_unit++);
+    const auto [density_indirection, density_range, density_atlas] = density_grids[volume->grid_frame_counter];
+    backprop_shader->uniform("vol_density_indirection", density_indirection, tex_unit++);
+    backprop_shader->uniform("vol_density_range", density_range, tex_unit++);
+    backprop_shader->uniform("vol_density_atlas", density_atlas, tex_unit++);
     // transfer function
     transferfunc->set_uniforms(backprop_shader, tex_unit, 4);
     backprop_shader->uniform("tf_optimization", 1);

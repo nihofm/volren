@@ -75,7 +75,7 @@ PYBIND11_EMBEDDED_MODULE(volpy, m) {
         .def_readwrite("albedo", &voldata::Volume::albedo)
         .def_readwrite("phase", &voldata::Volume::phase)
         .def_readwrite("density_scale", &voldata::Volume::density_scale)
-        .def_readwrite("grid_frame", &voldata::Volume::grid_frame)
+        .def_readwrite("grid_frame", &voldata::Volume::grid_frame_counter)
         .def("__repr__", &voldata::Volume::to_string, py::arg("indent") = "");
 
     // ------------------------------------------------------------
@@ -99,7 +99,7 @@ PYBIND11_EMBEDDED_MODULE(volpy, m) {
 
     py::class_<RendererOpenGL, std::shared_ptr<RendererOpenGL>>(m, "Renderer") // TODO RendererOpenGL
         .def(py::init<>())
-        .def_static("initOpenGL", &RendererOpenGL::initOpenGL,
+        .def_static("init_opengl", &RendererOpenGL::init_opengl,
             py::arg("w") = uint32_t(1920), py::arg("h") = uint32_t(1080), py::arg("vsync") = false, py::arg("pinned") = false, py::arg("visible") = false)
         .def("init", &Renderer::init)
         .def("set_floating", [](const std::shared_ptr<RendererOpenGL>& renderer, bool value = true) {

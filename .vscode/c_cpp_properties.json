@@ -5,7 +5,8 @@
             "compileCommands": "${workspaceFolder}/build/compile_commands.json",
             "includePath": [
                 "${workspaceFolder}/**",
-                "/usr/local/cuda-11.4/targets/x86_64-linux/include"
+                "/usr/local/cuda-11.4/targets/x86_64-linux/include",
+                "/opt/cuda/targets/x86_64-linux/include"
             ],
             "configurationProvider": "ms-vscode.cmake-tools"
         }
