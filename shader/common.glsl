@@ -457,7 +457,7 @@ float transmittanceDDA(const vec3 wpos, const vec3 wdir, inout uint seed) {
 }
 
 // DDA-based volume sampling
-bool sample_volumeDDA(const vec3 wpos, const vec3 wdir, out float t, inout vec3 throughput, inout uint seed) {
+bool sample_volumeDDA(const vec3 wpos, const vec3 wdir, out float t, inout vec3 throughput, inout vec3 Le, inout uint seed) {
     // clip volume
     vec2 near_far;
     if (!intersect_box(wpos, wdir, vol_bb_min, vol_bb_max, near_far)) return false;
@@ -488,6 +488,7 @@ bool sample_volumeDDA(const vec3 wpos, const vec3 wdir, out float t, inout vec3 
 #else
         const float d = lookup_density(ipos + t * idir, seed);
 #endif
+        Le += throughput * lookup_emission(ipos + t * idir, seed) * d * vol_inv_majorant; // TODO: model absorption
         if (rng(seed) * majorant < d) { // check if real or null collision
             throughput *= vol_albedo;
 #ifdef USE_TRANSFERFUNC

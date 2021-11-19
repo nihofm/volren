@@ -149,25 +149,15 @@ void RendererOpenGL::resize(uint32_t w, uint32_t h) {
 }
 
 void RendererOpenGL::commit() {
+    // TODO XXX: properly add emission to brick grid (ensure matching transform) and use for irradiance cache?
     density_grids.clear();
     emission_grids.clear();
+    std::cout << "Preparing brick grids for OpenGL..." << std::endl;
     for (const auto& frame : volume->grids) {
         density_grids.push_back(brick_grid_to_textures(voldata::Volume::to_brick_grid(frame.at("density"))));
         if (frame.find("temperature") != frame.end())
             emission_grids.push_back(brick_grid_to_textures(voldata::Volume::to_brick_grid(frame.at("temperature"))));
     }
-    /*
-    // convert volume to brick grid
-    const auto bricks = volume->current_grid_brick();
-    std::tie(density_indirection, density_range, density_atlas) = brick_grid_to_textures(volume->current_grid_brick("density"));
-    if (volume->has_grid("temperature"))
-        std::tie(vol_indirection_emission, vol_range_emission, vol_atlas_emission) = brick_grid_to_textures(volume->current_grid_brick("temperature"));
-    else {
-        vol_indirection_emission = Texture3D();
-        vol_range_emission = Texture3D();
-        vol_atlas_emission = Texture3D();
-    }
-    */
     // create irradiance cache texture in same resolution as largest indirection grid
     glm::uvec3 n_probes = glm::uvec3(0);
     for (const auto& [indirection, range, atlas] : density_grids) {

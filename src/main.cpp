@@ -20,11 +20,14 @@ namespace py = pybind11;
 // ------------------------------------------
 // settings
 
-static bool adjoint = false, randomize = false, print_loss = false;
+static bool adjoint = false, randomize = false;
 
 static int sppx = 1024;
 static bool use_vsync = true;
 static float shader_check_delay_ms = 1000;
+
+static bool animate = false;
+static float animation_fps = 30;
 
 static std::shared_ptr<BackpropRendererOpenGL> renderer;
 // TODO debug
@@ -36,16 +39,22 @@ static std::shared_ptr<RendererOptix> renderer_optix;
 
 void load_volume(const std::string& path) {
     try {
-        renderer->volume = std::make_shared<voldata::Volume>(path);
-        const auto [bb_min, bb_max] = renderer->volume->AABB();
-        const auto extent = glm::abs(bb_max - bb_min);
-        renderer->volume->model = glm::translate(glm::mat4(1), current_camera()->pos - .5f * extent + current_camera()->dir * .5f * glm::length(extent));
-        // try to load emission grid
-        try {
-            renderer->volume->update_current_grid(voldata::Volume::load_grid(path, "temperature"), "temperature");
-        } catch (std::runtime_error& e) {
-            // TODO: spam
-            std::cerr << "No emission (temperature) grid found in " << path << ": " << e.what() << std::endl;
+        if (fs::is_directory(path)) {
+            // load contents of folder
+            renderer->volume = voldata::Volume::load_folder(path, { "density", "temperature" }); // TODO: hardcoded grid names
+        } else {
+            // load single grid
+            renderer->volume = std::make_shared<voldata::Volume>(path);
+            const auto [bb_min, bb_max] = renderer->volume->AABB();
+            const auto extent = glm::abs(bb_max - bb_min);
+            renderer->volume->model = glm::translate(glm::mat4(1), current_camera()->pos - .5f * extent + current_camera()->dir * .5f * glm::length(extent));
+            // try to add emission grid
+            if (fs::path(path).extension() == ".vdb") {
+                try {
+                    renderer->volume->update_current_grid(voldata::Volume::load_grid(path, "temperature"), "temperature");
+                    renderer->volume->emission_scale = 1.f;
+                } catch (std::runtime_error& e) {}
+            }
         }
         renderer->commit();
         renderer->sample = 0;
@@ -157,7 +166,6 @@ void resize_callback(int w, int h) {
 
 void keyboard_callback(int key, int scancode, int action, int mods) {
     if (ImGui::GetIO().WantCaptureKeyboard) return;
-
     if (key == GLFW_KEY_B && action == GLFW_PRESS) {
         renderer->show_environment = !renderer->show_environment;
         renderer->sample = 0;
@@ -176,14 +184,14 @@ void keyboard_callback(int key, int scancode, int action, int mods) {
         renderer->sample = 0;
         renderer->backprop_sample = 0;
     }
-    if (key == GLFW_KEY_L && action == GLFW_PRESS)
-        print_loss = !print_loss;
     if (key == GLFW_KEY_O && action == GLFW_PRESS)
         use_optix = !use_optix;
     if (key == GLFW_KEY_T && action == GLFW_PRESS)
         renderer->tonemapping = !renderer->tonemapping;
-    if (key == GLFW_KEY_SPACE && action == GLFW_PRESS)
+    if (key == GLFW_KEY_SPACE && action == GLFW_PRESS) {
         renderer->sample = 0;
+        animate = !animate;
+    }
     if (key == GLFW_KEY_ENTER && action == GLFW_PRESS)
         Context::screenshot("screenshot.png");
 }
@@ -258,10 +266,10 @@ void gui_callback(void) {
             renderer->backprop_sample = 0;
         }
         ImGui::Checkbox("Randomize params", &randomize);
-        ImGui::Checkbox("Print loss", &print_loss);
-        if (ImGui::Button("Reset optimization"))
+        if (ImGui::Button("Reset"))
             renderer->reset_optimization = true;
-        if (ImGui::Button("Solve optimization")) 
+        ImGui::SameLine();
+        if (ImGui::Button("Solve"))
             renderer->solve_optimization = true;
         ImGui::Separator();
         if (ImGui::Checkbox("Environment", &renderer->show_environment)) renderer->sample = 0;
@@ -276,8 +284,13 @@ void gui_callback(void) {
         ImGui::Separator();
         if (ImGui::DragFloat3("Albedo", &renderer->volume->albedo.x, 0.01f, 0.f, 1.f)) renderer->sample = 0;
         if (ImGui::DragFloat("Density scale", &renderer->volume->density_scale, 0.01f, 0.01f, 1000.f)) renderer->sample = 0;
-        if (ImGui::DragFloat("Emission scale", &renderer->volume->emission_scale, 0.01f, 0.01f, 1000.f)) renderer->sample = 0;
+        if (ImGui::DragFloat("Emission scale", &renderer->volume->emission_scale, 0.01f, 0.f, 1000.f)) renderer->sample = 0;
         if (ImGui::SliderFloat("Phase g", &renderer->volume->phase, -.95f, .95f)) renderer->sample = 0;
+        size_t frame_min = 0, frame_max = renderer->volume->n_grid_frames() - 1;
+        if (ImGui::SliderScalar("Grid frame", ImGuiDataType_U64, &renderer->volume->grid_frame_counter, &frame_min, &frame_max)) renderer->sample = 0;
+        ImGui::Checkbox("Animate Volume", &animate);
+        ImGui::SameLine();
+        ImGui::DragFloat("FPS", &animation_fps, 0.01, 1, 60);
         ImGui::Separator();
         if (ImGui::DragFloat("Window left", &renderer->transferfunc->window_left, 0.01f, -1.f, 1.f)) renderer->sample = 0;
         if (ImGui::DragFloat("Window width", &renderer->transferfunc->window_width, 0.01f, 0.f, 1.f)) renderer->sample = 0;
@@ -464,7 +477,7 @@ int main(int argc, char** argv) {
     auto timer_update = TimerQueryGL("gradient step");
 
     // run the main loop
-    float shader_timer = 0;
+    float shader_timer = 0, animation_timer = 0;
     while (Context::running()) {
         // handle input
         if (CameraImpl::default_input_handler(Context::frame_time())) {
@@ -482,6 +495,15 @@ int main(int argc, char** argv) {
                 renderer->backprop_sample = 0;
             }
             shader_timer = shader_check_delay_ms;
+        }
+        // advance animation?
+        if (animate) {
+            animation_timer -= Context::frame_time();
+            if (animation_timer <= 0) {
+                animation_timer = 1000 / animation_fps;
+                renderer->volume->grid_frame_counter = (renderer->volume->grid_frame_counter + 1) % renderer->volume->n_grid_frames();
+                renderer->sample = 0;
+            }
         }
 
         // trace
@@ -510,11 +532,6 @@ int main(int argc, char** argv) {
                 renderer->sample = 0;
                 renderer->backprop_sample = 0;
                 renderer->seed = rand();
-                // print loss?
-                if (print_loss) {
-                    std::cout << "loss: " << std::setw(15) << renderer->compute_loss() << std::endl;
-                    print_loss = false;
-                }
             }
         } else
             glfwWaitEventsTimeout(1.f / 10); // 10fps idle

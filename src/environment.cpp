@@ -12,14 +12,6 @@ Environment::Environment(const Texture2D& envmap) :
     envmap(envmap),
     impmap(envmap->name + "_importance", DIMENSION, DIMENSION, GL_R32F, GL_RED, GL_FLOAT)
 {
-    // set envmap texture params
-    envmap->bind(0);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_BORDER);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_BORDER);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_R, GL_CLAMP_TO_BORDER);
-    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-    envmap->unbind();
     // build importance map
     static Shader setup_shader = Shader("env_setup", "shader/env_setup.glsl");
     const uint32_t n_samples = (uint32_t)std::sqrt(SAMPLES);
