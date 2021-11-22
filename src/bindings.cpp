@@ -44,6 +44,21 @@ py::class_<VecT> register_vector_operators(py::class_<VecT>& pyclass) {
         .def(-py::self);
 }
 
+template <typename MatT, typename ScalarT>
+py::class_<MatT> register_matrix_operators(py::class_<MatT>& pyclass) {
+    return pyclass
+        .def(py::self + py::self)
+        .def(py::self += py::self)
+        .def(py::self - py::self)
+        .def(py::self -= py::self)
+        .def(py::self * py::self)
+        .def(py::self * ScalarT())
+        .def(ScalarT() * py::self)
+        .def(py::self *= py::self)
+        .def(py::self *= ScalarT())
+        .def(-py::self);
+}
+
 PYBIND11_EMBEDDED_MODULE(volpy, m) {
 
     // ------------------------------------------------------------
@@ -97,7 +112,7 @@ PYBIND11_EMBEDDED_MODULE(volpy, m) {
     // ------------------------------------------------------------
     // renderer bindings
 
-    py::class_<RendererOpenGL, std::shared_ptr<RendererOpenGL>>(m, "Renderer") // TODO RendererOpenGL
+    py::class_<RendererOpenGL, std::shared_ptr<RendererOpenGL>>(m, "Renderer")
         .def(py::init<>())
         .def_static("init_opengl", &RendererOpenGL::init_opengl,
             py::arg("w") = uint32_t(1920), py::arg("h") = uint32_t(1080), py::arg("vsync") = false, py::arg("pinned") = false, py::arg("visible") = false)
@@ -151,6 +166,17 @@ PYBIND11_EMBEDDED_MODULE(volpy, m) {
         .def_readwrite_static("cam_pos", &current_camera()->pos)
         .def_readwrite_static("cam_dir", &current_camera()->dir)
         .def_readwrite_static("cam_fov", &current_camera()->fov_degree)
+        .def_readwrite_static("view_matrix", &current_camera()->view)
+        .def_readwrite_static("proj_matrix", &current_camera()->proj)
+        .def_static("colmap_view", [](const std::shared_ptr<RendererOpenGL>& renderer) {
+            static const glm::mat4 colmap_to_gl(1, 0, 0, 0,   0, -1, 0, 0,    0, 0, -1, 0,    0, 0, 0, 1);
+            // TODO build colmap representation for current view (quat rot + translation)
+            return glm::mat4(1);
+        })
+        .def_static("colmap_proj", [](const std::shared_ptr<RendererOpenGL>& renderer) {
+            // TODO build colmap representation for current projection (simple pinhole)
+            return glm::mat4(1);
+        })
         .def_readwrite("sample", &RendererOpenGL::sample)
         .def_readwrite("sppx", &RendererOpenGL::sppx)
         .def_readwrite("bounces", &RendererOpenGL::bounces)
@@ -176,7 +202,7 @@ PYBIND11_EMBEDDED_MODULE(volpy, m) {
             .def("normalize", [](const glm::vec2& v) { return glm::normalize(v); })
             .def("length", [](const glm::vec2& v) { return glm::length(v); })
             .def("__repr__", [](const glm::vec2& v) {
-                return "(" + std::to_string(v.x) + ", " + std::to_string(v.y) + ")";
+                return glm::to_string(v);
             }));
 
     register_vector_operators<glm::vec3, float>(
@@ -190,7 +216,7 @@ PYBIND11_EMBEDDED_MODULE(volpy, m) {
             .def("normalize", [](const glm::vec3& v) { return glm::normalize(v); })
             .def("length", [](const glm::vec3& v) { return glm::length(v); })
             .def("__repr__", [](const glm::vec3& v) {
-                return "(" + std::to_string(v.x) + ", " + std::to_string(v.y) + ", " + std::to_string(v.z) + ")";
+                return glm::to_string(v);
             }));
 
     register_vector_operators<glm::vec4, float>(
@@ -205,7 +231,7 @@ PYBIND11_EMBEDDED_MODULE(volpy, m) {
             .def("normalize", [](const glm::vec4& v) { return glm::normalize(v); })
             .def("length", [](const glm::vec4& v) { return glm::length(v); })
             .def("__repr__", [](const glm::vec4& v) {
-                return "(" + std::to_string(v.x) + ", " + std::to_string(v.y) + ", " + std::to_string(v.z) + ", " + std::to_string(v.w) + ")";
+                return glm::to_string(v);
             }));
 
     register_vector_operators<glm::ivec2, int>(
@@ -216,7 +242,7 @@ PYBIND11_EMBEDDED_MODULE(volpy, m) {
             .def_readwrite("x", &glm::ivec2::x)
             .def_readwrite("y", &glm::ivec2::y)
             .def("__repr__", [](const glm::ivec2& v) {
-                return "(" + std::to_string(v.x) + ", " + std::to_string(v.y) + ")";
+                return glm::to_string(v);
             }));
 
     register_vector_operators<glm::ivec3, int>(
@@ -228,7 +254,7 @@ PYBIND11_EMBEDDED_MODULE(volpy, m) {
             .def_readwrite("y", &glm::ivec3::y)
             .def_readwrite("z", &glm::ivec3::z)
             .def("__repr__", [](const glm::ivec3& v) {
-                return "(" + std::to_string(v.x) + ", " + std::to_string(v.y) + ", " + std::to_string(v.z) + ")";
+                return glm::to_string(v);
             }));
 
     register_vector_operators<glm::ivec4, int>(
@@ -241,7 +267,7 @@ PYBIND11_EMBEDDED_MODULE(volpy, m) {
             .def_readwrite("z", &glm::ivec4::z)
             .def_readwrite("w", &glm::ivec4::w)
             .def("__repr__", [](const glm::ivec4& v) {
-                return "(" + std::to_string(v.x) + ", " + std::to_string(v.y) + ", " + std::to_string(v.z) + ", " + std::to_string(v.w) + ")";
+                return glm::to_string(v);
             }));
 
     register_vector_operators<glm::uvec2, uint32_t>(
@@ -252,7 +278,7 @@ PYBIND11_EMBEDDED_MODULE(volpy, m) {
             .def_readwrite("x", &glm::uvec2::x)
             .def_readwrite("y", &glm::uvec2::y)
             .def("__repr__", [](const glm::uvec2& v) {
-                return "(" + std::to_string(v.x) + ", " + std::to_string(v.y) + ")";
+                return glm::to_string(v);
             }));
 
     register_vector_operators<glm::uvec3, uint32_t>(
@@ -264,7 +290,7 @@ PYBIND11_EMBEDDED_MODULE(volpy, m) {
             .def_readwrite("y", &glm::uvec3::y)
             .def_readwrite("z", &glm::uvec3::z)
             .def("__repr__", [](const glm::uvec3& v) {
-                return "(" + std::to_string(v.x) + ", " + std::to_string(v.y) + ", " + std::to_string(v.z) + ")";
+                return glm::to_string(v);
             }));
 
     register_vector_operators<glm::uvec4, uint32_t>(
@@ -277,6 +303,58 @@ PYBIND11_EMBEDDED_MODULE(volpy, m) {
             .def_readwrite("z", &glm::uvec4::z)
             .def_readwrite("w", &glm::uvec4::w)
             .def("__repr__", [](const glm::uvec4& v) {
-                return "(" + std::to_string(v.x) + ", " + std::to_string(v.y) + ", " + std::to_string(v.z) + ", " + std::to_string(v.w) + ")";
+                return glm::to_string(v);
             }));
+
+
+    // ------------------------------------------------------------
+    // glm matrix bindings
+
+    register_matrix_operators<glm::mat3, float>(
+        py::class_<glm::mat3>(m, "mat3", py::buffer_protocol())
+            .def(py::init<>())
+            .def(py::init<float>())
+            .def(py::init<glm::vec3, glm::vec3, glm::vec3>())
+            .def("column", [](const std::shared_ptr<glm::mat3>& m, uint32_t i) {
+                return m->operator[](i);
+            })
+            .def("value", [](const std::shared_ptr<glm::mat3>& m, uint32_t i, uint32_t j) {
+                return m->operator[](i)[j];
+            })
+            .def_buffer([](glm::mat3& m) -> py::buffer_info {
+                return py::buffer_info(&m[0],
+                        sizeof(float),
+                        py::format_descriptor<float>::format(),
+                        2,
+                        { 3, 3 },
+                        { sizeof(float) * 3 * 3 });
+            })
+            .def("__repr__", [](const glm::mat3& m) {
+                return glm::to_string(m);
+            })
+    );
+
+    register_matrix_operators<glm::mat4, float>(
+        py::class_<glm::mat4>(m, "mat4", py::buffer_protocol())
+            .def(py::init<>())
+            .def(py::init<float>())
+            .def(py::init<glm::vec4, glm::vec4, glm::vec4, glm::vec4>())
+            .def("column", [](const std::shared_ptr<glm::mat4>& m, uint32_t i) {
+                return m->operator[](i);
+            })
+            .def("value", [](const std::shared_ptr<glm::mat4>& m, uint32_t i, uint32_t j) {
+                return m->operator[](i)[j];
+            })
+            .def_buffer([](glm::mat4& m) -> py::buffer_info {
+                return py::buffer_info(&m[0],
+                        sizeof(float),
+                        py::format_descriptor<float>::format(),
+                        2,
+                        { 4, 4 },
+                        { sizeof(float) * 4 * 4 });
+            })
+            .def("__repr__", [](const glm::mat4& m) {
+                return glm::to_string(m);
+            })
+    );
 }
