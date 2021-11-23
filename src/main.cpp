@@ -30,9 +30,6 @@ static bool animate = false;
 static float animation_fps = 30;
 
 static std::shared_ptr<BackpropRendererOpenGL> renderer;
-// TODO debug
-static bool use_optix = false;
-static std::shared_ptr<RendererOptix> renderer_optix;
 
 // ------------------------------------------
 // helper funcs
@@ -160,8 +157,6 @@ void resize_callback(int w, int h) {
     renderer->resize(w, h);
     // restart rendering
     renderer->sample = 0;
-    // TODO debug
-    renderer_optix->resize(w, h);
 }
 
 void keyboard_callback(int key, int scancode, int action, int mods) {
@@ -184,8 +179,6 @@ void keyboard_callback(int key, int scancode, int action, int mods) {
         renderer->sample = 0;
         renderer->backprop_sample = 0;
     }
-    if (key == GLFW_KEY_O && action == GLFW_PRESS)
-        use_optix = !use_optix;
     if (key == GLFW_KEY_T && action == GLFW_PRESS)
         renderer->tonemapping = !renderer->tonemapping;
     if (key == GLFW_KEY_SPACE && action == GLFW_PRESS) {
@@ -236,7 +229,6 @@ void gui_callback(void) {
         if (ImGui::InputInt("Sppx", &sppx)) renderer->sample = 0;
         if (ImGui::InputInt("Bounces", &renderer->bounces)) renderer->sample = 0;
         if (ImGui::Checkbox("Vsync", &use_vsync)) Context::set_swap_interval(use_vsync ? 1 : 0);
-        ImGui::Checkbox("Use Optix", &use_optix);
         if (ImGui::Button("Use Brick PT")) {
             renderer->trace_shader = Shader("trace brick", "shader/pathtracer_brick.glsl");
             renderer->sample = 0;
@@ -439,9 +431,6 @@ int main(int argc, char** argv) {
     renderer = std::make_shared<BackpropRendererOpenGL>();
     renderer->init();
 
-    // TODO debug optix stuff
-    renderer_optix = std::make_shared<RendererOptix>();
-
     // install callbacks for interactive mode
     Context::set_resize_callback(resize_callback);
     Context::set_keyboard_callback(keyboard_callback);
@@ -507,9 +496,7 @@ int main(int argc, char** argv) {
         }
 
         // trace
-        if (use_optix)
-            renderer_optix->trace();
-        else if (renderer->sample < sppx) {
+        if (renderer->sample < sppx) {
             // forward rendering
             renderer->sample++;
             timer_trace->begin();
@@ -538,9 +525,7 @@ int main(int argc, char** argv) {
 
         // draw results
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-        if (use_optix)
-            renderer_optix->draw();
-        else if (adjoint)
+        if (adjoint)
             renderer->draw_adjoint();
         else
             renderer->draw();
@@ -551,5 +536,4 @@ int main(int argc, char** argv) {
 
     // cleanup
     renderer.reset();
-    renderer_optix.reset();
 }

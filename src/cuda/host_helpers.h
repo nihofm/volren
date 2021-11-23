@@ -55,6 +55,7 @@ public:
 
     __host__ ~BufferCUDA() {
         if (data) cudaCheckError(cudaFree(data));
+        data = 0;
     }
 
     __host__ void resize(const dim3& size) {

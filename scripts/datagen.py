@@ -3,7 +3,6 @@ import h5py
 import math
 import random
 import numpy as np
-from PIL import Image
 from volpy import *
 
 # SETTINGS
