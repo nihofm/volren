@@ -24,30 +24,6 @@ void tonemap(const Texture2D& tex, float exposure, float gamma) {
 // -----------------------------------------------------------
 // OpenGL renderer
 
-void RendererOpenGL::init_opengl(uint32_t w, uint32_t h, bool vsync, bool pinned, bool visible) {
-    static bool is_init = false;
-    if (is_init) return;
-
-    ContextParameters params;
-    params.width = w;
-    params.height = h;
-    params.title = "VolumeRenderer";
-    params.floating = pinned ? GLFW_TRUE : GLFW_FALSE;
-    params.resizable = pinned ? GLFW_FALSE : GLFW_TRUE;
-    params.swap_interval = vsync ? 1 : 0;
-    params.visible = visible ? GLFW_TRUE : GLFW_FALSE;
-    try  {
-        Context::init(params);
-    } catch (std::runtime_error& e) {
-        std::cerr << "Failed to create context: " << e.what() << std::endl;
-        std::cerr << "Retrying for offline rendering..." << std::endl;
-        params.visible = GLFW_FALSE;
-        Context::init(params);
-    }
-
-    is_init = true;
-}
-
 std::tuple<Texture3D, Texture3D, Texture3D> RendererOpenGL::brick_grid_to_textures(const std::shared_ptr<voldata::BrickGrid>& bricks) {
     // create indirection texture
     Texture3D indirection = Texture3D("brick indirection",
@@ -117,8 +93,6 @@ std::tuple<Texture3D, Texture3D, Texture3D> RendererOpenGL::brick_grid_to_textur
 }
 
 void RendererOpenGL::init() {
-    init_opengl();
-
     // load default volume
     if (!volume)
         volume = std::make_shared<voldata::Volume>();

@@ -387,17 +387,59 @@ void gui_callback(void) {
 }
 
 // ------------------------------------------
-// parse command line options
+// command line options
 
-static void parse_cmd(int argc, char** argv) {
-    // parse cmd line args
+// parse gl cmd line args
+static void init_opengl_from_args(int argc, char** argv) {
+    // collect args
+    ContextParameters params;
     for (int i = 1; i < argc; ++i) {
         const std::string arg = argv[i];
         if (arg == "-w")
-            Context::resize(std::stoi(argv[++i]), Context::resolution().y);
+            params.width = std::stoi(argv[++i]);
         else if (arg == "-h")
-            Context::resize(Context::resolution().x, std::stoi(argv[++i]));
-        else if (arg == "-spp")
+            params.height = std::stoi(argv[++i]);
+        else if (arg == "--title")
+            params.title = argv[++i];
+        else if (arg == "--major")
+            params.gl_major = std::stoi(argv[++i]);
+        else if (arg == "--minor")
+            params.gl_major = std::stoi(argv[++i]);
+        else if (arg == "--no-resize")
+            params.resizable = GLFW_FALSE;
+        else if (arg == "--hidden")
+            params.visible = GLFW_FALSE;
+        else if (arg == "--no-decoration")
+            params.decorated = GLFW_FALSE;
+        else if (arg == "--floating")
+            params.floating = GLFW_TRUE;
+        else if (arg == "--maximised")
+            params.maximised = GLFW_TRUE;
+        else if (arg == "--no-debug")
+            params.gl_debug_context = GLFW_FALSE;
+        else if (arg == "--swap")
+            params.swap_interval = std::stoi(argv[++i]);
+        else if (arg == "--font")
+            params.font_ttf_filename = argv[++i];
+        else if (arg == "--fontsize")
+            params.font_size_pixels = std::stoi(argv[++i]);
+    }
+    // create context
+    try  {
+        Context::init(params);
+    } catch (std::runtime_error& e) {
+        std::cerr << "Failed to create context: " << e.what() << std::endl;
+        std::cerr << "Retrying for offline rendering..." << std::endl;
+        params.visible = GLFW_FALSE;
+        Context::init(params);
+    }
+}
+
+// parse regular cmd line args
+static void parse_cmd(int argc, char** argv) {
+    for (int i = 1; i < argc; ++i) {
+        const std::string arg = argv[i];
+        if (arg == "-spp")
             sppx = std::stoi(argv[++i]);
         else if (arg == "-b")
             renderer->bounces = std::stoi(argv[++i]);
@@ -424,10 +466,10 @@ static void parse_cmd(int argc, char** argv) {
 // main
 
 int main(int argc, char** argv) {
-    // explicitly initialize OpenGL
-    RendererOpenGL::init_opengl(1920, 1080, use_vsync, /*pinned = */false, /*visible = */true);
+    // initialize OpenGL
+    init_opengl_from_args(argc, argv);
 
-    // initialize the renderer(s)
+    // initialize Renderer
     renderer = std::make_shared<BackpropRendererOpenGL>();
     renderer->init();
 

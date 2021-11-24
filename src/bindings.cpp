@@ -114,31 +114,14 @@ PYBIND11_EMBEDDED_MODULE(volpy, m) {
 
     py::class_<RendererOpenGL, std::shared_ptr<RendererOpenGL>>(m, "Renderer")
         .def(py::init<>())
-        .def_static("init_opengl", &RendererOpenGL::init_opengl,
-            py::arg("w") = uint32_t(1920), py::arg("h") = uint32_t(1080), py::arg("vsync") = false, py::arg("pinned") = false, py::arg("visible") = false)
         .def("init", &Renderer::init)
-        .def("set_floating", [](const std::shared_ptr<RendererOpenGL>& renderer, bool value = true) {
-            Context::set_attribute(GLFW_FLOATING, value);
-        })
-        .def("set_resizable", [](const std::shared_ptr<RendererOpenGL>& renderer, bool value = true) {
-            Context::set_attribute(GLFW_RESIZABLE, value);
-        })
-        .def("resize", [](const std::shared_ptr<RendererOpenGL>& renderer, int w, int h) {
-            Context::resize(w, h);
-            renderer->resize(w, h);
-        })
-        .def("commit", [](const std::shared_ptr<RendererOpenGL>& renderer) {
-            renderer->commit();
+        .def("commit", &Renderer::commit)
+        .def("trace", &RendererOpenGL::trace)
+        .def("render", [](const std::shared_ptr<RendererOpenGL>& renderer, int spp) {
             current_camera()->update();
             renderer->sample = 0;
             glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-        })
-        .def("trace", &RendererOpenGL::trace)
-        .def("render", [](const std::shared_ptr<RendererOpenGL>& renderer, int spp) {
-            renderer->commit();
-            current_camera()->update();
-            renderer->sample = 0;
-            while (renderer->sample < spp)
+            while (renderer->sample++ < spp)
                 renderer->trace();
         })
         .def("draw", [](const std::shared_ptr<RendererOpenGL>& renderer) {
@@ -160,20 +143,10 @@ PYBIND11_EMBEDDED_MODULE(volpy, m) {
         .def("save", [](const std::shared_ptr<RendererOpenGL>& renderer, const std::string& filename = "out.png") {
             Context::screenshot(filename);
         })
+        // members
         .def_readwrite("volume", &RendererOpenGL::volume)
         .def_readwrite("environment", &RendererOpenGL::environment)
         .def_readwrite("transferfunc", &RendererOpenGL::transferfunc)
-        .def_readwrite_static("cam_pos", &current_camera()->pos)
-        .def_readwrite_static("cam_dir", &current_camera()->dir)
-        .def_readwrite_static("cam_fov", &current_camera()->fov_degree)
-        .def_readwrite_static("view_matrix", &current_camera()->view)
-        .def_readwrite_static("proj_matrix", &current_camera()->proj)
-        .def_static("view_quat", []() {
-            return glm::quat_cast(current_camera()->view);
-        })
-        .def_static("colmap_matrix", []() {
-            return glm::mat4(1, 0, 0, 0,   0, -1, 0, 0,    0, 0, -1, 0,    0, 0, 0, 1);
-        })
         .def_readwrite("sample", &RendererOpenGL::sample)
         .def_readwrite("sppx", &RendererOpenGL::sppx)
         .def_readwrite("bounces", &RendererOpenGL::bounces)
@@ -184,7 +157,57 @@ PYBIND11_EMBEDDED_MODULE(volpy, m) {
         .def_readwrite("show_environment", &RendererOpenGL::show_environment)
         .def_readwrite("vol_clip_min", &RendererOpenGL::vol_clip_min)
         .def_readwrite("vol_clip_max", &RendererOpenGL::vol_clip_max)
-        .def_static("shutdown", []() { exit(0); });
+        // camera
+        .def_readwrite_static("cam_pos", &current_camera()->pos)
+        .def_readwrite_static("cam_dir", &current_camera()->dir)
+        .def_readwrite_static("cam_up", &current_camera()->up)
+        .def_readwrite_static("cam_fov", &current_camera()->fov_degree)
+        .def_readwrite_static("cam_near", &current_camera()->near)
+        .def_readwrite_static("cam_far", &current_camera()->far)
+        .def_readwrite_static("view_matrix", &current_camera()->view)
+        .def_readwrite_static("proj_matrix", &current_camera()->proj)
+        .def_static("cam_aspect", &current_camera()->aspect_ratio)
+        .def_static("shutdown", []() { exit(0); })
+        // colmap stuff
+        .def_static("colmap_view_trans", []() {
+            return glm::vec3(glm::inverse(current_camera()->view)[3]);
+        })
+        .def_static("colmap_view_rot", []() {
+            // return glm::quat_cast(current_camera()->view);
+            const glm::mat4 GL_TO_COLMAP = glm::inverse(glm::mat4(1, 0, 0, 0,   0, -1, 0, 0,    0, 0, -1, 0,    0, 0, 0, 1));
+            return glm::quat_cast(GL_TO_COLMAP * current_camera()->view);
+        })
+        .def_static("colmap_focal_length", []() {
+            // TODO different f_x and f_y params, or quadratic images only?
+            return Context::resolution().y / (2 * tan(0.5 * glm::radians(current_camera()->fov_degree)));
+        })
+        .def_static("colmap_test_pos", [](const glm::quat& rot, const glm::vec3& trans) {
+            glm::mat3 R = glm::mat3_cast(rot);
+            glm::mat3 C = (-1.f*glm::transpose(R));
+            glm::vec3 cam_pos = C*trans;
+            return cam_pos;
+
+            return -glm::transpose(glm::mat3_cast(rot)) * trans;
+        })
+        .def_static("colmap_test_view", [](const glm::quat& rot, const glm::vec3& trans) {
+            const glm::mat4 COLMAP_TO_GL = glm::mat4(1, 0, 0, 0,   0, -1, 0, 0,    0, 0, -1, 0,    0, 0, 0, 1);
+            glm::mat4 V = glm::mat4_cast(rot); // R mat
+            V[3] = glm::vec4(trans.x, trans.y, trans.z, 1.f);
+            return COLMAP_TO_GL * V;
+
+            return glm::mat4_cast(rot) * glm::translate(glm::mat4(1), trans);
+            const glm::mat4 RT = glm::transpose(glm::mat4_cast(rot));
+            return -RT * glm::translate(glm::mat4(1), trans);
+            // return glm::mat4(1, 0, 0, 0,   0, -1, 0, 0,    0, 0, -1, 0,    0, 0, 0, 1) * current_camera()->view;
+        })
+        .def_static("colmap_test_proj", [](float f_x, float f_y, float c_x, float c_y, float near, float far, uint32_t w, uint32_t h) {
+            const glm::mat4 proj = glm::mat4( 
+                2*f_x/w,  0.0,    (w - 2*c_x)/w, 0.0,
+                0.0,    2*f_y/h, (h - 2*c_y)/h, 0.0,
+                0.0, 0.0, (-far - near) / (far - near), -2.0*far*near/(far-near),
+                0.0, 0.0, -1.0, 0.0);
+            return glm::transpose(proj);
+        });
 
     // ------------------------------------------------------------
     // glm vector bindings

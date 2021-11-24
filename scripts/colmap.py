@@ -479,6 +479,14 @@ def main():
         write_model(cameras, images, points3D, path=args.output_model, ext=args.output_format)
 
 # -------------------------------------------------------------------------------------------------
+# own stuff from here
+
+def uniform_sample_sphere():
+    import random
+    z = 1.0 - 2.0 * random.random();
+    r = math.sqrt(max(0.0, 1.0 - z * z));
+    phi = 2.0 * math.pi * random.random();
+    return vec3(r * math.cos(phi), r * math.sin(phi), z);
 
 if __name__ == "__main__":
     # load example data
@@ -489,45 +497,100 @@ if __name__ == "__main__":
     #print("images:", images)
     #print("points3D:", points3D)
 
+    import os
+    import math
     from volpy import *
 
     # settings
-    WIDTH = 1024
-    HEIGHT = 1024
+    PATH = "./colmap"
+    VOLUME = "/home/niko/render-data/volumetric/bunny_cloud.vdb"
+    ENVMAP = "/home/niko/render-data/envmaps/chinese_garden_2k.hdr"
+    FOVY = 70
     SAMPLES = 1024
+    BOUNCES = 3
+    SEED = 42
+    N_VIEWS = 10
+    BACKGROUND = False
 
     # init
     renderer = Renderer()
     renderer.init()
-    renderer.set_floating(True)
-    renderer.resize(WIDTH, HEIGHT)
-    renderer.set_resizable(False)
     renderer.tonemapping = True
     renderer.draw()
+    os.makedirs(PATH, exist_ok=True)
 
-    #print('-----------')
-    #print(renderer.cam_pos)
-    #print(renderer.view_matrix)
-    #print(renderer.view_quat())
-    #print('-----------')
-    #print(np.array(renderer.cam_pos))
-    #print(np.array(renderer.view_matrix))
-    #print(np.array(renderer.view_quat()))
+    # setup scene
+    renderer.seed = SEED
+    renderer.bounces = BOUNCES
+    renderer.volume = Volume(VOLUME)
+    renderer.volume.albedo = vec3(1, 1, 1)
+    renderer.volume.phase = 0.0
+    renderer.volume.density_scale = 3.0
+    renderer.environment = Environment(ENVMAP)
+    renderer.environment.strength = 1.0
+    renderer.show_environment = BACKGROUND
+    renderer.commit()
 
-    #camera_params: focal_length, center_x, center_y
     cameras = {}
-    focal_length = renderer.cam_fov # TODO fov to focal length
-    cameras[0] = Camera(id=0, model="SIMPLE_PINHOLE", width=WIDTH, height=HEIGHT, params=np.array([focal_length, WIDTH//2, HEIGHT//2]))
     images = {}
-    images[0] = Image(id=0, qvec=np.array(renderer.view_quat()), tvec=np.array(renderer.cam_pos), camera_id=0, name="test.png", xys=np.array([]), point3D_ids=np.array([]))
     points3D = {}
+    
+    # HACK: write world-space AABB of volume as two points3D
+    points3D[0] = Point3D(id=0, xyz=np.array(renderer.volume.AABB()[0]), rgb=np.array([0, 0, 0]), error=0, image_ids=np.array([]), point2D_idxs=np.array([]))
+    points3D[1] = Point3D(id=1, xyz=np.array(renderer.volume.AABB()[1]), rgb=np.array([1, 1, 1]), error=0, image_ids=np.array([]), point2D_idxs=np.array([]))
+
+    for i in range(N_VIEWS):
+        # setup camera
+        bb_min, bb_max = renderer.volume.AABB()
+        center = bb_min + (bb_max - bb_min) * 0.5
+        radius = (bb_max - center).length()
+        renderer.cam_pos = center + uniform_sample_sphere() * radius
+        renderer.cam_dir = (center + uniform_sample_sphere() * radius * 0.1 - renderer.cam_pos).normalize()
+        renderer.cam_fov = FOVY
+        # HACK: text principal axis
+        if i == 0:
+            renderer.cam_pos = center + radius * vec3(1, 0, 0)
+            renderer.cam_dir = (center - renderer.cam_pos).normalize()
+            renderer.cam_up = vec3(0, 1, 0)
+        if i == 1:
+            renderer.cam_pos = center + radius * vec3(0, 1, 0)
+            renderer.cam_dir = (center - renderer.cam_pos).normalize()
+            renderer.cam_up = vec3(1, 0, 0)
+        if i == 2:
+            renderer.cam_pos = center + radius * vec3(0, 0, 1)
+            renderer.cam_dir = (center - renderer.cam_pos).normalize()
+            renderer.cam_up = vec3(0, 1, 0)
+        # render view
+        renderer.render(SAMPLES)
+        renderer.draw()
+        # store view
+        filename = f"view_{i:04}.png"
+        renderer.save(os.path.join(PATH, filename))
+        cameras[i] = Camera(id=0, model="SIMPLE_PINHOLE", width=renderer.resolution().x, height=renderer.resolution().y, params=np.array([renderer.colmap_focal_length(), renderer.resolution().x//2, renderer.resolution().y//2]))
+        images[i] = Image(id=0, qvec=np.array(renderer.colmap_view_rot()), tvec=np.array(renderer.colmap_view_trans()), camera_id=0, name=filename, xys=np.array([]), point3D_ids=np.array([]))
+
+        # XXX DEBUG
+        print('-----------')
+        print("gl_aspect:", renderer.cam_aspect())
+        print("gl_pos:", renderer.cam_pos)
+        print("gl_view:\n", np.array(renderer.view_matrix))
+        print("colmap_trans:", renderer.colmap_view_trans())
+        print("colmap_rot:", renderer.colmap_view_rot())
+        print("colmap_test_pos:", renderer.colmap_test_pos(renderer.colmap_view_rot(), renderer.colmap_view_trans()))
+        print("colmap_test_view\n:", np.array(renderer.colmap_test_view(renderer.colmap_view_rot(), renderer.colmap_view_trans())))
+        print('-----------')
+        gl_proj = renderer.proj_matrix
+        colmap_proj = renderer.colmap_test_proj(renderer.colmap_focal_length(), renderer.colmap_focal_length(), renderer.resolution().x//2, renderer.resolution().y//2, renderer.cam_near, renderer.cam_far, renderer.resolution().x, renderer.resolution().y)
+        print("GL proj matrix:\n", np.array(gl_proj))
+        print("COLMAP proj matrix:\n", np.array(colmap_proj))
 
     print('-----------')
     print('colmap write')
     print("cameras:", cameras)
     print("images:", images)
     print("points3D:", points3D)
-    write_model(cameras, images, points3D, path="colmap/", ext=".txt")
+
+    write_model(cameras, images, points3D, path=PATH, ext=".txt")
 
     # shutdown
     renderer.shutdown()
