@@ -488,7 +488,7 @@ bool sample_volumeDDA(const vec3 wpos, const vec3 wdir, out float t, inout vec3 
 #else
         const float d = lookup_density(ipos + t * idir, seed);
 #endif
-        Le += throughput * lookup_emission(ipos + t * idir, seed) * d * vol_inv_majorant; // TODO: model absorption
+        Le += throughput * (1.f - vol_albedo) * lookup_emission(ipos + t * idir, seed) * d * vol_inv_majorant;
         if (rng(seed) * majorant < d) { // check if real or null collision
             throughput *= vol_albedo;
 #ifdef USE_TRANSFERFUNC

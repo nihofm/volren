@@ -129,7 +129,9 @@ void RendererOpenGL::commit() {
     std::cout << "Preparing brick grids for OpenGL..." << std::endl;
     for (const auto& frame : volume->grids) {
         density_grids.push_back(brick_grid_to_textures(voldata::Volume::to_brick_grid(frame.at("density"))));
-        if (frame.find("temperature") != frame.end())
+        if (frame.find("flame") != frame.end())
+            emission_grids.push_back(brick_grid_to_textures(voldata::Volume::to_brick_grid(frame.at("flame"))));
+        else if (frame.find("temperature") != frame.end())
             emission_grids.push_back(brick_grid_to_textures(voldata::Volume::to_brick_grid(frame.at("temperature"))));
     }
     // create irradiance cache texture in same resolution as largest indirection grid

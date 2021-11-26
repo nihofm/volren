@@ -28,6 +28,7 @@ static float shader_check_delay_ms = 1000;
 
 static bool animate = false;
 static float animation_fps = 30;
+static bool render_animation = false; // TODO animation rendering
 
 static std::shared_ptr<BackpropRendererOpenGL> renderer;
 
@@ -38,7 +39,8 @@ void load_volume(const std::string& path) {
     try {
         if (fs::is_directory(path)) {
             // load contents of folder
-            renderer->volume = voldata::Volume::load_folder(path, { "density", "temperature" }); // TODO: hardcoded grid names
+            // TODO FIXME handle empty emission grids
+            renderer->volume = voldata::Volume::load_folder(path, { "density", "flame", "temperature" }); // TODO: hardcoded grid names
         } else {
             // load single grid
             renderer->volume = std::make_shared<voldata::Volume>(path);
@@ -48,7 +50,11 @@ void load_volume(const std::string& path) {
             // try to add emission grid
             if (fs::path(path).extension() == ".vdb") {
                 try {
-                    renderer->volume->update_current_grid(voldata::Volume::load_grid(path, "temperature"), "temperature");
+                    renderer->volume->update_grid_frame(renderer->volume->grid_frame_counter, voldata::Volume::load_grid(path, "flame"), "flame");
+                    renderer->volume->emission_scale = 1.f;
+                } catch (std::runtime_error& e) {}
+                try {
+                    renderer->volume->update_grid_frame(renderer->volume->grid_frame_counter, voldata::Volume::load_grid(path, "temperature"), "temperature");
                     renderer->volume->emission_scale = 1.f;
                 } catch (std::runtime_error& e) {}
             }
@@ -393,6 +399,7 @@ void gui_callback(void) {
 static void init_opengl_from_args(int argc, char** argv) {
     // collect args
     ContextParameters params;
+    params.title = "VolRen";
     for (int i = 1; i < argc; ++i) {
         const std::string arg = argv[i];
         if (arg == "-w")
@@ -497,8 +504,7 @@ int main(int argc, char** argv) {
         std::vector<float> values = { 1, 2.5, 5, 10 };
         auto box = std::make_shared<voldata::DenseGrid>(1, 1, 4, values.data());
         box->transform = glm::translate(glm::scale(glm::mat4(1), glm::vec3(scale)), 2 * scale * current_camera()->dir + glm::vec3(0, -0.5, -2));
-        renderer->volume = std::make_shared<voldata::Volume>();
-        renderer->volume->add_grid_to_new_frame(box);
+        renderer->volume = std::make_shared<voldata::Volume>(box);
         renderer->commit();
     }
 
