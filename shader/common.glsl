@@ -323,10 +323,14 @@ void irradiance_update(const vec3 ipos, const vec3 Li) {
 }
 
 vec3 irradiance_query(const uint idx) {
+    if (idx > irradiance_size.x * irradiance_size.y * irradiance_size.z) return vec3(0);
     return irradiance_cache[idx].rgb;
 }
 vec3 irradiance_query(const vec3 ipos) {
     return irradiance_query(irradiance_idx(ipos));
+}
+vec3 irradiance_query(const vec3 ipos, inout uint seed) {
+    return irradiance_query(irradiance_idx(ipos + 8 * (rng3(seed) - 0.5)));
 }
 
 // ---------------------------------

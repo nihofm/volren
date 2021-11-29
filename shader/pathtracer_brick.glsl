@@ -15,53 +15,6 @@ uniform int seed;
 uniform int show_environment;
 uniform ivec2 resolution;
 
-// DDA-based volume sampling
-bool sample_volumeDDA_emission(const vec3 wpos, const vec3 wdir, out float t, inout vec3 throughput, out vec3 Le, inout uint seed) {
-    Le = vec3(0);
-    // clip volume
-    vec2 near_far;
-    if (!intersect_box(wpos, wdir, vol_bb_min, vol_bb_max, near_far)) return false;
-    // to index-space
-    const vec3 ipos = vec3(vol_inv_model * vec4(wpos, 1));
-    const vec3 idir = vec3(vol_inv_model * vec4(wdir, 0)); // non-normalized!
-    const vec3 ri = 1.f / idir;
-    // march brick grid
-    t = near_far.x + 1e-6f;
-    float tau = -log(1.f - rng(seed)), mip = MIP_START;
-    while (t < near_far.y) {
-        const vec3 curr = ipos + t * idir;
-#ifdef USE_TRANSFERFUNC
-        const float majorant = vol_majorant * tf_lookup(lookup_majorant(curr, int(round(mip))) * vol_inv_majorant).a;
-#else
-        const float majorant = lookup_majorant(curr, int(round(mip)));
-#endif
-        const float dt = stepDDA(curr, ri, int(round(mip)));
-        t += dt;
-        tau -= majorant * dt;
-        mip = min(mip + MIP_SPEED_UP, 3.f);
-        if (tau > 0) continue; // no collision, step ahead
-        t += tau / majorant; // step back to point of collision
-        if (t >= near_far.y) break;
-#ifdef USE_TRANSFERFUNC
-        const vec4 rgba = tf_lookup(lookup_density(ipos + t * idir, seed) * vol_inv_majorant);
-        const float d = vol_majorant * rgba.a;
-#else
-        const float d = lookup_density(ipos + t * idir, seed);
-        Le += throughput * lookup_emission(ipos + t * idir, seed) * d * vol_inv_majorant;
-#endif
-        if (rng(seed) * majorant < d) { // check if real or null collision
-            throughput *= vol_albedo;
-#ifdef USE_TRANSFERFUNC
-            throughput *= rgba.rgb;
-#endif
-            return true;
-        }
-        tau = -log(1.f - rng(seed));
-        mip = max(0.f, mip - MIP_SPEED_DOWN);
-    }
-    return false;
-}
-
 vec3 trace_path(vec3 pos, vec3 dir, inout uint seed) {
     // trace path
     vec3 L = vec3(0), throughput = vec3(1);
