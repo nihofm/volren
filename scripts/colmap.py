@@ -509,7 +509,7 @@ if __name__ == "__main__":
     SAMPLES = 1024
     BOUNCES = 3
     SEED = 42
-    N_VIEWS = 10
+    N_VIEWS = 3
     BACKGROUND = False
 
     # init
@@ -536,12 +536,13 @@ if __name__ == "__main__":
     points3D = {}
     
     # HACK: write world-space AABB of volume as two points3D
-    points3D[0] = Point3D(id=0, xyz=np.array(renderer.volume.AABB()[0]), rgb=np.array([0, 0, 0]), error=0, image_ids=np.array([]), point2D_idxs=np.array([]))
-    points3D[1] = Point3D(id=1, xyz=np.array(renderer.volume.AABB()[1]), rgb=np.array([1, 1, 1]), error=0, image_ids=np.array([]), point2D_idxs=np.array([]))
+    # TODO FIXME: renderer.volume.AABB() call fails
+    #points3D[0] = Point3D(id=0, xyz=np.array(renderer.volume.AABB("density")[0]), rgb=np.array([0, 0, 0]), error=0, image_ids=np.array([]), point2D_idxs=np.array([]))
+    #points3D[1] = Point3D(id=1, xyz=np.array(renderer.volume.AABB("density")[1]), rgb=np.array([1, 1, 1]), error=0, image_ids=np.array([]), point2D_idxs=np.array([]))
 
     for i in range(N_VIEWS):
         # setup camera
-        bb_min, bb_max = renderer.volume.AABB()
+        bb_min, bb_max = renderer.volume.AABB("density")
         center = bb_min + (bb_max - bb_min) * 0.5
         radius = (bb_max - center).length()
         renderer.cam_pos = center + uniform_sample_sphere() * radius
@@ -571,18 +572,17 @@ if __name__ == "__main__":
 
         # XXX DEBUG
         print('-----------')
-        print("gl_aspect:", renderer.cam_aspect())
+        #print("gl_aspect:", renderer.cam_aspect())
         print("gl_pos:", renderer.cam_pos)
-        print("gl_view:\n", np.array(renderer.view_matrix))
+        print("gl_view:\n", renderer.view_matrix)
+        print("gl_proj:\n", renderer.proj_matrix)
+        print('-----------')
         print("colmap_trans:", renderer.colmap_view_trans())
         print("colmap_rot:", renderer.colmap_view_rot())
-        print("colmap_test_pos:", renderer.colmap_test_pos(renderer.colmap_view_rot(), renderer.colmap_view_trans()))
-        print("colmap_test_view\n:", np.array(renderer.colmap_test_view(renderer.colmap_view_rot(), renderer.colmap_view_trans())))
         print('-----------')
-        gl_proj = renderer.proj_matrix
-        colmap_proj = renderer.colmap_test_proj(renderer.colmap_focal_length(), renderer.colmap_focal_length(), renderer.resolution().x//2, renderer.resolution().y//2, renderer.cam_near, renderer.cam_far, renderer.resolution().x, renderer.resolution().y)
-        print("GL proj matrix:\n", np.array(gl_proj))
-        print("COLMAP proj matrix:\n", np.array(colmap_proj))
+        print("colmap_test_pos:", renderer.colmap_test_pos(renderer.colmap_view_rot(), renderer.colmap_view_trans()))
+        print("colmap_test_view\n:", renderer.colmap_test_view(renderer.colmap_view_rot(), renderer.colmap_view_trans()))
+        print("colmap_text_proj:\n", renderer.colmap_test_proj(renderer.colmap_focal_length(), renderer.colmap_focal_length(), renderer.resolution().x//2, renderer.resolution().y//2, renderer.cam_near, renderer.cam_far, renderer.resolution().x, renderer.resolution().y))
 
     print('-----------')
     print('colmap write')

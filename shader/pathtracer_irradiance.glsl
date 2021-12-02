@@ -15,7 +15,9 @@ uniform int seed;
 uniform int show_environment;
 uniform ivec2 resolution;
 
-vec3 direct_volume_rendering_irradiance_cache(vec3 pos, vec3 dir, inout uint seed) {
+vec3 direct_volume_rendering_irradiance_cache(vec3 pos, vec3 dir, inout uint seed, out float dx_col, out float dx_tr) {
+    dx_tr = 0;
+    dx_col = 0;
     vec3 L = vec3(0);
     // clip volume
     vec2 near_far;
@@ -23,19 +25,33 @@ vec3 direct_volume_rendering_irradiance_cache(vec3 pos, vec3 dir, inout uint see
     // to index-space
     const vec3 ipos = vec3(vol_inv_model * vec4(pos, 1));
     const vec3 idir = vec3(vol_inv_model * vec4(dir, 0)); // non-normalized!
-    // ray marching
     const float dt = (near_far.y - near_far.x) / float(RAYMARCH_STEPS);
-    near_far.x += rng(seed) * dt; // jitter starting position TODO FIXME: account for skipped part
-    float Tr = 1.f;
+    // jitter starting position
+    const float jitter = rng(seed) * dt;
+    near_far.x += jitter;
+    float Tr = exp(-lookup_density(ipos + near_far.x * idir, seed) * jitter);
+    // ray marching
     for (int i = 0; i < RAYMARCH_STEPS; ++i) {
         const vec3 curr = ipos + min(near_far.x + i * dt, near_far.y) * idir;
+#ifdef USE_TRANSFERFUNC
+        const float d_real = lookup_density(curr, seed);
+        const vec4 rgba = tf_lookup(d_real * vol_inv_majorant);
+        const float d = rgba.a * vol_majorant;
+#else
         const float d = lookup_density(curr, seed);
-        const vec3 Le = vol_albedo * irradiance_query(curr, seed);
+#endif
+        const vec3 Le = irradiance_query(curr, seed);
         const float dtau = d * dt;
-        // TODO: ordering of Tr update vs Le accum (filtering?)
-        L += Le * dtau * Tr;
+        // accum emission from irradiance cache with geom avg of transmittance along segment
+        L += Le * dtau * Tr * exp(-dtau * 0.5);
+#ifdef USE_TRANSFERFUNC
+        // partials
+        dx_col += d_real * dtau * Tr;
+        dx_tr += 0.f; // TODO
+#endif
+        // update transmittance
         Tr *= exp(-dtau);
-        if (Tr <= 1e-6) return L;
+        if (Tr <= 1e-5) break;//return L;
     }
     return L + lookup_environment(dir) * Tr;
 }
@@ -100,11 +116,11 @@ void update_cache(vec3 pos, vec3 dir, inout uint seed) {
             const float f_p = phase_isotropic();
             const float mis_weight = show_environment > 0 ? power_heuristic(Le_pdf.w, f_p) : 1.f;
             const float Tr = transmittanceDDA(pos, w_i, seed);
-            Li += mis_weight * f_p * Tr * Le_pdf.rgb / Le_pdf.w;
+            Li += throughput * mis_weight * f_p * Tr * Le_pdf.rgb / Le_pdf.w;
         }
 
         const vec3 scatter_dir = sample_phase_isotropic(rng2(seed));
-        Li += trace_path(pos, scatter_dir, seed);
+        Li += throughput * trace_path(pos, scatter_dir, seed);
         irradiance_update(vec3(vol_inv_model * vec4(pos, 1)), Li);
     }
 }
@@ -144,7 +160,9 @@ void main() {
     // const vec3 L = vec3(transmittanceDDA(pos, dir, seed));
 
     update_cache(pos, dir, seed);
-    const vec3 L = direct_volume_rendering_irradiance_cache(pos, dir, seed);
+    float dx_col, dx_tr;
+    vec3 L = direct_volume_rendering_irradiance_cache(pos, dir, seed, dx_col, dx_tr);
+    L = vec3(dx_col);
 
     // write result
     imageStore(color, pixel, vec4(mix(imageLoad(color, pixel).rgb, sanitize(L), 1.f / current_sample), 1));

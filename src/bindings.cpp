@@ -1,4 +1,5 @@
 #include <glm/glm.hpp>
+#include <glm/gtx/quaternion.hpp>
 
 #include <pybind11/pybind11.h>
 #include <pybind11/embed.h>
@@ -85,7 +86,7 @@ PYBIND11_EMBEDDED_MODULE(volpy, m) {
         .def("clear", &voldata::Volume::clear)
         .def("load_grid", &voldata::Volume::load_grid)
         .def("current_grid", &voldata::Volume::current_grid)
-        .def("AABB", &voldata::Volume::AABB)
+        .def("AABB", &voldata::Volume::AABB) // TODO default argument
         .def("minorant_majorant", &voldata::Volume::minorant_majorant)
         .def_readwrite("albedo", &voldata::Volume::albedo)
         .def_readwrite("phase", &voldata::Volume::phase)
@@ -170,15 +171,16 @@ PYBIND11_EMBEDDED_MODULE(volpy, m) {
         .def_static("shutdown", []() { exit(0); })
         // colmap stuff
         .def_static("colmap_view_trans", []() {
-            return glm::vec3(glm::inverse(current_camera()->view)[3]);
+            const glm::mat4 GL_TO_COLMAP = glm::inverse(glm::mat4(1, 0, 0, 0,   0, -1, 0, 0,    0, 0, -1, 0,    0, 0, 0, 1));
+            return glm::vec3((GL_TO_COLMAP * current_camera()->view)[3]);
         })
         .def_static("colmap_view_rot", []() {
-            // return glm::quat_cast(current_camera()->view);
             const glm::mat4 GL_TO_COLMAP = glm::inverse(glm::mat4(1, 0, 0, 0,   0, -1, 0, 0,    0, 0, -1, 0,    0, 0, 0, 1));
-            return glm::quat_cast(GL_TO_COLMAP * current_camera()->view);
+            return glm::normalize(glm::toQuat(GL_TO_COLMAP * current_camera()->view));
+            // return glm::normalize(glm::quat_cast(GL_TO_COLMAP * current_camera()->view)); // TODO this the same as above?
         })
         .def_static("colmap_focal_length", []() {
-            // TODO different f_x and f_y params, or quadratic images only?
+            // TODO different f_x and f_y params?
             return Context::resolution().y / (2 * tan(0.5 * glm::radians(current_camera()->fov_degree)));
         })
         .def_static("colmap_test_pos", [](const glm::quat& rot, const glm::vec3& trans) {
@@ -186,19 +188,12 @@ PYBIND11_EMBEDDED_MODULE(volpy, m) {
             glm::mat3 C = (-1.f*glm::transpose(R));
             glm::vec3 cam_pos = C*trans;
             return cam_pos;
-
-            return -glm::transpose(glm::mat3_cast(rot)) * trans;
         })
         .def_static("colmap_test_view", [](const glm::quat& rot, const glm::vec3& trans) {
             const glm::mat4 COLMAP_TO_GL = glm::mat4(1, 0, 0, 0,   0, -1, 0, 0,    0, 0, -1, 0,    0, 0, 0, 1);
             glm::mat4 V = glm::mat4_cast(rot); // R mat
             V[3] = glm::vec4(trans.x, trans.y, trans.z, 1.f);
             return COLMAP_TO_GL * V;
-
-            return glm::mat4_cast(rot) * glm::translate(glm::mat4(1), trans);
-            const glm::mat4 RT = glm::transpose(glm::mat4_cast(rot));
-            return -RT * glm::translate(glm::mat4(1), trans);
-            // return glm::mat4(1, 0, 0, 0,   0, -1, 0, 0,    0, 0, -1, 0,    0, 0, 0, 1) * current_camera()->view;
         })
         .def_static("colmap_test_proj", [](float f_x, float f_y, float c_x, float c_y, float near, float far, uint32_t w, uint32_t h) {
             const glm::mat4 proj = glm::mat4( 
