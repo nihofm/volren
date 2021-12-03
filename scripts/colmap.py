@@ -509,7 +509,7 @@ if __name__ == "__main__":
     SAMPLES = 1024
     BOUNCES = 3
     SEED = 42
-    N_VIEWS = 3
+    N_VIEWS = 25
     BACKGROUND = False
 
     # init
@@ -535,11 +535,13 @@ if __name__ == "__main__":
     images = {}
     points3D = {}
     
-    # HACK: write world-space AABB of volume as two points3D
-    # TODO FIXME: renderer.volume.AABB() call fails
-    #points3D[0] = Point3D(id=0, xyz=np.array(renderer.volume.AABB("density")[0]), rgb=np.array([0, 0, 0]), error=0, image_ids=np.array([]), point2D_idxs=np.array([]))
-    #points3D[1] = Point3D(id=1, xyz=np.array(renderer.volume.AABB("density")[1]), rgb=np.array([1, 1, 1]), error=0, image_ids=np.array([]), point2D_idxs=np.array([]))
+    # HACK: write world-space AABB of volume as point3D (pos + rgb)
+    points3D[0] = Point3D(id=0, xyz=np.array(renderer.volume.AABB("density")[0]), rgb=np.array(renderer.volume.AABB("density")[1]), error=0, image_ids=np.array([]), point2D_idxs=np.array([]))
 
+    # write camera
+    cameras[0] = Camera(id=0, model="SIMPLE_PINHOLE", width=renderer.resolution().x, height=renderer.resolution().y, params=np.array([renderer.colmap_focal_length(), renderer.resolution().x//2, renderer.resolution().y//2]))
+
+    # write views
     for i in range(N_VIEWS):
         # setup camera
         bb_min, bb_max = renderer.volume.AABB("density")
@@ -548,7 +550,7 @@ if __name__ == "__main__":
         renderer.cam_pos = center + uniform_sample_sphere() * radius
         renderer.cam_dir = (center + uniform_sample_sphere() * radius * 0.1 - renderer.cam_pos).normalize()
         renderer.cam_fov = FOVY
-        # HACK: text principal axis
+        # HACK: test principal axis
         if i == 0:
             renderer.cam_pos = center + radius * vec3(1, 0, 0)
             renderer.cam_dir = (center - renderer.cam_pos).normalize()
@@ -567,8 +569,7 @@ if __name__ == "__main__":
         # store view
         filename = f"view_{i:04}.png"
         renderer.save(os.path.join(PATH, filename))
-        cameras[i] = Camera(id=0, model="SIMPLE_PINHOLE", width=renderer.resolution().x, height=renderer.resolution().y, params=np.array([renderer.colmap_focal_length(), renderer.resolution().x//2, renderer.resolution().y//2]))
-        images[i] = Image(id=0, qvec=np.array(renderer.colmap_view_rot()), tvec=np.array(renderer.colmap_view_trans()), camera_id=0, name=filename, xys=np.array([]), point3D_ids=np.array([]))
+        images[i] = Image(id=i, qvec=np.array(renderer.colmap_view_rot())[[3, 0, 1, 2]], tvec=np.array(renderer.colmap_view_trans()), camera_id=0, name=filename, xys=np.array([]), point3D_ids=np.array([]))
 
         # XXX DEBUG
         print('-----------')
