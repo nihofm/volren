@@ -177,7 +177,7 @@ void RendererOpenGL::trace() {
     trace_shader->uniform("vol_density_indirection", density_indirection, tex_unit++);
     trace_shader->uniform("vol_density_range", density_range, tex_unit++);
     trace_shader->uniform("vol_density_atlas", density_atlas, tex_unit++);
-    // TODO emission brick grid data
+    // emission brick grid data TODO: finalize layout
     if (volume->grid_frame_counter < emission_grids.size()) {
         const auto [emission_indirection, emission_range, emission_atlas] = emission_grids[volume->grid_frame_counter];
         trace_shader->uniform("vol_emission_indirection", emission_indirection, tex_unit++);
@@ -288,6 +288,7 @@ void BackpropRendererOpenGL::backprop() {
     color_prediction->bind_image(0, GL_READ_WRITE, GL_RGBA32F);
     color->bind_image(1, GL_READ_ONLY, GL_RGBA32F);
     color_backprop->bind_image(2, GL_WRITE_ONLY, GL_RGBA32F);
+    irradiance_cache->bind_base(5);
 
     // uniforms
     uint32_t tex_unit = 0;
@@ -319,6 +320,15 @@ void BackpropRendererOpenGL::backprop() {
     backprop_shader->uniform("vol_density_indirection", density_indirection, tex_unit++);
     backprop_shader->uniform("vol_density_range", density_range, tex_unit++);
     backprop_shader->uniform("vol_density_atlas", density_atlas, tex_unit++);
+    // emission brick grid data TODO: finalize layout
+    if (volume->grid_frame_counter < emission_grids.size()) {
+        const auto [emission_indirection, emission_range, emission_atlas] = emission_grids[volume->grid_frame_counter];
+        backprop_shader->uniform("vol_emission_indirection", emission_indirection, tex_unit++);
+        backprop_shader->uniform("vol_emission_range", emission_range, tex_unit++);
+        backprop_shader->uniform("vol_emission_atlas", emission_atlas, tex_unit++);
+    }
+    // irradiance cache
+    backprop_shader->uniform("irradiance_size", glm::uvec3(density_indirection->w, density_indirection->h, density_indirection->d));
     // transfer function
     transferfunc->set_uniforms(backprop_shader, tex_unit, 4);
     backprop_shader->uniform("tf_optimization", 1);
@@ -338,6 +348,7 @@ void BackpropRendererOpenGL::backprop() {
     backprop_shader->dispatch_compute(resolution.x, resolution.y);
 
     // unbind
+    irradiance_cache->unbind_base(5);
     color_backprop->unbind_image(2);
     color->unbind_image(1);
     color_prediction->unbind_image(0);
