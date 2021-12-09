@@ -224,7 +224,7 @@ uniform int tf_optimization;
 
  // TODO bilinear or stochastic lerp
 vec4 tf_lookup(float d) {
-    const float tc = clamp((d - tf_window_left) / tf_window_width, 0.0, 1.0 - 1e-6);
+    const float tc = (d - tf_window_left) / tf_window_width;
     const int idx = clamp(int(floor(tc * tf_size)), 0, int(tf_size) - 1);
     if (tf_optimization > 0)
         return parameters[idx];// * vec4(vec3(1), d);
