@@ -167,6 +167,12 @@ void resize_callback(int w, int h) {
 
 void keyboard_callback(int key, int scancode, int action, int mods) {
     if (ImGui::GetIO().WantCaptureKeyboard) return;
+    if (key == GLFW_KEY_H && action == GLFW_PRESS) {
+        // DEBUG AffineTransform class
+        renderer->volume->current_grid()->transform2.from_mat4x4(renderer->volume->get_transform());
+        std::cout << "Matrix4x4:" << std::endl << glm::to_string(renderer->volume->get_transform()) << std::endl;
+        std::cout << "AffineTransform:" << std::endl << renderer->volume->current_grid()->transform2.to_string() << std::endl;
+    }
     if (key == GLFW_KEY_B && action == GLFW_PRESS) {
         renderer->show_environment = !renderer->show_environment;
         renderer->sample = 0;

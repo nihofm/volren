@@ -85,7 +85,7 @@ void backward_null(const vec3 ipos, const float P_null, const vec3 dy) {
 void backward_tf_color(const float tc, const vec3 rgb, const vec3 dy) {
     const float tc_mapped = (tc - tf_window_left) / tf_window_width;
     if (tc_mapped < 0.f || tc_mapped >= 1.f) return;
-    const vec3 dx = dy / rgb;
+    const vec3 dx = dy / max(rgb, vec3(0.001));
     // nearest neighbor TODO: stochastic lerp?
     const int idx = int(floor(tc_mapped * tf_size));
     if (rgb.x > 0) atomicAdd(gradients[idx].x, sanitize(dx.x));
@@ -102,6 +102,15 @@ void backward_tf_color(const float tc, const vec3 rgb, const vec3 dy) {
     // atomicAdd(gradients[x1].x, sanitize(dx.x * f));
     // atomicAdd(gradients[x1].y, sanitize(dx.y * f));
     // atomicAdd(gradients[x1].z, sanitize(dx.z * f));
+}
+
+void backward_tf_extinction(const float tc, const float dtau, const vec3 dy) {
+    const float tc_mapped = (tc - tf_window_left) / tf_window_width;
+    if (tc_mapped < 0.f || tc_mapped >= 1.f || dtau <= 0.f) return;
+    const float dx = sum(dy) / dtau;
+    // nearest neighbor TODO: stochastic lerp?
+    const int idx = int(floor(tc_mapped * tf_size));
+    if (dtau > 0) atomicAdd(gradients[idx].w, sanitize(dx));
 }
 
 void backward_tf_depth_real(const float tc, const float P_real, const vec3 dy) {
@@ -330,6 +339,7 @@ vec3 direct_volume_rendering_irradiance_cache(vec3 pos, vec3 dir, inout uint see
     const float jitter = rng(seed) * dt;
     near_far.x += jitter;
     float Tr = exp(-lookup_density(ipos + near_far.x * idir, seed) * jitter);
+    const bool partials = !all(equal(vec3(0), dy));
     // ray marching
     for (int i = 0; i < RAYMARCH_STEPS; ++i) {
         const vec3 curr = ipos + min(near_far.x + i * dt, near_far.y) * idir;
@@ -343,17 +353,20 @@ vec3 direct_volume_rendering_irradiance_cache(vec3 pos, vec3 dir, inout uint see
         const vec3 Le = vol_albedo * irradiance_query(curr, seed);
 #endif
         const float dtau = d * dt;
-        // accum emission from irradiance cache with geom avg of transmittance along segment
-        L += Le * dtau * Tr * exp(-dtau * 0.5);
 #ifdef USE_TRANSFERFUNC
         // partials
-        // dx_col += d_real * dtau * Tr;
-        // dx_tr += 0.f; // TODO
-        if (!all(equal(vec3(0), dy))) backward_tf_color(d_real * vol_inv_majorant, rgba.rbg, L * dy); // TODO
+        if (partials) {
+            backward_tf_color(d_real * vol_inv_majorant, rgba.rbg, L * dy);
+            // TODO partials to extinction
+            const float dx = (1 - dtau * i) * dt;
+            // backward_tf_extinction(d_real * vol_inv_majorant, dtau, dx * L * dy);
+        }
+        // accum emission from irradiance cache with geom avg of transmittance along segment
+        L += Le * dtau * Tr * exp(-dtau * 0.5);
 #endif
         // update transmittance
         Tr *= exp(-dtau);
-        if (Tr <= 1e-5) break;//return L;
+        if (Tr <= 1e-5) break;
     }
     if (show_environment > 0) L += lookup_environment(dir) * Tr;
     return L;

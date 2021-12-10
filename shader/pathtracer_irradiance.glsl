@@ -45,7 +45,7 @@ vec3 direct_volume_rendering_irradiance_cache(vec3 pos, vec3 dir, inout uint see
         L += Le * dtau * Tr * exp(-dtau * 0.5);
         // update transmittance
         Tr *= exp(-dtau);
-        if (Tr <= 1e-5) break;//return L;
+        if (Tr <= 1e-5) break;
     }
     if (show_environment > 0) L += lookup_environment(dir) * Tr;
     return L;
@@ -100,8 +100,8 @@ vec3 trace_path(vec3 pos, vec3 dir, inout uint seed) {
 void update_cache(vec3 pos, vec3 dir, inout uint seed) {
     float t;
     vec3 Li = vec3(0);
-    vec3 throughput = vec3(1);
-    if (sample_volumeDDA(pos, dir, t, throughput, Li, seed)) {
+    vec3 dummy = vec3(1);
+    if (sample_volumeDDA(pos, dir, t, dummy, Li, seed)) {
         pos += t * dir;
 
         // sample light source (environment)
