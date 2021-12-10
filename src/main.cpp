@@ -44,9 +44,6 @@ void load_volume(const std::string& path) {
         } else {
             // load single grid
             renderer->volume = std::make_shared<voldata::Volume>(path);
-            const auto [bb_min, bb_max] = renderer->volume->AABB();
-            const auto extent = glm::abs(bb_max - bb_min);
-            renderer->volume->model = glm::translate(glm::mat4(1), current_camera()->pos - .5f * extent + current_camera()->dir * .5f * glm::length(extent));
             // try to add emission grid
             if (fs::path(path).extension() == ".vdb") {
                 try {
@@ -325,7 +322,7 @@ void gui_callback(void) {
             renderer->transferfunc->lut.clear();
             const int N = 32;
             for (int i = 0; i < N; ++i)
-                renderer->transferfunc->lut.push_back(glm::vec4(randf(), randf(), randf(), randf()));
+                renderer->transferfunc->lut.push_back(glm::vec4(randf(), randf(), randf(), i/float(N)));
             renderer->transferfunc->upload_gpu();
             renderer->sample = 0;
             renderer->commit();
@@ -470,7 +467,7 @@ static void parse_cmd(int argc, char** argv) {
             renderer->tonemap_exposure = std::stof(argv[++i]);
         else if (arg == "-gamma")
             renderer->tonemap_gamma = std::stof(argv[++i]);
-        else
+        else if (std::filesystem::is_regular_file(argv[i]))
             handle_path(argv[i]);
     }
 }
