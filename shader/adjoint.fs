@@ -37,7 +37,7 @@ void main() {
                 // if (tc_adj.y < 0.33 * 1 / 3.f) out_col.rgb = visualize_grad(gradients[int(tc_adj.x * n_parameters)].b);
                 // else if (tc_adj.y < 0.33 * 2 / 3.f) out_col.rgb = visualize_grad(gradients[int(tc_adj.x * n_parameters)].g);
                 // else out_col.rgb = visualize_grad(gradients[int(tc_adj.x * n_parameters)].b);
-                out_col.rgb = visualize_grad(sum(gradients[int(tc_adj.x * n_parameters)].rgb) * 1e-8);
+                out_col.rgb = visualize_grad(sum(gradients[int(tc_adj.x * n_parameters)].rgb) * 1e-6);
                 // out_col.rgb = abs(gradients[int(tc_adj.x * n_parameters)].rgb);
                 // out_col.rgb = visualize_grad(sum(gradients[int(tc_adj.x * n_parameters)].rgb));
             } else if (tc_adj.y < 0.66) {

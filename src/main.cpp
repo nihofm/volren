@@ -22,7 +22,6 @@ namespace py = pybind11;
 
 static bool adjoint = false, randomize = false;
 
-static int sppx = 1024;
 static bool use_vsync = true;
 static float shader_check_delay_ms = 1000;
 
@@ -233,9 +232,9 @@ void gui_callback(void) {
     if (ImGui::Begin("Stuff", 0, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoBackground | ImGuiWindowFlags_NoFocusOnAppearing)) {
         ImGui::PushStyleVar(ImGuiStyleVar_Alpha, .9f);
         static float est_ravg = 0.f;
-        est_ravg = glm::mix(est_ravg, float(Context::frame_time() * (sppx - renderer->sample) / 1000.f), 0.1f);
-        ImGui::Text("Sample: %i/%i (est: %um, %us)", renderer->sample, sppx, uint32_t(est_ravg) / 60, uint32_t(est_ravg) % 60);
-        if (ImGui::InputInt("Sppx", &sppx)) renderer->sample = 0;
+        est_ravg = glm::mix(est_ravg, float(Context::frame_time() * (renderer->sppx - renderer->sample) / 1000.f), 0.1f);
+        ImGui::Text("Sample: %i/%i (est: %um, %us)", renderer->sample, renderer->sppx, uint32_t(est_ravg) / 60, uint32_t(est_ravg) % 60);
+        if (ImGui::InputInt("Sppx", &renderer->sppx)) renderer->sample = 0;
         if (ImGui::InputInt("Bounces", &renderer->bounces)) renderer->sample = 0;
         if (ImGui::Checkbox("Vsync", &use_vsync)) Context::set_swap_interval(use_vsync ? 1 : 0);
         if (ImGui::Button("Use Brick PT")) {
@@ -446,7 +445,7 @@ static void parse_cmd(int argc, char** argv) {
     for (int i = 1; i < argc; ++i) {
         const std::string arg = argv[i];
         if (arg == "-spp")
-            sppx = std::stoi(argv[++i]);
+            renderer->sppx = std::stoi(argv[++i]);
         else if (arg == "-b")
             renderer->bounces = std::stoi(argv[++i]);
         else if (arg == "-pos") {
@@ -543,7 +542,7 @@ int main(int argc, char** argv) {
         }
 
         // trace
-        if (renderer->sample < sppx) {
+        if (renderer->sample < renderer->sppx) {
             // forward rendering
             renderer->sample++;
             timer_trace->begin();
