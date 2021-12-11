@@ -36,10 +36,11 @@ struct BackpropRendererOpenGL : public RendererOpenGL {
     void commit() override;
     void trace() override;
     void draw() override;
-    void draw_adjoint();
 
+    void trace_adjoint();
     void backprop();
-    void step();
+    void gradient_step();
+    void draw_adjoint();
 
     // TODO finite differences loss
     float compute_loss();
@@ -59,7 +60,6 @@ struct BackpropRendererOpenGL : public RendererOpenGL {
     // Optimization parameters
     float learning_rate = 0.1f;
     int backprop_sample = 0;
-    int backprop_sppx = 8;
     bool reset_optimization = false;
     bool solve_optimization = false;
 };

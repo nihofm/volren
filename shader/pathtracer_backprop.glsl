@@ -16,58 +16,6 @@ uniform int current_sample;
 #include "common.glsl"
 
 // ---------------------------------------------------
-// forward path tracing
-
-vec3 trace_path(vec3 pos, vec3 dir, inout uint seed) {
-    vec3 L = vec3(0), throughput = vec3(1);
-    bool free_path = true;
-    uint n_paths = 0;
-    float t, f_p; // t: end of ray segment (i.e. sampled position or out of volume), f_p: last phase function sample for MIS
-    while (sample_volumeDDA(pos, dir, t, throughput, L, seed)) {
-    // float pdf;
-    // while (sample_volume_raymarch(pos, dir, t, throughput, pdf, seed)) {
-
-        // advance ray
-        pos += t * dir;
-
-        // sample light source (environment)
-        vec3 w_i;
-        const vec4 Le_pdf = sample_environment(rng2(seed), w_i);
-        if (Le_pdf.w > 0) {
-            f_p = phase_henyey_greenstein(dot(-dir, w_i), vol_phase_g);
-            const float mis_weight = 1.f;//show_environment > 0 ? power_heuristic(Le_pdf.w, f_p) : 1.f;
-            const float Tr = transmittanceDDA(pos, w_i, seed);
-            // const float Tr = transmittance_raymarch(pos, w_i, seed);
-            // L += throughput * mis_weight * f_p * Tr * Le_pdf.rgb / Le_pdf.w;
-        }
-
-        // early out?
-        if (++n_paths >= bounces) { free_path = false; break; }
-        // russian roulette
-        const float rr_val = luma(throughput);
-        if (rr_val < .1f) {
-            const float prob = 1 - rr_val;
-            if (rng(seed) < prob) { free_path = false; break; }
-            throughput /= 1 - prob;
-        }
-
-        // scatter ray
-        const vec3 scatter_dir = sample_phase_henyey_greenstein(dir, vol_phase_g, rng2(seed));
-        f_p = phase_henyey_greenstein(dot(-dir, scatter_dir), vol_phase_g);
-        dir = scatter_dir;
-    }
-
-    // free path? -> add envmap contribution
-    if (free_path && show_environment > 0) {
-        const vec3 Le = lookup_environment(dir);
-        const float mis_weight = 1.f;//n_paths > 0 ? power_heuristic(f_p, pdf_environment(dir)) : 1.f;
-        L += throughput * mis_weight * Le;
-    }
-
-    return L;
-}
-
-// ---------------------------------------------------
 // adjoint delta tracking
 
 void backward_real(const vec3 ipos, const float P_real, const vec3 dy) {
@@ -230,7 +178,8 @@ vec3 path_replay_backprop(vec3 pos, vec3 dir, inout uint seed, vec3 L, const vec
         L -= throughput * mis_weight * Le;
     }
 
-    // return abs(L);
+    // TODO FIXME: check seeds and verify path replay
+    return abs(L);
     return luma(abs(L)) <= 1e-6 ? vec3(0) : vec3(1e10, 0, 1e10); // pink of doom
 }
 
@@ -359,6 +308,11 @@ void main() {
 	const ivec2 pixel = ivec2(gl_GlobalInvocationID.xy);
     if (any(greaterThanEqual(pixel, resolution))) return;
 
+    // compute gradient of l2 loss between prediction and reference
+    const vec3 L = imageLoad(color_prediction, pixel).rgb;
+    const vec3 L_ref = imageLoad(color_reference, pixel).rgb;
+    const vec3 grad = 2 * (L - L_ref);
+
     // setup random seed and camera ray
     uint seed = tea(seed * (pixel.y * resolution.x + pixel.x), current_sample, 32);
     const vec3 pos = cam_pos;
@@ -367,21 +321,17 @@ void main() {
     // TODO: !! split up in two shaders and backprop from multiple samples instead !!
 
     // forward path tracing
-    const uint forward_seed = seed;
-    const vec3 L = trace_path(pos, dir, seed);
+    // const uint forward_seed = seed;
+    // const vec3 L = trace_path(pos, dir, seed);
     // update_cache(pos, dir, seed);
     // const vec3 L = direct_volume_rendering_irradiance_cache(pos, dir, seed, vec3(0));
-
-    // compute gradient of l2 loss between Lo (1spp) and reference (Nspp)
-    const vec3 L_ref = imageLoad(color_reference, pixel).rgb;
-    const vec3 grad = 2 * (L - L_ref);
     
     // replay path to backprop gradients
-    seed = forward_seed;
+    // seed = forward_seed;
     const vec3 Lr = path_replay_backprop(pos, dir, seed, L, grad);
     // const vec3 Lr = direct_volume_rendering_irradiance_cache(pos, dir, seed, grad);
 
     // store results
-    imageStore(color_prediction, pixel, vec4(mix(imageLoad(color_prediction, pixel).rgb, sanitize(L), 1.f / current_sample), 1));
+    // imageStore(color_prediction, pixel, vec4(mix(imageLoad(color_prediction, pixel).rgb, sanitize(L), 1.f / current_sample), 1));
     imageStore(color_backprop, pixel, vec4(mix(imageLoad(color_backprop, pixel).rgb, sanitize(Lr), 1.f / current_sample), 1));
 }

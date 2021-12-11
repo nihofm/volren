@@ -188,6 +188,7 @@ void RendererOpenGL::trace() {
     trace_shader->uniform("irradiance_size", glm::uvec3(density_indirection->w, density_indirection->h, density_indirection->d));
     // transfer function
     transferfunc->set_uniforms(trace_shader, tex_unit, 4);
+    trace_shader->uniform("tf_optimization", 0);
     // environment
     trace_shader->uniform("env_model", environment->model);
     trace_shader->uniform("env_inv_model", glm::inverse(environment->model));
@@ -280,6 +281,76 @@ void BackpropRendererOpenGL::trace() {
     RendererOpenGL::trace();
 }
 
+void BackpropRendererOpenGL::trace_adjoint() {
+    // bind
+    trace_shader->bind();
+    parameter_buffer->bind_base(0);
+    color_prediction->bind_image(0, GL_READ_WRITE, GL_RGBA32F);
+    irradiance_cache->bind_base(5);
+
+    // uniforms
+    uint32_t tex_unit = 0;
+    trace_shader->uniform("bounces", bounces);
+    trace_shader->uniform("seed", seed + 42); // magic number
+    trace_shader->uniform("show_environment", show_environment ? 1 : 0);
+    trace_shader->uniform("n_parameters", n_parameters);
+    // camera
+    trace_shader->uniform("cam_pos", current_camera()->pos);
+    trace_shader->uniform("cam_fov", current_camera()->fov_degree);
+    trace_shader->uniform("cam_transform", glm::inverse(glm::mat3(current_camera()->view)));
+    // volume
+    const auto [bb_min, bb_max] = volume->AABB();
+    const auto [min, maj] = volume->minorant_majorant();
+    trace_shader->uniform("vol_model", volume->get_transform());
+    trace_shader->uniform("vol_inv_model", glm::inverse(volume->get_transform()));
+    trace_shader->uniform("vol_bb_min", bb_min + vol_clip_min * (bb_max - bb_min));
+    trace_shader->uniform("vol_bb_max", bb_min + vol_clip_max * (bb_max - bb_min));
+    trace_shader->uniform("vol_minorant", min * volume->density_scale);
+    trace_shader->uniform("vol_majorant", maj * volume->density_scale);
+    trace_shader->uniform("vol_inv_majorant", 1.f / (maj * volume->density_scale));
+    trace_shader->uniform("vol_albedo", volume->albedo);
+    trace_shader->uniform("vol_phase_g", volume->phase);
+    trace_shader->uniform("vol_density_scale", volume->density_scale);
+    trace_shader->uniform("vol_emission_scale", volume->emission_scale);
+    // density brick grid data
+    const auto [density_indirection, density_range, density_atlas] = density_grids[volume->grid_frame_counter];
+    trace_shader->uniform("vol_density_indirection", density_indirection, tex_unit++);
+    trace_shader->uniform("vol_density_range", density_range, tex_unit++);
+    trace_shader->uniform("vol_density_atlas", density_atlas, tex_unit++);
+    // emission brick grid data TODO: finalize layout
+    if (volume->grid_frame_counter < emission_grids.size()) {
+        const auto [emission_indirection, emission_range, emission_atlas] = emission_grids[volume->grid_frame_counter];
+        trace_shader->uniform("vol_emission_indirection", emission_indirection, tex_unit++);
+        trace_shader->uniform("vol_emission_range", emission_range, tex_unit++);
+        trace_shader->uniform("vol_emission_atlas", emission_atlas, tex_unit++);
+    }
+    // irradiance cache
+    trace_shader->uniform("irradiance_size", glm::uvec3(density_indirection->w, density_indirection->h, density_indirection->d));
+    // transfer function
+    transferfunc->set_uniforms(trace_shader, tex_unit, 4);
+    trace_shader->uniform("tf_optimization", 1);
+    // environment
+    trace_shader->uniform("env_model", environment->model);
+    trace_shader->uniform("env_inv_model", glm::inverse(environment->model));
+    trace_shader->uniform("env_strength", environment->strength);
+    trace_shader->uniform("env_imp_inv_dim", glm::vec2(1.f / environment->dimension()));
+    trace_shader->uniform("env_imp_base_mip", int(floor(log2(environment->dimension()))));
+    trace_shader->uniform("env_envmap", environment->envmap, tex_unit++);
+    trace_shader->uniform("env_impmap", environment->impmap, tex_unit++);
+
+    // trace
+    const glm::ivec2 resolution = Context::resolution();
+    trace_shader->uniform("current_sample", sample);
+    trace_shader->uniform("resolution", resolution);
+    trace_shader->dispatch_compute(resolution.x, resolution.y);
+
+    // unbind
+    irradiance_cache->unbind_base(5);
+    color_prediction->unbind_image(0);
+    parameter_buffer->unbind_base(0);
+    trace_shader->unbind();
+}
+
 void BackpropRendererOpenGL::backprop() {
     // bind
     backprop_shader->bind();
@@ -292,9 +363,9 @@ void BackpropRendererOpenGL::backprop() {
 
     // uniforms
     uint32_t tex_unit = 0;
-    backprop_shader->uniform("sppx", backprop_sppx);
+    backprop_shader->uniform("sppx", sppx);
     backprop_shader->uniform("bounces", bounces);
-    backprop_shader->uniform("seed", seed + 42); // use different seed than forward
+    backprop_shader->uniform("seed", seed + 42); // magic number
     backprop_shader->uniform("show_environment", show_environment ? 1 : 0);
     backprop_shader->uniform("n_parameters", n_parameters);
     // camera
@@ -357,7 +428,7 @@ void BackpropRendererOpenGL::backprop() {
     backprop_shader->unbind();
 }
 
-void BackpropRendererOpenGL::step() {
+void BackpropRendererOpenGL::gradient_step() {
     adam_shader->bind();
     parameter_buffer->bind_base(0);
     gradient_buffer->bind_base(1);

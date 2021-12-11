@@ -257,10 +257,6 @@ void gui_callback(void) {
         }
         ImGui::Separator();
         ImGui::Text("Backprop:");
-        if (ImGui::InputInt("Backprop sppx", &renderer->backprop_sppx)) {
-            renderer->sample = 0;
-            renderer->backprop_sample = 0;
-        }
         ImGui::DragFloat("Learning rate", &renderer->learning_rate, 0.0001f, 0.0001f, 1.f);
         if (ImGui::Checkbox("Adjoint", &adjoint)) { 
             renderer->sample = 0;
@@ -514,7 +510,7 @@ int main(int argc, char** argv) {
     // setup timers
     auto timer_trace = TimerQueryGL("trace");
     auto timer_backprop = TimerQueryGL("backprop");
-    auto timer_update = TimerQueryGL("gradient step");
+    auto timer_update = TimerQueryGL("gradient gradient_step");
 
     // run the main loop
     float shader_timer = 0, animation_timer = 0;
@@ -552,9 +548,10 @@ int main(int argc, char** argv) {
             renderer->sample++;
             timer_trace->begin();
             renderer->trace();
+            if (adjoint) renderer->trace_adjoint();
             timer_trace->end();
         } else if (adjoint) {
-            if (renderer->backprop_sample < renderer->backprop_sppx) {
+            if (renderer->backprop_sample < renderer->sppx) {
                 // radiative backprop
                 renderer->backprop_sample++;
                 timer_backprop->begin();
@@ -563,7 +560,7 @@ int main(int argc, char** argv) {
             } else {
                 // gradient update step
                 timer_update->begin();
-                renderer->step();
+                renderer->gradient_step();
                 timer_update->end();
                 if (randomize) randomize_parameters();
                 // reset

@@ -18,7 +18,7 @@ vec3 visualize_tf(const vec2 tc, bool use_ref = true) {
     const int x0 = max(0, int(floor(xi)));
     const int x1 = min(int(ceil(xi)), int(tf_size)-1);
     const vec4 rgba = use_ref ? mix(tf_lut[x0], tf_lut[x1], fract(xi)) : mix(parameters[x0], parameters[x1], fract(xi));
-    return rgba.rgb * rgba.a;
+    // return rgba.rgb * rgba.a;
     const vec3 color = smoothstep(vec3(0.1), vec3(0), abs(tc.y - rgba.rgb));
     const float alpha = smoothstep(0.1, 0.0, tc.y - rgba.a) * 0.5;
     return color + alpha;
@@ -55,7 +55,7 @@ void main() {
             const vec3 l2_grad = 2 * (col_adj - col_ref);
             out_col.rgb = abs(l2_grad);
             // out_col.rgb = visualize_grad(sum(l2_grad));
-            out_col.rgb += texture(color_backprop, tc_adj).rgb;
+            // out_col.rgb = texture(color_backprop, tc_adj).rgb;
         }
     } else {
         if (tc.x < 0.5) {
