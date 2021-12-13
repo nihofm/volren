@@ -103,7 +103,9 @@ bool sample_volume_adjoint(const vec3 wpos, const vec3 wdir, out float t, inout 
         }
         // advance
         t -= log(1 - rng(seed)) * vol_inv_majorant;
+#ifdef USE_TRANSFERFUNC
         backward_tf_extinction_null(tc, 1 - P_real, L * grad);
+#endif
     }
     return false;
 }
@@ -154,7 +156,9 @@ bool sample_volumeDDA_adjoint(const vec3 wpos, const vec3 wdir, out float t, ino
         }
         tau = -log(1.f - rng(seed));
         mip = max(0.f, mip - MIP_SPEED_DOWN);
+#ifdef USE_TRANSFERFUNC
         // backward_tf_extinction_null(tc, 1 - d / majorant, L * grad * (1.f - vol_majorant / majorant)); // TODO
+#endif
     }
     return false;
 }

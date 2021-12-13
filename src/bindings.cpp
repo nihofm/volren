@@ -10,6 +10,7 @@ namespace py = pybind11;
 
 #include <cppgl.h>
 #include <voldata.h>
+#include "stb_image_write.h"
 
 #include "renderer.h"
 #include "renderer_gl.h"
@@ -143,6 +144,16 @@ PYBIND11_EMBEDDED_MODULE(volpy, m) {
         })
         .def("save", [](const std::shared_ptr<RendererOpenGL>& renderer, const std::string& filename = "out.png") {
             Context::screenshot(filename);
+        })
+        .def("save_with_alpha", [](const std::shared_ptr<RendererOpenGL>& renderer, const std::string& filename = "out.png") {
+            fs::path outfile = fs::path(filename).replace_extension(".png");
+            stbi_flip_vertically_on_write(1);
+            const glm::ivec2 size = Context::resolution();
+            std::vector<uint8_t> pixels(size.x * size.y * 4);
+            glPixelStorei(GL_PACK_ALIGNMENT, 1);
+            glReadPixels(0, 0, size.x, size.y, GL_RGBA, GL_UNSIGNED_BYTE, pixels.data());
+            stbi_write_png(outfile.string().c_str(), size.x, size.y, 4, pixels.data(), 0);
+            std::cout << outfile << " written." << std::endl;
         })
         // members
         .def_readwrite("volume", &RendererOpenGL::volume)

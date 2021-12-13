@@ -506,10 +506,10 @@ if __name__ == "__main__":
     VOLUME = "/home/niko/render-data/volumetric/bunny_cloud.vdb"
     ENVMAP = "/home/niko/render-data/envmaps/chinese_garden_2k.hdr"
     FOVY = 70
-    SAMPLES = 1024
+    SAMPLES = 2048
     BOUNCES = 3
     SEED = 42
-    N_VIEWS = 25
+    N_VIEWS = 256
     BACKGROUND = False
 
     # init
@@ -568,7 +568,7 @@ if __name__ == "__main__":
         renderer.draw()
         # store view
         filename = f"view_{i:04}.png"
-        renderer.save(os.path.join(PATH, filename))
+        renderer.save_with_alpha(os.path.join(PATH, filename))
         images[i] = Image(id=i, qvec=np.array(renderer.colmap_view_rot())[[3, 0, 1, 2]], tvec=np.array(renderer.colmap_view_trans()), camera_id=0, name=filename, xys=np.array([]), point3D_ids=np.array([]))
 
         # XXX DEBUG

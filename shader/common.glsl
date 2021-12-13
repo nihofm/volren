@@ -16,6 +16,7 @@ float mean(const vec3 x) { return sum(x) / 3.f; }
 
 float sanitize(const float x) { return isnan(x) || isinf(x) ? 0.f : x; }
 vec3 sanitize(const vec3 x) { return mix(x, vec3(0), isnan(x) || isinf(x)); }
+vec4 sanitize(const vec4 x) { return mix(x, vec4(0), isnan(x) || isinf(x)); }
 
 float luma(const vec3 col) { return dot(col, vec3(0.212671f, 0.715160f, 0.072169f)); }
 
@@ -336,7 +337,7 @@ vec3 irradiance_query(const vec3 ipos, inout uint seed) {
 // ---------------------------------
 // null-collision methods
 
-#define USE_TRANSFERFUNC
+// #define USE_TRANSFERFUNC
 
 float transmittance(const vec3 wpos, const vec3 wdir, inout uint seed) {
     // clip volume

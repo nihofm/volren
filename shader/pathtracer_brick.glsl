@@ -15,9 +15,10 @@ uniform int seed;
 uniform int show_environment;
 uniform ivec2 resolution;
 
-vec3 trace_path(vec3 pos, vec3 dir, inout uint seed) {
+vec4 trace_path(vec3 pos, vec3 dir, inout uint seed) {
     // trace path
-    vec3 L = vec3(0), throughput = vec3(1);
+    vec3 L = vec3(0);
+    vec3 throughput = vec3(1);
     bool free_path = true;
     uint n_paths = 0;
     float t, f_p; // t: end of ray segment (i.e. sampled position or out of volume), f_p: last phase function sample for MIS
@@ -58,7 +59,7 @@ vec3 trace_path(vec3 pos, vec3 dir, inout uint seed) {
         L += throughput * mis_weight * Le;
     }
 
-    return L;
+    return vec4(L, clamp(n_paths, 0.f, 1.f));
 }
 
 // ---------------------------------------------------
@@ -74,8 +75,8 @@ void main() {
     const vec3 dir = view_dir(pixel, resolution, rng2(seed));
 
     // trace ray
-    const vec3 L = trace_path(pos, dir, seed);
+    const vec4 L = trace_path(pos, dir, seed);
 
     // write result
-    imageStore(color, pixel, vec4(mix(imageLoad(color, pixel).rgb, sanitize(L), 1.f / current_sample), 1));
+    imageStore(color, pixel, mix(imageLoad(color, pixel), sanitize(L), 1.f / current_sample));
 }
