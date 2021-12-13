@@ -36,12 +36,12 @@ void TransferFunction::set_uniforms(const Shader& shader, uint32_t& texture_unit
 std::vector<glm::vec4> TransferFunction::compute_lut_cdf(const std::vector<glm::vec4>& lut) {
     // copy
     auto lut_cdf = lut;
-    // build density CDF (we need to ensure a monotonically nondecreasing function)
+    // build density CDF (ensure a monotonic nondecreasing function)
     for (uint32_t i = 1; i < lut_cdf.size(); ++i)
         lut_cdf[i].a += lut_cdf[i-1].a;
     const float integral = lut_cdf[lut_cdf.size()-1].a;
     for (uint32_t i = 0; i < lut_cdf.size(); ++i)
-        lut_cdf[i].a = integral <= 0.f ? (i+1) / float(lut_cdf.size()) : lut_cdf[i].a / integral;
+        lut_cdf[i].a = integral <= 0.f ? (i + 1) / float(lut_cdf.size()) : lut_cdf[i].a / integral;
     return lut_cdf;
 }
 
@@ -51,5 +51,4 @@ void TransferFunction::upload_gpu() {
     // setup SSBO
     lut_ssbo = SSBO("transferfunc_ssbo");
     lut_ssbo->upload_data(lut_cdf.data(), lut_cdf.size() * sizeof(glm::vec4));
-
 }

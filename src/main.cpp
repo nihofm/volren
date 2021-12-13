@@ -21,13 +21,14 @@ namespace py = pybind11;
 // settings
 
 static bool adjoint = false, randomize = false;
+static int batch_size = 4;
 
 static bool use_vsync = true;
 static float shader_check_delay_ms = 1000;
 
 static bool animate = false;
 static float animation_fps = 30;
-static bool render_animation = false; // TODO animation rendering
+static bool render_animation = false;
 
 static std::shared_ptr<BackpropRendererOpenGL> renderer;
 
@@ -158,7 +159,7 @@ void resize_callback(int w, int h) {
     // resize buffers
     renderer->resize(w, h);
     // restart rendering
-    renderer->sample = 0;
+    renderer->reset();
 }
 
 void keyboard_callback(int key, int scancode, int action, int mods) {
@@ -179,13 +180,11 @@ void keyboard_callback(int key, int scancode, int action, int mods) {
     }
     if (key == GLFW_KEY_C && action == GLFW_PRESS) {
         adjoint = !adjoint;
-        renderer->sample = 0;
-        renderer->backprop_sample = 0;
+        renderer->reset();
     }
     if (key == GLFW_KEY_X && action == GLFW_PRESS) {
         randomize = !randomize;
-        renderer->sample = 0;
-        renderer->backprop_sample = 0;
+        renderer->reset();
     }
     if (key == GLFW_KEY_T && action == GLFW_PRESS)
         renderer->tonemapping = !renderer->tonemapping;
@@ -239,28 +238,24 @@ void gui_callback(void) {
         if (ImGui::Checkbox("Vsync", &use_vsync)) Context::set_swap_interval(use_vsync ? 1 : 0);
         if (ImGui::Button("Use Brick PT")) {
             renderer->trace_shader = Shader("trace brick", "shader/pathtracer_brick.glsl");
-            renderer->sample = 0;
-            renderer->backprop_sample = 0;
+            renderer->reset();
         }
         ImGui::SameLine();
         if (ImGui::Button("Use Irradiance PT")) {
             renderer->trace_shader = Shader("trace brick irradiance", "shader/pathtracer_irradiance.glsl");
-            renderer->sample = 0;
-            renderer->backprop_sample = 0;
+            renderer->reset();
         }
         ImGui::SameLine();
         if (ImGui::Button("Clear Irradiance Cache")) {
             renderer->irradiance_cache->clear();
-            renderer->sample = 0;
-            renderer->backprop_sample = 0;
+            renderer->reset();
         }
         ImGui::Separator();
         ImGui::Text("Backprop:");
-        ImGui::DragFloat("Learning rate", &renderer->learning_rate, 0.0001f, 0.0001f, 1.f);
-        if (ImGui::Checkbox("Adjoint", &adjoint)) { 
-            renderer->sample = 0;
-            renderer->backprop_sample = 0;
-        }
+        ImGui::DragInt("Batch size", &renderer->batch_size, 0.01f, 1, 128);
+        ImGui::DragFloat("Learning rate", &renderer->learning_rate, 0.0001f, 0.f, 1.f);
+        if (ImGui::Checkbox("Adjoint", &adjoint))
+            renderer->reset();
         ImGui::Checkbox("Randomize params", &randomize);
         if (ImGui::Button("Reset"))
             renderer->reset_optimization = true;
@@ -317,7 +312,7 @@ void gui_callback(void) {
             renderer->transferfunc->lut.clear();
             const int N = 32;
             for (int i = 0; i < N; ++i)
-                renderer->transferfunc->lut.push_back(glm::vec4(randf(), randf(), randf(), i/float(N)));
+                renderer->transferfunc->lut.push_back(glm::vec4(randf(), randf(), randf(), i == 0 ? 0.f : randf()));
             renderer->transferfunc->upload_gpu();
             renderer->sample = 0;
             renderer->commit();
@@ -515,20 +510,16 @@ int main(int argc, char** argv) {
     float shader_timer = 0, animation_timer = 0;
     while (Context::running()) {
         // handle input
-        if (CameraImpl::default_input_handler(Context::frame_time())) {
-            renderer->sample = 0;
-            renderer->backprop_sample = 0;
-        }
+        if (CameraImpl::default_input_handler(Context::frame_time()))
+            renderer->reset();
 
         // update
         current_camera()->update();
         // reload shaders?
         shader_timer -= Context::frame_time();
         if (shader_timer <= 0) {
-            if (reload_modified_shaders()) {
-                renderer->sample = 0;
-                renderer->backprop_sample = 0;
-            }
+            if (reload_modified_shaders())
+                renderer->reset();
             shader_timer = shader_check_delay_ms;
         }
         // advance animation?
@@ -557,12 +548,17 @@ int main(int argc, char** argv) {
                 renderer->backprop();
                 timer_backprop->end();
             } else {
-                // gradient update step
-                timer_update->begin();
-                renderer->gradient_step();
-                timer_update->end();
+                renderer->batch_sample++;
+                if (renderer->batch_sample % renderer->batch_size == 0) {
+                    // gradient update step
+                    timer_update->begin();
+                    renderer->gradient_step();
+                    timer_update->end();
+                    // reset batch
+                    renderer->batch_sample = 0;
+                }
+                // reset view
                 if (randomize) randomize_parameters();
-                // reset
                 renderer->sample = 0;
                 renderer->backprop_sample = 0;
                 renderer->seed = rand();

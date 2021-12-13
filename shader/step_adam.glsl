@@ -7,6 +7,7 @@ layout (local_size_x = 512) in;
 #include "common.glsl"
 
 uniform float learning_rate;
+uniform float gradient_normalization;
 uniform int reset;
 uniform int solve;
 
@@ -24,19 +25,24 @@ void main() {
     // debug: reset experiment?
     if (reset > 0) {
         parameters[idx] = vec4(1, 1, 1, tf_lut[idx].a);
-        // parameters[idx] = vec4(1.0, 1.0, 1.0, (idx + 1) / float(n_parameters));
+        gradients[idx] = vec4(0);
+        first_moments[idx] = vec4(0);
+        second_moments[idx] = vec4(1);
         return;
     }
 
     // debug: solve experiment?
     if (solve > 0) {
         parameters[idx] = tf_lut[idx];
+        gradients[idx] = vec4(0);
+        first_moments[idx] = vec4(0);
+        second_moments[idx] = vec4(1);
         return;
     }
 
     // load parameters
     const vec4 x = parameters[idx];
-    const vec4 dx = clamp(gradients[idx], vec4(-1), vec4(1));
+    const vec4 dx = clamp(gradients[idx] * gradient_normalization, vec4(-1), vec4(1));
     vec4 m1 = first_moments[idx];
     vec4 m2 = second_moments[idx];
 
@@ -55,4 +61,12 @@ void main() {
     first_moments[idx] = m1;
     second_moments[idx] = m2;
 
+    /*
+    // TODO: ensure monotonic function
+    barrier();
+    const float lower = parameters[max(0, idx-1)].a;
+    const float upper = parameters[min(idx+1, n_parameters-1)].a;
+    barrier();
+    parameters[idx].a = clamp(parameters[idx].a, lower, upper);
+    */
 }

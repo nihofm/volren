@@ -238,8 +238,6 @@ void BackpropRendererOpenGL::init() {
         adam_shader = Shader("adam optimizer", "shader/step_adam.glsl");
     if (!draw_shader)
         draw_shader = Shader("draw adjoint", "shader/quad.vs", "shader/adjoint.fs");
-    if (!loss_shader)
-        loss_shader = Shader("finite differences", "shader/loss.glsl");
 }
 
 void BackpropRendererOpenGL::resize(uint32_t w, uint32_t h) {
@@ -272,13 +270,17 @@ void BackpropRendererOpenGL::commit() {
         std::vector<glm::vec4> m2_data = std::vector<glm::vec4>(n_parameters, glm::vec4(1));
         m2_buffer->upload_data(m2_data.data(), m2_data.size() * sizeof(glm::vec4));
     }
-    // init loss buffer
-    loss_buffer = SSBO("finite differences loss buffer", sizeof(float));
 }
 
 void BackpropRendererOpenGL::trace() {
     // trace reference sample
     RendererOpenGL::trace();
+}
+
+void BackpropRendererOpenGL::reset() {
+    sample = 0;
+    backprop_sample = 0;
+    batch_sample = 0;
 }
 
 void BackpropRendererOpenGL::trace_adjoint() {
@@ -437,6 +439,7 @@ void BackpropRendererOpenGL::gradient_step() {
 
     adam_shader->uniform("n_parameters", n_parameters);
     adam_shader->uniform("learning_rate", learning_rate);
+    adam_shader->uniform("gradient_normalization", 1.f / float(batch_size * sppx));
     // debug: reset optimization
     adam_shader->uniform("reset", reset_optimization ? 1 : 0);
     // debug: solve optimization
@@ -454,26 +457,6 @@ void BackpropRendererOpenGL::gradient_step() {
 
     solve_optimization = false;
     reset_optimization = false;
-}
-
-float BackpropRendererOpenGL::compute_loss() {
-    // TODO update this to new optimization target
-    loss_buffer->clear();
-    loss_shader->bind();
-    parameter_buffer->bind_base(0);
-    loss_buffer->bind_base(1);
-    loss_shader->uniform("n_parameters", n_parameters);
-    uint32_t tex_unit = 0;
-    transferfunc->set_uniforms(loss_shader, tex_unit, 4);
-    loss_shader->dispatch_compute(n_parameters);
-    loss_buffer->unbind_base(1);
-    parameter_buffer->bind_base(0);
-    loss_shader->unbind();
-    glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
-    const float* data = (float*)loss_buffer->map(GL_READ_ONLY);
-    const float loss = data[0];
-    loss_buffer->unmap();
-    return loss / float(n_parameters);
 }
 
 void BackpropRendererOpenGL::draw_adjoint() {

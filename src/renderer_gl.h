@@ -37,29 +37,29 @@ struct BackpropRendererOpenGL : public RendererOpenGL {
     void trace() override;
     void draw() override;
 
+    void reset() override;
+
     void trace_adjoint();
     void backprop();
     void gradient_step();
     void draw_adjoint();
 
-    // TODO finite differences loss
-    float compute_loss();
-
     // OpenGL data
     Texture2D color_prediction, color_backprop;
-    Shader backprop_shader, adam_shader, draw_shader, loss_shader;
-    SSBO loss_buffer;
+    Shader backprop_shader, adam_shader, draw_shader;
 
     // Optimization target
     uint32_t n_parameters;      // parameter count
-    SSBO parameter_buffer;      // parameters
+    SSBO parameter_buffer;      // TF lut parameters
     SSBO gradient_buffer;       // gradients per parameter
     SSBO m1_buffer;             // first moments per parameter
     SSBO m2_buffer;             // second moments per parameter
 
     // Optimization parameters
     float learning_rate = 0.1f;
+    int batch_size = 4;
     int backprop_sample = 0;
+    int batch_sample = 0;
     bool reset_optimization = false;
     bool solve_optimization = false;
 };

@@ -10,17 +10,10 @@ struct Renderer {
     virtual void trace() = 0;                           // trace one sample per pixel
     virtual void draw() = 0;                            // draw result on screen
 
-    // Camera data TODO actually use this
-    /*
-    glm::vec3 cam_pos = glm::vec3(0, 0, 0);
-    glm::vec3 cam_dir = glm::vec3(1, 0, 0);
-    glm::vec3 cam_up = glm::vec3(0, 1, 0);
-    float cam_fov = 70.f;
-    */
+    virtual void reset() { sample = 0; }                // restart rendering
 
     // Volume data
     std::shared_ptr<voldata::Volume> volume;
-    inline void set_volume(const std::shared_ptr<voldata::Volume>& vol) { volume = vol; }
 
     // Volume clip planes
     glm::vec3 vol_clip_min = glm::vec3(0.f);

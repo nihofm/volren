@@ -368,7 +368,7 @@ float transmittance(const vec3 wpos, const vec3 wdir, inout uint seed) {
     return Tr;
 }
 
-bool sample_volume(const vec3 wpos, const vec3 wdir, out float t, inout vec3 throughput, inout uint seed) {
+bool sample_volume(const vec3 wpos, const vec3 wdir, out float t, inout vec3 throughput, inout vec3 Le, inout uint seed) {
     // clip volume
     vec2 near_far;
     if (!intersect_box(wpos, wdir, vol_bb_min, vol_bb_max, near_far)) return false;
@@ -384,8 +384,10 @@ bool sample_volume(const vec3 wpos, const vec3 wdir, out float t, inout vec3 thr
 #else
         const float d = lookup_density(ipos + t * idir, seed);
 #endif
+        const float P_real = d * vol_inv_majorant;
+        Le += throughput * (1.f - vol_albedo) * lookup_emission(ipos + t * idir, seed) * P_real;
         // classify as real or null collison
-        if (rng(seed) * vol_majorant < d) {
+        if (rng(seed) < P_real) {
 #ifdef USE_TRANSFERFUNC
             throughput *= rgba.rgb * vol_albedo;
 #else
