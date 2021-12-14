@@ -236,6 +236,8 @@ void BackpropRendererOpenGL::init() {
         backprop_shader = Shader("backprop", "shader/pathtracer_backprop.glsl");
     if (!adam_shader)
         adam_shader = Shader("adam optimizer", "shader/step_adam.glsl");
+    if (!mono_shader)
+        mono_shader = Shader("monotony shader", "shader/step_mono.glsl");
     if (!draw_shader)
         draw_shader = Shader("draw adjoint", "shader/quad.vs", "shader/adjoint.fs");
 }
@@ -252,8 +254,10 @@ void BackpropRendererOpenGL::commit() {
     n_parameters = transferfunc->lut.size();
     {
         parameter_buffer = SSBO("parameter buffer");
+        parameter_backbuffer = SSBO("parameter back buffer");
         std::vector<glm::vec4> param_data = TransferFunction::compute_lut_cdf(std::vector<glm::vec4>(n_parameters, glm::vec4(1)));
         parameter_buffer->upload_data(param_data.data(), param_data.size() * sizeof(glm::vec4));
+        parameter_backbuffer->upload_data(param_data.data(), param_data.size() * sizeof(glm::vec4));
     }
     {
         gradient_buffer = SSBO("gradients buffer");
@@ -354,6 +358,7 @@ void BackpropRendererOpenGL::trace_adjoint() {
 }
 
 void BackpropRendererOpenGL::backprop() {
+    glMemoryBarrier(GL_SHADER_IMAGE_ACCESS_BARRIER_BIT);
     // bind
     backprop_shader->bind();
     parameter_buffer->bind_base(0);
@@ -431,6 +436,7 @@ void BackpropRendererOpenGL::backprop() {
 }
 
 void BackpropRendererOpenGL::gradient_step() {
+    glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
     adam_shader->bind();
     parameter_buffer->bind_base(0);
     gradient_buffer->bind_base(1);
@@ -454,6 +460,23 @@ void BackpropRendererOpenGL::gradient_step() {
     gradient_buffer->unbind_base(1);
     parameter_buffer->unbind_base(0);
     adam_shader->unbind();
+
+    /*
+    if (!solve_optimization && !reset_optimization) {
+        // force monotony contraint on extinction values
+        glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
+        glFinish();
+        mono_shader->bind();
+        parameter_buffer->bind_base(0);
+        parameter_backbuffer->bind_base(1);
+        mono_shader->uniform("n_parameters", n_parameters);
+        mono_shader->dispatch_compute(n_parameters);
+        parameter_backbuffer->unbind_base(1);
+        parameter_buffer->unbind_base(0);
+        mono_shader->unbind();
+        std::swap(parameter_buffer, parameter_backbuffer);
+    }
+    */
 
     solve_optimization = false;
     reset_optimization = false;

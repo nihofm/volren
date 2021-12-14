@@ -337,7 +337,7 @@ vec3 irradiance_query(const vec3 ipos, inout uint seed) {
 // ---------------------------------
 // null-collision methods
 
-// #define USE_TRANSFERFUNC
+#define USE_TRANSFERFUNC
 
 float transmittance(const vec3 wpos, const vec3 wdir, inout uint seed) {
     // clip volume

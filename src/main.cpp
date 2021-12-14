@@ -146,7 +146,8 @@ void randomize_parameters() {
     current_camera()->up = glm::vec3(0, 1, 0);
     current_camera()->fov_degree = 40 + randf() * 60;
     // randomize volume
-    renderer->volume->density_scale = 0.01 + randf() * 2.f;
+    // renderer->volume->density_scale = 0.01 + 2.f * randf();
+    // renderer->volume->phase = -0.8 + 1.6 * randf();
     // randomize TF
     renderer->transferfunc->window_left = randf() * 0.5;
     renderer->transferfunc->window_width = 0.5 + randf() * 0.5;
@@ -166,9 +167,9 @@ void keyboard_callback(int key, int scancode, int action, int mods) {
     if (ImGui::GetIO().WantCaptureKeyboard) return;
     if (key == GLFW_KEY_H && action == GLFW_PRESS) {
         // DEBUG AffineTransform class
-        renderer->volume->current_grid()->transform2.from_mat4x4(renderer->volume->get_transform());
-        std::cout << "Matrix4x4:" << std::endl << glm::to_string(renderer->volume->get_transform()) << std::endl;
-        std::cout << "AffineTransform:" << std::endl << renderer->volume->current_grid()->transform2.to_string() << std::endl;
+        //renderer->volume->current_grid()->transform2.from_mat4x4(renderer->volume->get_transform());
+        //std::cout << "Matrix4x4:" << std::endl << glm::to_string(renderer->volume->get_transform()) << std::endl;
+        //std::cout << "AffineTransform:" << std::endl << renderer->volume->current_grid()->transform2.to_string() << std::endl;
     }
     if (key == GLFW_KEY_B && action == GLFW_PRESS) {
         renderer->show_environment = !renderer->show_environment;
@@ -233,8 +234,8 @@ void gui_callback(void) {
         static float est_ravg = 0.f;
         est_ravg = glm::mix(est_ravg, float(Context::frame_time() * (renderer->sppx - renderer->sample) / 1000.f), 0.1f);
         ImGui::Text("Sample: %i/%i (est: %um, %us)", renderer->sample, renderer->sppx, uint32_t(est_ravg) / 60, uint32_t(est_ravg) % 60);
-        if (ImGui::InputInt("Sppx", &renderer->sppx)) renderer->sample = 0;
-        if (ImGui::InputInt("Bounces", &renderer->bounces)) renderer->sample = 0;
+        if (ImGui::InputInt("Sppx", &renderer->sppx)) renderer->reset();
+        if (ImGui::InputInt("Bounces", &renderer->bounces)) renderer->reset();
         if (ImGui::Checkbox("Vsync", &use_vsync)) Context::set_swap_interval(use_vsync ? 1 : 0);
         if (ImGui::Button("Use Brick PT")) {
             renderer->trace_shader = Shader("trace brick", "shader/pathtracer_brick.glsl");
@@ -252,20 +253,24 @@ void gui_callback(void) {
         }
         ImGui::Separator();
         ImGui::Text("Backprop:");
-        ImGui::DragInt("Batch size", &renderer->batch_size, 0.01f, 1, 128);
+        ImGui::InputInt("Batch size", &renderer->batch_size);
         ImGui::DragFloat("Learning rate", &renderer->learning_rate, 0.0001f, 0.f, 1.f);
         if (ImGui::Checkbox("Adjoint", &adjoint))
             renderer->reset();
         ImGui::Checkbox("Randomize params", &randomize);
-        if (ImGui::Button("Reset"))
+        if (ImGui::Button("Reset")) {
             renderer->reset_optimization = true;
+            renderer->gradient_step();
+        }
         ImGui::SameLine();
-        if (ImGui::Button("Solve"))
+        if (ImGui::Button("Solve")) {
             renderer->solve_optimization = true;
+            renderer->gradient_step();
+        }
         ImGui::Separator();
-        if (ImGui::Checkbox("Environment", &renderer->show_environment)) renderer->sample = 0;
+        if (ImGui::Checkbox("Environment", &renderer->show_environment)) renderer->reset();
         if (ImGui::DragFloat("Env strength", &renderer->environment->strength, 0.1f)) {
-            renderer->sample = 0;
+            renderer->reset();
             renderer->environment->strength = fmaxf(0.f, renderer->environment->strength);
         }
         ImGui::Checkbox("Tonemapping", &renderer->tonemapping);
@@ -273,61 +278,65 @@ void gui_callback(void) {
             renderer->tonemap_exposure = fmaxf(0.f, renderer->tonemap_exposure);
         ImGui::DragFloat("Gamma", &renderer->tonemap_gamma, 0.01f);
         ImGui::Separator();
-        if (ImGui::DragFloat3("Albedo", &renderer->volume->albedo.x, 0.01f, 0.f, 1.f)) renderer->sample = 0;
-        if (ImGui::DragFloat("Density scale", &renderer->volume->density_scale, 0.01f, 0.01f, 1000.f)) renderer->sample = 0;
-        if (ImGui::DragFloat("Emission scale", &renderer->volume->emission_scale, 0.01f, 0.f, 1000.f)) renderer->sample = 0;
-        if (ImGui::SliderFloat("Phase g", &renderer->volume->phase, -.95f, .95f)) renderer->sample = 0;
+        if (ImGui::DragFloat3("Albedo", &renderer->volume->albedo.x, 0.01f, 0.f, 1.f)) renderer->reset();
+        if (ImGui::DragFloat("Density scale", &renderer->volume->density_scale, 0.01f, 0.01f, 1000.f)) renderer->reset();
+        if (ImGui::DragFloat("Emission scale", &renderer->volume->emission_scale, 0.01f, 0.f, 1000.f)) renderer->reset();
+        if (ImGui::SliderFloat("Phase g", &renderer->volume->phase, -.95f, .95f)) renderer->reset();
         size_t frame_min = 0, frame_max = renderer->volume->n_grid_frames() - 1;
         if (ImGui::SliderScalar("Grid frame", ImGuiDataType_U64, &renderer->volume->grid_frame_counter, &frame_min, &frame_max)) renderer->sample = 0;
         ImGui::Checkbox("Animate Volume", &animate);
         ImGui::SameLine();
         ImGui::DragFloat("FPS", &animation_fps, 0.01, 1, 60);
         ImGui::Separator();
-        if (ImGui::DragFloat("Window left", &renderer->transferfunc->window_left, 0.01f, -1.f, 1.f)) renderer->sample = 0;
-        if (ImGui::DragFloat("Window width", &renderer->transferfunc->window_width, 0.01f, 0.f, 1.f)) renderer->sample = 0;
+        if (ImGui::DragFloat("Window left", &renderer->transferfunc->window_left, 0.01f, -1.f, 1.f)) renderer->reset();
+        if (ImGui::DragFloat("Window width", &renderer->transferfunc->window_width, 0.01f, 0.f, 1.f)) renderer->reset();
         if (ImGui::Button("Neutral TF")) {
             renderer->transferfunc->lut = std::vector<glm::vec4>({ glm::vec4(1) });
             renderer->transferfunc->upload_gpu();
-            renderer->sample = 0;
+            renderer->reset();
             renderer->commit();
             renderer->reset_optimization = true;
+            renderer->gradient_step();
         }
         ImGui::SameLine();
         if (ImGui::Button("Gradient TF")) {
             renderer->transferfunc->lut = std::vector<glm::vec4>({ glm::vec4(0), glm::vec4(1) });
             renderer->transferfunc->upload_gpu();
-            renderer->sample = 0;
+            renderer->reset();
             renderer->commit();
             renderer->reset_optimization = true;
+            renderer->gradient_step();
         }
         if (ImGui::Button("RGB TF")) {
             renderer->transferfunc->lut = std::vector<glm::vec4>({ glm::vec4(0), glm::vec4(1,0,0,0.25), glm::vec4(0,1,0,0.5), glm::vec4(0,0,1,0.75), glm::vec4(1) });
             renderer->transferfunc->upload_gpu();
-            renderer->sample = 0;
+            renderer->reset();
             renderer->commit();
             renderer->reset_optimization = true;
+            renderer->gradient_step();
         }
         ImGui::SameLine();
         if (ImGui::Button("RNG TF")) {
             renderer->transferfunc->lut.clear();
             const int N = 32;
             for (int i = 0; i < N; ++i)
-                renderer->transferfunc->lut.push_back(glm::vec4(randf(), randf(), randf(), i == 0 ? 0.f : randf()));
+                renderer->transferfunc->lut.push_back(glm::vec4(randf(), randf(), randf(), i * randf()));
             renderer->transferfunc->upload_gpu();
-            renderer->sample = 0;
+            renderer->reset();
             renderer->commit();
             renderer->reset_optimization = true;
+            renderer->gradient_step();
         }
         if (ImGui::Button("Gray background")) {
             glm::vec3 color(.5f);
             renderer->environment = std::make_shared<Environment>(Texture2D("gray_background", 1, 1, GL_RGB32F, GL_RGB, GL_FLOAT, &color.x));
-            renderer->sample = 0;
+            renderer->reset();
         }
         ImGui::SameLine();
         if (ImGui::Button("White background")) {
             glm::vec3 color(1);
             renderer->environment = std::make_shared<Environment>(Texture2D("white_background", 1, 1, GL_RGB32F, GL_RGB, GL_FLOAT, &color.x));
-            renderer->sample = 0;
+            renderer->reset();
         }
         ImGui::Separator();
         if (ImGui::SliderFloat("Vol crop min X", &renderer->vol_clip_min.x, 0.f, 1.f)) renderer->sample = 0;
@@ -346,39 +355,39 @@ void gui_callback(void) {
         if (ImGui::InputFloat4("row3", &row_maj[3][0], "%.2f")) modified = true;
         if (modified) {
             renderer->volume->model = glm::transpose(row_maj);
-            renderer->sample = 0;
+            renderer->reset();
         }
         ImGui::Separator();
         ImGui::Text("Rotate VOLUME");
         if (ImGui::Button("90° X##V")) {
             renderer->volume->model = glm::rotate(renderer->volume->model, 1.5f * float(M_PI), glm::vec3(1, 0, 0));
-            renderer->sample = 0;
+            renderer->reset();
         }
         ImGui::SameLine();
         if (ImGui::Button("90° Y##V")) {
             renderer->volume->model = glm::rotate(renderer->volume->model, 1.5f * float(M_PI), glm::vec3(0, 1, 0));
-            renderer->sample = 0;
+            renderer->reset();
         }
         ImGui::SameLine();
         if (ImGui::Button("90° Z##V")) {
             renderer->volume->model = glm::rotate(renderer->volume->model, 1.5f * float(M_PI), glm::vec3(0, 0, 1));
-            renderer->sample = 0;
+            renderer->reset();
         }
         ImGui::Separator();
         ImGui::Text("Rotate ENVMAP");
         if (ImGui::Button("90° X##E")) {
             renderer->environment->model = glm::mat3(glm::rotate(glm::mat4(renderer->environment->model), 1.5f * float(M_PI), glm::vec3(1, 0, 0)));
-            renderer->sample = 0;
+            renderer->reset();
         }
         ImGui::SameLine();
         if (ImGui::Button("90° Y##E")) {
             renderer->environment->model = glm::mat3(glm::rotate(glm::mat4(renderer->environment->model), 1.5f * float(M_PI), glm::vec3(0, 1, 0)));
-            renderer->sample = 0;
+            renderer->reset();
         }
         ImGui::SameLine();
         if (ImGui::Button("90° Z##E")) {
             renderer->environment->model = glm::mat3(glm::rotate(glm::mat4(renderer->environment->model), 1.5f * float(M_PI), glm::vec3(0, 0, 1)));
-            renderer->sample = 0;
+            renderer->reset();
         }
         ImGui::PopStyleVar();
         ImGui::End();
@@ -549,7 +558,7 @@ int main(int argc, char** argv) {
                 timer_backprop->end();
             } else {
                 renderer->batch_sample++;
-                if (renderer->batch_sample % renderer->batch_size == 0) {
+                if (renderer->batch_sample >= renderer->batch_size) {
                     // gradient update step
                     timer_update->begin();
                     renderer->gradient_step();

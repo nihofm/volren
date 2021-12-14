@@ -46,11 +46,12 @@ struct BackpropRendererOpenGL : public RendererOpenGL {
 
     // OpenGL data
     Texture2D color_prediction, color_backprop;
-    Shader backprop_shader, adam_shader, draw_shader;
+    Shader backprop_shader, adam_shader, mono_shader, draw_shader;
 
     // Optimization target
     uint32_t n_parameters;      // parameter count
     SSBO parameter_buffer;      // TF lut parameters
+    SSBO parameter_backbuffer;  // TF extinction raw parameters (no CDF)
     SSBO gradient_buffer;       // gradients per parameter
     SSBO m1_buffer;             // first moments per parameter
     SSBO m2_buffer;             // second moments per parameter

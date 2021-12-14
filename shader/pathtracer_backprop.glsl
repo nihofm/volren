@@ -95,7 +95,7 @@ bool sample_volume_adjoint(const vec3 wpos, const vec3 wdir, out float t, inout 
             throughput *= rgba.rgb * vol_albedo;
             // TODO backprop
             backward_tf_color(tc, rgba.rgb, L * grad);
-            backward_tf_extinction_real(tc, P_real, L * grad);
+            // backward_tf_extinction_real(tc, P_real, L * grad);
 #else
             throughput *= vol_albedo;
 #endif
@@ -104,7 +104,7 @@ bool sample_volume_adjoint(const vec3 wpos, const vec3 wdir, out float t, inout 
         // advance
         t -= log(1 - rng(seed)) * vol_inv_majorant;
 #ifdef USE_TRANSFERFUNC
-        backward_tf_extinction_null(tc, 1 - P_real, L * grad);
+        // backward_tf_extinction_null(tc, 1 - P_real, L * grad / rgba.rgb);
 #endif
     }
     return false;

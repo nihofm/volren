@@ -24,7 +24,9 @@ void main() {
 
     // debug: reset experiment?
     if (reset > 0) {
-        parameters[idx] = vec4(1, 1, 1, tf_lut[idx].a);
+        parameters[idx] = vec4(1, 1, 1, tf_lut[idx].a); // optimize for color
+        // parameters[idx] = vec4(tf_lut[idx].rgb, idx / float(n_parameters)); // optimize for extinction
+        // parameters[idx] = vec4(1); // optimize everything
         gradients[idx] = vec4(0);
         first_moments[idx] = vec4(0);
         second_moments[idx] = vec4(1);
@@ -60,13 +62,4 @@ void main() {
     gradients[idx] = vec4(0);
     first_moments[idx] = m1;
     second_moments[idx] = m2;
-
-    /*
-    // TODO: ensure monotonic function
-    barrier();
-    const float lower = parameters[max(0, idx-1)].a;
-    const float upper = parameters[min(idx+1, n_parameters-1)].a;
-    barrier();
-    parameters[idx].a = clamp(parameters[idx].a, lower, upper);
-    */
 }
