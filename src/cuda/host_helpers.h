@@ -1,23 +1,36 @@
 #pragma once
 
 #include <string>
-#include <vector>
-#include <fstream>
-#include <iostream>
+#include <exception>
+#include <glm/glm.hpp>
 
+#include <cuda.h>
 #include <cuda_runtime.h>
 #include <nvrtc.h>
 #include <optix.h>
 
-#include <glm/glm.hpp>
-
 // ------------------------------------------
 // error checking helpers
+
+#define cuCheckError(code) { _cuCheckError(code, __FILE__, __LINE__); }
+inline void _cuCheckError(CUresult code, const std::string& file, int line, bool abort=true) {
+    if (code != CUDA_SUCCESS) {
+        const char* name; cuGetErrorName(code, &name);
+        const char* msg; cuGetErrorString(code, &msg);
+        throw std::runtime_error(file + "(" + std::to_string(line) + "): CU error: " + msg + " (" + name + ")");
+    }
+}
 
 #define cudaCheckError(code) { _cudaCheckError(code, __FILE__, __LINE__); }
 inline void _cudaCheckError(cudaError_t code, const std::string& file, int line, bool abort=true) {
     if (code != cudaSuccess)
         throw std::runtime_error(file + "(" + std::to_string(line) + "): CUDA error: " + cudaGetErrorString(code));
+}
+
+#define nvrtcCheckError(code) { _nvrtcCheckError(code, __FILE__, __LINE__); }
+inline void _nvrtcCheckError(nvrtcResult code, const std::string& file, int line, bool abort = true) {           
+    if (code != NVRTC_SUCCESS)
+        throw std::runtime_error(file + "(" + std::to_string(line) + "): NVRTC error: " + nvrtcGetErrorString(code));
 }
 
 #define optixCheckError(code) { _optixCheckError(code, __FILE__, __LINE__); }
@@ -26,10 +39,20 @@ inline void _optixCheckError(OptixResult code, const std::string& file, int line
         throw std::runtime_error(file + "(" + std::to_string(line) + "): OPTIX error: " + std::to_string(uint32_t(code)));
 }
 
-#define nvrtcCheckError(code) { _nvrtcCheckError(code, __FILE__, __LINE__); }
-inline void _nvrtcCheckError(nvrtcResult code, const std::string& file, int line, bool abort = true) {           
-    if (code != NVRTC_SUCCESS)
-        throw std::runtime_error(file + "(" + std::to_string(line) + "): NVRTC error: " + nvrtcGetErrorString(code));
+// ------------------------------------------
+// cuda init and default context
+
+inline void cuda_init() {
+    cudaCheckError(cudaFree(0));
+}
+
+inline std::pair<CUdevice, CUcontext> cuda_default_context() {
+    cuCheckError(cuInit(0));
+    CUdevice device;
+    cuCheckError(cuDeviceGet(&device, 0));
+    CUcontext context;
+    cuCheckError(cuCtxCreate(&context, 0, device));
+    return { device, context };
 }
 
 // ------------------------------------------
@@ -39,50 +62,6 @@ inline float3 cast(const glm::vec3& v) { return make_float3(v.x, v.y, v.z); }
 inline float4 cast(const glm::vec4& v) { return make_float4(v.x, v.y, v.z, v.w); }
 inline uint3 cast(const glm::uvec3& v) { return make_uint3(v.x, v.y, v.z); }
 inline dim3 cast_dim(const glm::uvec3& v) { return dim3(v.x, v.y, v.z); }
-
-// ------------------------------------------
-// Buffer
-
-template <typename T> class BufferCUDA {
-public:
-    BufferCUDA(dim3 size = {1, 1, 1}) : data(0) {
-        resize(size);
-    }
-
-    BufferCUDA(const BufferCUDA&) = delete;
-    BufferCUDA& operator=(const BufferCUDA&) = delete;
-    BufferCUDA& operator=(const BufferCUDA&&) = delete;
-
-    __host__ ~BufferCUDA() {
-        if (data) cudaCheckError(cudaFree(data));
-        data = 0;
-    }
-
-    __host__ void resize(const dim3& size) {
-        this->size = size;
-        if (data) cudaCheckError(cudaFree(data));
-        cudaCheckError(cudaMallocManaged(&data, size.x * size.y * size.z * sizeof(T)));
-    }
-
-    __host__ __device__ inline operator T*() { return data; }
-    __host__ __device__ inline operator T*() const { return data; }
-
-    __host__ __device__ inline T* operator ->() { return data; }
-    __host__ __device__ inline T* operator ->() const { return data; }
-
-    __host__ __device__ inline T& operator[](const uint32_t& at) { return data[at]; }
-    __host__ __device__ inline const T& operator[](const uint32_t& at) const { return data[at]; }
-
-    __host__ __device__ inline T& operator[](const uint3& at) { return data[linear_index(at)]; }
-    __host__ __device__ inline const T& operator[](const uint3& at) const { return data[linear_index(at)]; }
-
-    __host__ __device__ inline size_t linear_index(const uint3& v) const { return v.z * size.x * size.y + v.y * size.x + v.x; }
-    __host__ __device__ inline uint3 linear_coord(size_t idx) const { return make_uint3(idx % size.x, (idx / size.x) % size.y, idx / (size.x * size.y)); }
-
-    // data
-    dim3 size;
-    T* data;
-};
 
 /*
 

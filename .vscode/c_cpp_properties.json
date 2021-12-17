@@ -6,7 +6,7 @@
             "includePath": [
                 "${workspaceFolder}/**",
                 "/usr/local/cuda-11.4/targets/x86_64-linux/include",
-                "/opt/cuda/targets/x86_64-linux/include"
+                "/opt/cuda/include"
             ],
             "configurationProvider": "ms-vscode.cmake-tools"
         }

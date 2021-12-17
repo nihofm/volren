@@ -41,7 +41,7 @@ inline __device__ bool intersect_box(const float3& pos, const float3& dir, const
     return near_far.x < near_far.y;
 }
 
-inline __device__ float3 view_dir(const float3& cam_dir, float cam_fov, int2 xy, int2 wh, float2 sample = make_float2(.5f)) {
+inline __device__ float3 view_dir(const float3& cam_dir, float cam_fov, uint2 xy, uint2 wh, float2 sample = make_float2(.5f)) {
     // compute eye-space direction
     const float2 pixel = (make_float2(xy) + sample - make_float2(wh) * .5f) / make_float2(wh.y);
     const float z = -.5f / tanf(.5f * CUDART_PI_F * cam_fov / 180.f);

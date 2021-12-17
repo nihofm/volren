@@ -22,7 +22,7 @@ vec4 trace_path(vec3 pos, vec3 dir, inout uint seed) {
     bool free_path = true;
     uint n_paths = 0;
     float t, f_p; // t: end of ray segment (i.e. sampled position or out of volume), f_p: last phase function sample for MIS
-    while (sample_volumeDDA(pos, dir, t, throughput, L, seed)) {
+    while (sample_volume/*DDA*/(pos, dir, t, throughput, L, seed)) {
         // advance ray
         pos = pos + t * dir;
 
@@ -32,7 +32,7 @@ vec4 trace_path(vec3 pos, vec3 dir, inout uint seed) {
         if (Le_pdf.w > 0) {
             f_p = phase_henyey_greenstein(dot(-dir, w_i), vol_phase_g);
             const float mis_weight = show_environment > 0 ? power_heuristic(Le_pdf.w, f_p) : 1.f;
-            const float Tr = transmittanceDDA(pos, w_i, seed);
+            const float Tr = transmittance/*DDA*/(pos, w_i, seed);
             L += throughput * mis_weight * f_p * Tr * Le_pdf.rgb / Le_pdf.w;
         }
 

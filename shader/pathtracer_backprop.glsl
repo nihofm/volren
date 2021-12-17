@@ -34,37 +34,19 @@ void backward_tf_color(const float d, const vec3 rgb, const vec3 dy) {
     const float tc = (d - tf_window_left) / tf_window_width;
     const int idx = clamp(int(floor(tc * tf_size)), 0, int(tf_size) - 1);
     const vec3 dx = dy / rgb;
-    // nearest neighbor TODO: stochastic lerp?
+    // TODO: filter
     if (rgb.x > 0) atomicAdd(gradients[idx].x, sanitize(dx.x));
     if (rgb.y > 0) atomicAdd(gradients[idx].y, sanitize(dx.y));
     if (rgb.z > 0) atomicAdd(gradients[idx].z, sanitize(dx.z));
 }
 
-void backward_tf_extinction_real(const float d, const float P_real, const vec3 dy) {
-    const float tc = (d - tf_window_left) / tf_window_width;
-    const int idx = clamp(int(floor(tc * tf_size)), 0, int(tf_size) - 1);
-    const float denom = vol_majorant * P_real;
-    const float dx = sum(dy) / denom;
-    // nearest neighbor TODO: stochastic lerp?
-    if (denom > 0) atomicAdd(gradients[idx].w, sanitize(dx));
-}
-
-void backward_tf_extinction_null(const float d, const float P_real, const vec3 dy) {
-    const float tc = (d - tf_window_left) / tf_window_width;
-    const int idx = clamp(int(floor(tc * tf_size)), 0, int(tf_size) - 1);
-    const float denom = vol_majorant * (1.f - P_real);
-    const float dx = -sum(dy) / denom;
-    // nearest neighbor TODO: stochastic lerp?
-    if (denom > 0) atomicAdd(gradients[idx].w, sanitize(dx));
-}
-
-void backward_tf_extinction(const float tc, const float dtau, const vec3 dy) {
+void backward_tf_extinction(const float tc, const float P_real, const vec3 dy) {
     const float tc_mapped = (tc - tf_window_left) / tf_window_width;
-    if (tc_mapped < 0.f || tc_mapped >= 1.f || dtau <= 0.f) return;
-    const float dx = sum(dy) / dtau;
-    // nearest neighbor TODO: stochastic lerp?
+    if (tc_mapped < 0.f || tc_mapped >= 1.f || P_real <= 1e-6) return;
+    const float dx = -sum(dy) / P_real;
+    // TODO: filter
     const int idx = int(floor(tc_mapped * tf_size));
-    if (dtau > 0) atomicAdd(gradients[idx].w, sanitize(dx));
+    if (P_real > 0) atomicAdd(gradients[idx].w, sanitize(dx));
 }
 
 // ---------------------------------------------------
@@ -94,8 +76,10 @@ bool sample_volume_adjoint(const vec3 wpos, const vec3 wdir, out float t, inout 
 #ifdef USE_TRANSFERFUNC
             throughput *= rgba.rgb * vol_albedo;
             // TODO backprop
-            backward_tf_color(tc, rgba.rgb, L * grad);
-            // backward_tf_extinction_real(tc, P_real, L * grad);
+            // backward_tf_color(tc, rgba.rgb, L * grad);
+            backward_tf_extinction(tc, P_real, L * grad);
+            // TODO: optimize extinction with envmap
+            // backward_tf_extinction(tc, P_real, lookup_environment(normalize(vec3(vol_model * vec4(idir, 0)))) * grad);
 #else
             throughput *= vol_albedo;
 #endif
@@ -104,7 +88,9 @@ bool sample_volume_adjoint(const vec3 wpos, const vec3 wdir, out float t, inout 
         // advance
         t -= log(1 - rng(seed)) * vol_inv_majorant;
 #ifdef USE_TRANSFERFUNC
-        // backward_tf_extinction_null(tc, 1 - P_real, L * grad / rgba.rgb);
+        backward_tf_extinction(tc, (1.f - P_real), L * grad);
+        // TODO: optimize extinction with envmap
+        // backward_tf_extinction(tc, 1.f - P_real, lookup_environment(normalize(vec3(vol_model * vec4(idir, 0)))) * grad);
 #endif
     }
     return false;
@@ -149,7 +135,7 @@ bool sample_volumeDDA_adjoint(const vec3 wpos, const vec3 wdir, out float t, ino
 #ifdef USE_TRANSFERFUNC
             throughput *= rgba.rgb;
             // TODO merge backprop
-            backward_tf_color(tc, rgba.rgb, L * grad);
+            // backward_tf_color(tc, rgba.rgb, L * grad);
             // backward_tf_extinction_real(tc, d / majorant, L * grad * (vol_majorant / majorant)); // TODO
 #endif
             return true;
@@ -168,8 +154,8 @@ vec3 path_replay_backprop(vec3 pos, vec3 dir, inout uint seed, vec3 L, const vec
     bool free_path = true;
     uint n_paths = 0;
     float t, f_p; // t: end of ray segment (i.e. sampled position or out of volume), f_p: last phase function sample for MIS
-    // while (sample_volume_adjoint(pos, dir, t, throughput, L, seed, grad)) {
-    while (sample_volumeDDA_adjoint(pos, dir, t, throughput, L, seed, grad)) {
+    while (sample_volume_adjoint(pos, dir, t, throughput, L, seed, grad)) {
+    // while (sample_volumeDDA_adjoint(pos, dir, t, throughput, L, seed, grad)) {
     // float pdf;
     // while (sample_volume_raymarch(pos, dir, t, throughput, pdf, seed)) {
 
@@ -182,7 +168,7 @@ vec3 path_replay_backprop(vec3 pos, vec3 dir, inout uint seed, vec3 L, const vec
         if (Le_pdf.w > 0) {
             f_p = phase_henyey_greenstein(dot(-dir, w_i), vol_phase_g);
             const float mis_weight = show_environment > 0 ? power_heuristic(Le_pdf.w, f_p) : 1.f;
-            const float Tr = transmittanceDDA(pos, w_i, seed);
+            const float Tr = transmittance/*DDA*/(pos, w_i, seed);
             // const float Tr = transmittance_raymarch(pos, w_i, seed);
             const vec3 Li = throughput * f_p * mis_weight * Tr * Le_pdf.rgb / Le_pdf.w;
             // TODO: backprop along shadow ray

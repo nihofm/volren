@@ -4,9 +4,8 @@
 #include <optix.h>
 #include "cuda/gl_interop.h"
 
-#include "ptx/common.cuh"
+#include "kernels/common.cuh"
 
-// TODO CUDA
 struct RendererOptix : public Renderer {
     RendererOptix();
     ~RendererOptix();

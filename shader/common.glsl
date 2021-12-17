@@ -223,14 +223,40 @@ uniform float tf_window_left;
 uniform float tf_window_width;
 uniform int tf_optimization;
 
- // TODO bilinear or stochastic lerp
 vec4 tf_lookup(float d) {
     const float tc = (d - tf_window_left) / tf_window_width;
-    const int idx = clamp(int(floor(tc * tf_size)), 0, int(tf_size) - 1);
+    if (tc < 0.f || tc >= 1.f) return vec4(0);
+    const int idx = int(floor(tc * tf_size));
     if (tf_optimization > 0)
-        return parameters[idx];// * vec4(vec3(1), d);
+        return vec4(vec3(1), parameters[idx].a);//parameters[idx];
     else
-        return tf_lut[idx];// * vec4(vec3(1), d);
+        return vec4(vec3(1), tf_lut[idx].a);//tf_lut[idx];
+}
+
+// TODO pre-compute and store local density gradients (dd) for filtering
+// code snippet:
+// float dmin = vol_majorant, dmax = 0;
+// for (int z = -1; z < 1; ++z) {
+//     for (int y = -1; y < 1; ++y) {
+//         for (int x = -1; x < 1; ++x) {
+//             const float d = lookup_density(clamp(ipos + t * idir + ivec3(x, y, z), ivec3(0), textureSize(vol_density_indirection, 0).xyz * 8));
+//             dmin = min(dmin, d);
+//             dmax = max(dmax, d);
+//         }
+//     }
+// }
+// const float dd = abs(dmax - dmin);
+// const vec4 rgba = tf_lookup(lookup_density(ipos + t * idir, dd * vol_inv_majorant, seed) * vol_inv_majorant, dd * vol_inv_majorant, seed);
+
+vec4 tf_lookup(float d, float dd, inout uint seed) {
+    // return tf_lookup(d);
+    const float tc = (d - tf_window_left) / tf_window_width;
+    if (tc < 0.f || tc >= 1.f) return vec4(0);
+    const int idx = clamp(int(floor(tf_size * (tc + (rng(seed) - 0.5) * dd / tf_window_width))), 0, int(tf_size) - 1);
+    if (tf_optimization > 0)
+        return parameters[idx];
+    else
+        return tf_lut[idx];
 }
 
 // --------------------------------------------------------------
@@ -277,6 +303,11 @@ float lookup_density(const vec3 ipos) {
 // density lookup (stochastic trilinear filter)
 float lookup_density(const vec3 ipos, inout uint seed) {
     return lookup_density(ipos + rng3(seed) - .5f);
+}
+
+// TODO world-space ray differentials for filtering
+float lookup_density(const vec3 ipos, const vec3 dd, inout uint seed) {
+    return lookup_density(ipos + (rng3(seed) - .5f));
 }
 
 // temperature brick grid stored as textures
@@ -331,7 +362,7 @@ vec3 irradiance_query(const vec3 ipos) {
     return irradiance_query(irradiance_idx(ipos));
 }
 vec3 irradiance_query(const vec3 ipos, inout uint seed) {
-    return irradiance_query(irradiance_idx(ipos + 8 * (rng3(seed) - 0.5)));
+    return irradiance_query(irradiance_idx(ipos + 8 * (rng3(seed) - 0.5))); // one light probe per brick
 }
 
 // ---------------------------------

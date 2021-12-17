@@ -1,7 +1,8 @@
 #pragma once
 
 #include "host_helpers.h"
-#include "cppgl.h"
+#include <GL/glew.h>
+#include <GL/gl.h>
 #include <cuda_gl_interop.h>
 
 template <typename T> class BufferCUDAGL {
@@ -51,20 +52,57 @@ public:
         glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
     }
 
-    void draw(float exposure = 1.f, float gamma = 2.2f) {
-        static Shader tonemap_shader = Shader("tonemap", "shader/quad.vs", "shader/tonemap_buf.fs");
-        tonemap_shader->bind();
-        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, gl_buf);
-        tonemap_shader->uniform("size", glm::ivec2(size.x, size.y));
-        tonemap_shader->uniform("exposure", exposure);
-        tonemap_shader->uniform("gamma", gamma);
-        Quad::draw();
-        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, 0);
-        tonemap_shader->unbind();
-    }
-
     // data
     dim3 size;
     GLuint gl_buf;
+    struct cudaGraphicsResource* cuda_resource;
+};
+
+class ImageCUDAGL {
+public:
+    ImageCUDAGL(uint2 size = {1, 1}) : gl_img(0), cuda_resource(0) {
+        glGenTextures(1, &gl_img);
+        glBindTexture(GL_TEXTURE_2D, gl_img);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+        glBindTexture(GL_TEXTURE_2D, 0);
+        resize(size);
+    }
+
+    ImageCUDAGL(const ImageCUDAGL&) = delete;
+    ImageCUDAGL& operator=(const ImageCUDAGL&) = delete;
+    ImageCUDAGL& operator=(const ImageCUDAGL&&) = delete;
+
+    ~ImageCUDAGL() {
+        if (cuda_resource) cudaCheckError(cudaGraphicsUnregisterResource(cuda_resource));
+        glDeleteTextures(1, &gl_img);
+    }
+
+    void resize(const uint2& size) {
+        this->size = size;
+        if (cuda_resource) cudaCheckError(cudaGraphicsUnregisterResource(cuda_resource));
+        glBindTexture(GL_TEXTURE_2D, gl_img);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, size.x, size.y, 0, GL_RGBA, GL_FLOAT, 0);
+        cudaCheckError(cudaGraphicsGLRegisterImage(&cuda_resource, gl_img, GL_TEXTURE_2D, cudaGraphicsMapFlagsWriteDiscard));
+        glBindTexture(GL_TEXTURE_2D, 0);
+    }
+
+    // TODO: CUDA texture/surface objects
+    cudaArray_t map_cuda(uint32_t index = 0, uint32_t miplevel = 0) {
+        cudaArray_t array;
+        cudaCheckError(cudaGraphicsMapResources(1, &cuda_resource, 0));
+        cudaCheckError(cudaGraphicsSubResourceGetMappedArray(&array, cuda_resource, index, miplevel));
+        return array;
+    }
+
+    void unmap_cuda() {
+        cudaCheckError(cudaGraphicsUnmapResources(1, &cuda_resource, 0));
+    }
+
+    // data
+    uint2 size;
+    GLuint gl_img;
     struct cudaGraphicsResource* cuda_resource;
 };

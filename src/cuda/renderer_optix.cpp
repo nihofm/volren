@@ -1,9 +1,12 @@
 #include "renderer_optix.h"
 #include "host_helpers.h"
+#include <nvrtc.h>
 
 #include <optix_function_table_definition.h>
 #include <optix_stack_size.h>
 #include <optix_stubs.h>
+
+#include "cppgl.h"
 
 #include <filesystem>
 namespace fs = std::filesystem;
@@ -34,7 +37,7 @@ inline std::string compile_ptx(const fs::path& path) {
     const std::string cu_source = read_file(path);
     // create program
     nvrtcProgram program = 0;
-    nvrtcCheckError(nvrtcCreateProgram(&program, cu_source.c_str(), path.filename().c_str(), 0, NULL, NULL)); // TODO options
+    nvrtcCheckError(nvrtcCreateProgram(&program, cu_source.c_str(), path.filename().c_str(), 0, NULL, NULL));
     // set compiler options // TODO decide on options
     std::vector<std::string> options;
     options.push_back("-I" + path.parent_path().string());
@@ -259,8 +262,6 @@ void RendererOptix::commit() {
     */
 }
 
-#include "cuda/ptx/common.cuh"
-
 void RendererOptix::trace() {
     // upload params
     params->image = fbo.map_cuda();
@@ -281,5 +282,13 @@ void RendererOptix::trace() {
 }
 
 void RendererOptix::draw() {
-    fbo.draw(1.f, 1.f);
+    static Shader tonemap_shader = Shader("tonemap", "shader/quad.vs", "shader/tonemap_buf.fs");
+    tonemap_shader->bind();
+    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, fbo.gl_buf);
+    tonemap_shader->uniform("size", glm::ivec2(fbo.size.x, fbo.size.y));
+    tonemap_shader->uniform("exposure", tonemap_exposure);
+    tonemap_shader->uniform("gamma", tonemap_gamma);
+    Quad::draw();
+    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, 0);
+    tonemap_shader->unbind();
 }

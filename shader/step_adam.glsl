@@ -24,9 +24,9 @@ void main() {
 
     // debug: reset experiment?
     if (reset > 0) {
-        parameters[idx] = vec4(1, 1, 1, tf_lut[idx].a); // optimize for color
+        // parameters[idx] = vec4(1, 1, 1, tf_lut[idx].a); // optimize for color
         // parameters[idx] = vec4(tf_lut[idx].rgb, idx / float(n_parameters)); // optimize for extinction
-        // parameters[idx] = vec4(1); // optimize everything
+        parameters[idx] = vec4(1); // optimize everything
         gradients[idx] = vec4(0);
         first_moments[idx] = vec4(0);
         second_moments[idx] = vec4(1);

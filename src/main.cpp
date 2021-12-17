@@ -15,7 +15,10 @@ namespace py = pybind11;
 
 #include "renderer.h"
 #include "renderer_gl.h"
+#include "cuda/renderer_cuda.h"
+#include "cuda/buffer.cuh"
 #include "cuda/renderer_optix.h"
+#include "cuda/ptx_cache.h" // debug
 
 // ------------------------------------------
 // settings
@@ -167,9 +170,9 @@ void keyboard_callback(int key, int scancode, int action, int mods) {
     if (ImGui::GetIO().WantCaptureKeyboard) return;
     if (key == GLFW_KEY_H && action == GLFW_PRESS) {
         // DEBUG AffineTransform class
-        //renderer->volume->current_grid()->transform2.from_mat4x4(renderer->volume->get_transform());
-        //std::cout << "Matrix4x4:" << std::endl << glm::to_string(renderer->volume->get_transform()) << std::endl;
-        //std::cout << "AffineTransform:" << std::endl << renderer->volume->current_grid()->transform2.to_string() << std::endl;
+        // renderer->volume->current_grid()->transform2.from_mat4x4(renderer->volume->get_transform());
+        // std::cout << "Matrix4x4:" << std::endl << glm::to_string(renderer->volume->get_transform()) << std::endl;
+        // std::cout << "AffineTransform:" << std::endl << renderer->volume->current_grid()->transform2.to_string() << std::endl;
     }
     if (key == GLFW_KEY_B && action == GLFW_PRESS) {
         renderer->show_environment = !renderer->show_environment;
@@ -213,7 +216,7 @@ void mouse_callback(double xpos, double ypos) {
         if (Context::key_pressed(GLFW_KEY_LEFT_SHIFT))
             renderer->transferfunc->window_width = clamp(renderer->transferfunc->window_width + (xpos - old_xpos) * (maj - min) * 0.001, 0.f, 1.f);
         else
-            renderer->transferfunc->window_left = clamp(renderer->transferfunc->window_left + (xpos - old_xpos) * (maj - min) * 0.001, -1.f, 1.f);
+            renderer->transferfunc->window_left = clamp(renderer->transferfunc->window_left + (xpos - old_xpos) * (maj - min) * 0.001, 0.f, 1.f);
         renderer->sample = 0;
     }
     old_xpos = xpos;
@@ -320,7 +323,8 @@ void gui_callback(void) {
             renderer->transferfunc->lut.clear();
             const int N = 32;
             for (int i = 0; i < N; ++i)
-                renderer->transferfunc->lut.push_back(glm::vec4(randf(), randf(), randf(), i * randf()));
+                renderer->transferfunc->lut.push_back(i == 0 ? glm::vec4(0) : glm::vec4(randf(), randf(), randf(), randf()));
+                // renderer->transferfunc->lut.push_back(glm::vec4(1.f, 1.f, 1.f, i == 0 ? 0.f : randf()));
             renderer->transferfunc->upload_gpu();
             renderer->reset();
             renderer->commit();
@@ -493,6 +497,57 @@ int main(int argc, char** argv) {
 
     // parse command line arguments
     parse_cmd(argc, argv);
+
+    // XXX CUDA DEBUG
+    if (true) {
+        cuda_init();
+
+        /*
+        PtxCache cache;
+        auto test = cache.get_module("src/cuda/kernels/saxpy.cu");
+        std::cout << "module: " << test->module << std::endl;
+        std::cout << "kernel: " << test->get_kernel("saxpy") << std::endl;
+        
+        const uint32_t NUM_THREADS = 8, NUM_BLOCKS = 2;
+
+        // Generate input for execution, and create output buffers.
+        size_t n = NUM_THREADS * NUM_BLOCKS;
+        size_t bufferSize = n * sizeof(float);
+        float a = 5.1f;
+        BufferCUDA<float> X(n), Y(n), Out(n);
+        std::cout << "X: " << X << std::endl;
+        std::cout << "Y: " << Y << std::endl;
+        std::cout << "Out: " << Out << std::endl;
+        for (size_t i = 0; i < n; ++i) {
+            X[i] = static_cast<float>(i);
+            Y[i] = static_cast<float>(i * 2);
+        }
+        // Execute SAXPY.
+        void *args[] = { &a, &X.ptr, &Y.ptr, &Out.ptr, &n };
+        cache.get_module("src/cuda/kernels/saxpy.cu")->launch_kernel("saxpy", dim3(NUM_BLOCKS), dim3(NUM_THREADS), args);
+        cuCheckError(cuCtxSynchronize());
+        // Retrieve and print output.
+        for (size_t i = 0; i < n; ++i) {
+            std::cout << a << " * " << X[i] << " + " << Y[i] << " = " << Out[i] << '\n';
+        }
+        */
+
+        {
+            ImageCUDAGL img({128, 128});
+            std::cout << img.map_cuda() << std::endl;
+            img.unmap_cuda();
+
+            RendererCUDA renderer_cuda;
+            renderer_cuda.init();
+            renderer_cuda.resize(Context::resolution().x, Context::resolution().y);
+            renderer_cuda.trace();
+            renderer_cuda.draw();
+            Context::swap_buffers();
+            sleep(1);
+        }
+
+        exit(0);
+    }
 
     // set some defaults if volume has been loaded
     if (renderer->volume->grids.size() > 0) {
