@@ -2,8 +2,8 @@
 #include "../renderer.h"
 
 #include <cuda.h>
-#include "gl_interop.h"
-#include "ptx_cache.h"
+#include "buffer.cuh"
+#include "grid.cuh"
 
 struct RendererCUDA : public Renderer {
     RendererCUDA();
@@ -17,8 +17,9 @@ struct RendererCUDA : public Renderer {
 
     // CUDA/GL data
     // ImageCUDAGL fbo;
-    BufferCUDAGL<float4> fbo;
+    BufferCUDAGL<glm::vec4> fbo;
 
     // CUDA data
-    PtxCache ptx_cache;
+    ManagedBufferCUDA<float> grid_data;
+    DenseGridCUDA grid;
 };

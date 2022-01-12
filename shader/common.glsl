@@ -228,9 +228,11 @@ vec4 tf_lookup(float d) {
     if (tc < 0.f || tc >= 1.f) return vec4(0);
     const int idx = int(floor(tc * tf_size));
     if (tf_optimization > 0)
-        return vec4(vec3(1), parameters[idx].a);//parameters[idx];
+        // return parameters[idx];
+        return vec4(vec3(1), parameters[idx].a);
     else
-        return vec4(vec3(1), tf_lut[idx].a);//tf_lut[idx];
+        // return tf_lut[idx];
+        return vec4(vec3(1), tf_lut[idx].a);
 }
 
 // TODO pre-compute and store local density gradients (dd) for filtering
@@ -368,7 +370,7 @@ vec3 irradiance_query(const vec3 ipos, inout uint seed) {
 // ---------------------------------
 // null-collision methods
 
-#define USE_TRANSFERFUNC
+// #define USE_TRANSFERFUNC
 
 float transmittance(const vec3 wpos, const vec3 wdir, inout uint seed) {
     // clip volume
@@ -387,7 +389,7 @@ float transmittance(const vec3 wpos, const vec3 wdir, inout uint seed) {
         const float d = lookup_density(ipos + t * idir, seed);
 #endif
         // track ratio of real to null particles
-        Tr *= max(0.f, 1 - d * vol_inv_majorant);
+        Tr *= 1 - d * vol_inv_majorant;
         // russian roulette
         if (Tr < .1f) {
             const float prob = 1 - Tr;

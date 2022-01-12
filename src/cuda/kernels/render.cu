@@ -1,21 +1,24 @@
+#include "render.h"
 #include "device_helpers.cuh"
-#include "../buffer.cuh"
+#include "../rng.cuh"
 
-extern "C" __global__
-void trace_kernel(float4* fbo, uint2 resolution, float3 cam_pos, float3 cam_dir, float cam_fovy)
-{
-    const dim3 gid = blockIdx * blockDim + threadIdx;
-    if (gid.x >= resolution.x || gid.y >= resolution.y) return;
-    const size_t idx = gid.y * resolution.x + gid.x;
+__global__ void trace_kernel(BufferCUDA<glm::vec4> fbo, CameraCUDA cam, DenseGridCUDA grid, uint32_t sample) {
+    // const uint3 gid = blockIdx * blockDim + threadIdx;
+    const uint32_t x = blockIdx.x * blockDim.x + threadIdx.x;
+    const uint32_t y = blockIdx.y * blockDim.y + threadIdx.y;
+    if (x >= fbo.size.x || y >= fbo.size.y) return;
 
-    const float3 pos = cam_pos;
-    const float3 dir = view_dir(cam_dir, cam_fovy, {gid.x, gid.y}, resolution);
+    uint32_t seed = tea(y * fbo.size.x + x, sample, 32);
 
-    fbo[idx] = make_float4(dir.x, dir.y, dir.z, 1);
+    Ray ray = cam.view_ray_pinhole(glm::vec2(x, y), glm::vec2(fbo.size.x, fbo.size.y));
+    // Ray ray = Ray(cam.pos, view_dir(cam.dir, cam.fovy, glm::vec2(x, y), glm::vec2(fbo.size.x, fbo.size.y)));
+
+    glm::vec4 color = glm::vec4(grid.transmittance(ray, seed));
+    fbo(x, y) = glm::mix(fbo(x, y), color, 1.f / sample);
 }
 
-extern "C" void call_trace_kernel(float4* fbo, uint2 resolution, float3 cam_pos, float3 cam_dir, float cam_fovy) {
+extern "C" void call_trace_kernel(BufferCUDA<glm::vec4> fbo, CameraCUDA cam, DenseGridCUDA grid, uint32_t sample) {
     const dim3 threads = { 32, 32 };
-    const dim3 blocks = { (resolution.x + threads.x - 1) / threads.x, (resolution.y + threads.y - 1) / threads.y };
-    trace_kernel<<<blocks, threads>>>(fbo, resolution, cam_pos, cam_dir, cam_fovy);
+    const dim3 blocks = { (fbo.size.y + threads.x - 1) / threads.x, (fbo.size.y + threads.y - 1) / threads.y };
+    trace_kernel<<<blocks, threads>>>(fbo, cam, grid, sample);
 }

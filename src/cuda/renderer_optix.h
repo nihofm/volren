@@ -1,9 +1,9 @@
 #pragma once
+/*
 #include "../renderer.h"
 
 #include <optix.h>
-#include "cuda/gl_interop.h"
-
+#include "buffer.cuh"
 #include "kernels/common.cuh"
 
 struct RendererOptix : public Renderer {
@@ -28,3 +28,4 @@ struct RendererOptix : public Renderer {
     BufferCUDAGL<float4> fbo;
     Params* params;
 };
+*/

@@ -17,7 +17,6 @@ namespace py = pybind11;
 #include "renderer_gl.h"
 #include "cuda/renderer_cuda.h"
 #include "cuda/buffer.cuh"
-#include "cuda/renderer_optix.h"
 #include "cuda/ptx_cache.h" // debug
 
 // ------------------------------------------
@@ -34,6 +33,8 @@ static float animation_fps = 30;
 static bool render_animation = false;
 
 static std::shared_ptr<BackpropRendererOpenGL> renderer;
+static std::shared_ptr<RendererCUDA> renderer_cuda;
+static bool use_cuda = true;
 
 // ------------------------------------------
 // helper funcs
@@ -162,6 +163,7 @@ void randomize_parameters() {
 void resize_callback(int w, int h) {
     // resize buffers
     renderer->resize(w, h);
+    renderer_cuda->resize(w, h);
     // restart rendering
     renderer->reset();
 }
@@ -176,7 +178,12 @@ void keyboard_callback(int key, int scancode, int action, int mods) {
     }
     if (key == GLFW_KEY_B && action == GLFW_PRESS) {
         renderer->show_environment = !renderer->show_environment;
-        renderer->sample = 0;
+        renderer->reset();
+    }
+    if (key == GLFW_KEY_O && action == GLFW_PRESS) {
+        use_cuda = !use_cuda;
+        renderer->reset();
+        renderer_cuda->reset();
     }
     if (key == GLFW_KEY_V && action == GLFW_PRESS) {
         use_vsync = !use_vsync;
@@ -193,8 +200,8 @@ void keyboard_callback(int key, int scancode, int action, int mods) {
     if (key == GLFW_KEY_T && action == GLFW_PRESS)
         renderer->tonemapping = !renderer->tonemapping;
     if (key == GLFW_KEY_SPACE && action == GLFW_PRESS) {
-        renderer->sample = 0;
         animate = !animate;
+        renderer->reset();
     }
     if (key == GLFW_KEY_ENTER && action == GLFW_PRESS)
         Context::screenshot("screenshot.png");
@@ -214,9 +221,9 @@ void mouse_callback(double xpos, double ypos) {
     if (Context::mouse_button_pressed(GLFW_MOUSE_BUTTON_RIGHT)) {
         const auto [min, maj] = renderer->volume->current_grid()->minorant_majorant();
         if (Context::key_pressed(GLFW_KEY_LEFT_SHIFT))
-            renderer->transferfunc->window_width = clamp(renderer->transferfunc->window_width + (xpos - old_xpos) * (maj - min) * 0.001, 0.f, 1.f);
+            renderer->transferfunc->window_width = glm::clamp(renderer->transferfunc->window_width + (xpos - old_xpos) * (maj - min) * 0.001, 0.0, 1.0);
         else
-            renderer->transferfunc->window_left = clamp(renderer->transferfunc->window_left + (xpos - old_xpos) * (maj - min) * 0.001, 0.f, 1.f);
+            renderer->transferfunc->window_left = glm::clamp(renderer->transferfunc->window_left + (xpos - old_xpos) * (maj - min) * 0.001, 0.0, 1.0);
         renderer->sample = 0;
     }
     old_xpos = xpos;
@@ -486,6 +493,11 @@ int main(int argc, char** argv) {
     renderer = std::make_shared<BackpropRendererOpenGL>();
     renderer->init();
 
+    // initialize CUDA Renderer
+    cuda_init();
+    renderer_cuda = std::make_shared<RendererCUDA>();
+    renderer_cuda->init();
+
     // install callbacks for interactive mode
     Context::set_resize_callback(resize_callback);
     Context::set_keyboard_callback(keyboard_callback);
@@ -497,57 +509,6 @@ int main(int argc, char** argv) {
 
     // parse command line arguments
     parse_cmd(argc, argv);
-
-    // XXX CUDA DEBUG
-    if (true) {
-        cuda_init();
-
-        /*
-        PtxCache cache;
-        auto test = cache.get_module("src/cuda/kernels/saxpy.cu");
-        std::cout << "module: " << test->module << std::endl;
-        std::cout << "kernel: " << test->get_kernel("saxpy") << std::endl;
-        
-        const uint32_t NUM_THREADS = 8, NUM_BLOCKS = 2;
-
-        // Generate input for execution, and create output buffers.
-        size_t n = NUM_THREADS * NUM_BLOCKS;
-        size_t bufferSize = n * sizeof(float);
-        float a = 5.1f;
-        BufferCUDA<float> X(n), Y(n), Out(n);
-        std::cout << "X: " << X << std::endl;
-        std::cout << "Y: " << Y << std::endl;
-        std::cout << "Out: " << Out << std::endl;
-        for (size_t i = 0; i < n; ++i) {
-            X[i] = static_cast<float>(i);
-            Y[i] = static_cast<float>(i * 2);
-        }
-        // Execute SAXPY.
-        void *args[] = { &a, &X.ptr, &Y.ptr, &Out.ptr, &n };
-        cache.get_module("src/cuda/kernels/saxpy.cu")->launch_kernel("saxpy", dim3(NUM_BLOCKS), dim3(NUM_THREADS), args);
-        cuCheckError(cuCtxSynchronize());
-        // Retrieve and print output.
-        for (size_t i = 0; i < n; ++i) {
-            std::cout << a << " * " << X[i] << " + " << Y[i] << " = " << Out[i] << '\n';
-        }
-        */
-
-        {
-            ImageCUDAGL img({128, 128});
-            std::cout << img.map_cuda() << std::endl;
-            img.unmap_cuda();
-
-            RendererCUDA renderer_cuda;
-            renderer_cuda.init();
-            renderer_cuda.resize(Context::resolution().x, Context::resolution().y);
-            renderer_cuda.trace();
-            renderer_cuda.draw();
-            Context::swap_buffers();
-            sleep(1);
-        }
-
-        exit(0);
-    }
 
     // set some defaults if volume has been loaded
     if (renderer->volume->grids.size() > 0) {
@@ -565,6 +526,10 @@ int main(int argc, char** argv) {
         renderer->commit();
     }
 
+    // set volume for CUDA renderer
+    renderer_cuda->volume = renderer->volume;
+    renderer_cuda->commit();
+
     // setup timers
     auto timer_trace = TimerQueryGL("trace");
     auto timer_backprop = TimerQueryGL("backprop");
@@ -574,8 +539,10 @@ int main(int argc, char** argv) {
     float shader_timer = 0, animation_timer = 0;
     while (Context::running()) {
         // handle input
-        if (CameraImpl::default_input_handler(Context::frame_time()))
+        if (CameraImpl::default_input_handler(Context::frame_time())) {
             renderer->reset();
+            renderer_cuda->reset();
+        }
 
         // update
         current_camera()->update();
@@ -597,7 +564,13 @@ int main(int argc, char** argv) {
         }
 
         // trace
-        if (renderer->sample < renderer->sppx) {
+        if (use_cuda) {
+            renderer_cuda->sample++;
+            timer_trace->begin();
+            renderer_cuda->trace();
+            timer_trace->end();
+        }
+        else if (renderer->sample < renderer->sppx) {
             // forward rendering
             renderer->sample++;
             timer_trace->begin();
@@ -632,7 +605,9 @@ int main(int argc, char** argv) {
 
         // draw results
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-        if (adjoint)
+        if (use_cuda)
+            renderer_cuda->draw();
+        else if (adjoint)
             renderer->draw_adjoint();
         else
             renderer->draw();
@@ -642,5 +617,8 @@ int main(int argc, char** argv) {
     }
 
     // cleanup
+    std::cout << "cleanup" << std::endl;
     renderer.reset();
+    renderer_cuda.reset(); // TODO debug CUDA invalid argument error
+    std::cout << "cleanup done" << std::endl;
 }

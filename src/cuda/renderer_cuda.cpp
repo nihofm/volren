@@ -4,29 +4,41 @@
 
 #include "kernels/render.h"
 
-RendererCUDA::RendererCUDA() {}
+RendererCUDA::RendererCUDA() {
+    fbo.resize(Context::resolution().x, Context::resolution().y);
+}
 
-RendererCUDA::~RendererCUDA() {}
+RendererCUDA::~RendererCUDA() {
+}
 
 void RendererCUDA::init() {
     // TODO
 }
 
 void RendererCUDA::resize(uint32_t w, uint32_t h) {
-    fbo.resize({w, h});
+    fbo.resize(w, h);
 }
 
 void RendererCUDA::commit() {
     // TODO
+    const auto size = volume->current_grid()->index_extent();
+    grid_data.resize(size.x, size.y, size.z);
+    for (uint32_t z = 0; z < size.z; ++z)
+        for (uint32_t y = 0; y < size.y; ++y)
+            for (uint32_t x = 0; x < size.x; ++x)
+                grid_data(x, y, z) = volume->current_grid()->lookup(glm::uvec3(x, y, z));
+    const auto [min, maj] = volume->current_grid()->minorant_majorant();
+    const auto cuda_buf = BufferCUDA<float>(grid_data.size, grid_data.ptr);
+    grid = DenseGridCUDA(volume->get_transform(), maj, cuda_buf);
 }
 
 void RendererCUDA::trace() {
     // TODO: use cuda texture/surface!
-    call_trace_kernel(fbo.map_cuda(), { fbo.size.x, fbo.size.y }, cast(current_camera()->pos), cast(current_camera()->dir), current_camera()->fov_degree);
-    fbo.unmap_cuda();
+    const auto cam = CameraCUDA(current_camera()->pos, current_camera()->dir, current_camera()->fov_degree);
+    call_trace_kernel(fbo, cam, grid, sample);
 
     // DEBUG: check for errors
-    cudaCheckError(cudaDeviceSynchronize());
+    // cudaCheckError(cudaDeviceSynchronize());
 }
 
 void RendererCUDA::draw() {

@@ -1,5 +1,10 @@
 #pragma once
 
+#include <glm/glm.hpp>
 #include <cuda_runtime.h>
 
-extern "C" void call_trace_kernel(float4* fbo, uint2 resolution, float3 cam_pos, float3 cam_dir, float cam_fovy);
+#include "../buffer.cuh"
+#include "../camera.cuh"
+#include "../grid.cuh"
+
+extern "C" void call_trace_kernel(BufferCUDA<glm::vec4> fbo, CameraCUDA cam, DenseGridCUDA grid, uint32_t sample);

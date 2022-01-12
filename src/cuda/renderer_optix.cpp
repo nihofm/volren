@@ -1,4 +1,5 @@
 #include "renderer_optix.h"
+/*
 #include "host_helpers.h"
 #include <nvrtc.h>
 
@@ -15,7 +16,7 @@ namespace fs = std::filesystem;
 // ----------------------------------------------------------
 // helper functions
 
-static void optix_log_cb(unsigned int level, const char* tag, const char* message, void* /*data */) {
+static void optix_log_cb(unsigned int level, const char* tag, const char* message, void*) {
     std::cerr << "[" << std::setw( 2 ) << level << "][" << std::setw( 12 ) << tag << "]: " << message << "\n";
 }
 
@@ -216,7 +217,7 @@ RendererOptix::RendererOptix() : params(0) {
     
     // setup fbo
     const glm::ivec2 res = Context::resolution();
-    fbo.resize(dim3(res.x, res.y));
+    fbo.resize(res.x, res.y);
 }
 
 RendererOptix::~RendererOptix() {
@@ -233,38 +234,36 @@ RendererOptix::~RendererOptix() {
 void RendererOptix::init() {}
 
 void RendererOptix::resize(uint32_t w, uint32_t h) {
-    fbo.resize(dim3(w, h));
+    fbo.resize(w, h);
 }
 
 void RendererOptix::commit() {
-    // TODO
-    /*
-    // copy transform
-    const auto mat = glm::transpose(glm::inverse(volume->get_transform()));
-    vol->transform[0] = cast(mat[0]);
-    vol->transform[1] = cast(mat[1]);
-    vol->transform[2] = cast(mat[2]);
-    vol->transform[3] = cast(mat[3]);
-    // copy parameters
-    const auto [bb_min, bb_max] = volume->AABB();
-    vol->bb_min = cast(bb_min); 
-    vol->bb_max = cast(bb_max); 
-    vol->albedo = cast(volume->albedo);
-    vol->phase = volume->phase;
-    vol->density_scale = volume->density_scale;
-    vol->majorant = volume->minorant_majorant().second;
-    // copy grid data TODO paralellize?
-    vol->grid.resize(cast_dim(volume->current_grid()->index_extent()));
-    for (uint32_t z = 0; z < vol->grid.size.z; ++z)
-        for (uint32_t y = 0; y < vol->grid.size.y; ++y)
-            for (uint32_t x = 0; x < vol->grid.size.x; ++x)
-                vol->grid[make_uint3(x, y, z)] = volume->current_grid()->lookup(glm::uvec3(x, y, z));
-    */
+    // // TODO
+    // // copy transform
+    // const auto mat = glm::transpose(glm::inverse(volume->get_transform()));
+    // vol->transform[0] = cast(mat[0]);
+    // vol->transform[1] = cast(mat[1]);
+    // vol->transform[2] = cast(mat[2]);
+    // vol->transform[3] = cast(mat[3]);
+    // // copy parameters
+    // const auto [bb_min, bb_max] = volume->AABB();
+    // vol->bb_min = cast(bb_min); 
+    // vol->bb_max = cast(bb_max); 
+    // vol->albedo = cast(volume->albedo);
+    // vol->phase = volume->phase;
+    // vol->density_scale = volume->density_scale;
+    // vol->majorant = volume->minorant_majorant().second;
+    // // copy grid data TODO paralellize?
+    // vol->grid.resize(cast_dim(volume->current_grid()->index_extent()));
+    // for (uint32_t z = 0; z < vol->grid.size.z; ++z)
+    //     for (uint32_t y = 0; y < vol->grid.size.y; ++y)
+    //         for (uint32_t x = 0; x < vol->grid.size.x; ++x)
+    //             vol->grid[make_uint3(x, y, z)] = volume->current_grid()->lookup(glm::uvec3(x, y, z));
 }
 
 void RendererOptix::trace() {
     // upload params
-    params->image = fbo.map_cuda();
+    params->image = fbo.ptr;
     params->resolution = make_float2(fbo.size.x, fbo.size.y);
     params->cam_pos = cast(current_camera()->pos);
     params->cam_dir = cast(current_camera()->dir);
@@ -272,13 +271,11 @@ void RendererOptix::trace() {
     const auto& [bb_min, bb_max] = volume->AABB();
     params->vol_bb_min = cast(bb_min);
     params->vol_bb_max = cast(bb_max);
-
-    optixCheckError(optixLaunch(pipeline, 0, (CUdeviceptr)params, sizeof(Params), &sbt, fbo.size.x, fbo.size.y, /*depth=*/1));
-    
-    cudaDeviceSynchronize();
+    // launch kernel
+    optixCheckError(optixLaunch(pipeline, 0, (CUdeviceptr)params, sizeof(Params), &sbt, fbo.size.x, fbo.size.y, 1));
+    // DEBUG: check for errors
+    cudaCheckError(cudaDeviceSynchronize());
     cudaCheckError(cudaGetLastError());
-
-    fbo.unmap_cuda();
 }
 
 void RendererOptix::draw() {
@@ -292,3 +289,4 @@ void RendererOptix::draw() {
     glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, 0);
     tonemap_shader->unbind();
 }
+*/
