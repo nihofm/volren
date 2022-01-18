@@ -57,7 +57,7 @@ vec3 trace_path(vec3 pos, vec3 dir, inout uint seed) {
     bool free_path = true;
     uint n_paths = 0;
     float t; // t: end of ray segment (i.e. sampled position or out of volume)
-    while (sample_volumeDDA(pos, dir, t, throughput, L, seed)) {
+    while (sample_volume/*DDA*/(pos, dir, t, throughput, L, seed)) {
         // advance ray
         pos = pos + t * dir;
 
@@ -67,7 +67,7 @@ vec3 trace_path(vec3 pos, vec3 dir, inout uint seed) {
         if (Le_pdf.w > 0) {
             const float f_p = phase_isotropic();
             const float mis_weight = show_environment > 0 ? power_heuristic(Le_pdf.w, f_p) : 1.f;
-            const float Tr = transmittanceDDA(pos, w_i, seed);
+            const float Tr = transmittance/*DDA*/(pos, w_i, seed);
             L += throughput * mis_weight * f_p * Tr * Le_pdf.rgb / Le_pdf.w;
         }
 
@@ -101,7 +101,7 @@ void update_cache(vec3 pos, vec3 dir, inout uint seed) {
     float t;
     vec3 Li = vec3(0);
     vec3 dummy = vec3(1);
-    if (sample_volumeDDA(pos, dir, t, dummy, Li, seed)) {
+    if (sample_volume/*DDA*/(pos, dir, t, dummy, Li, seed)) {
         pos += t * dir;
 
         // sample light source (environment)
@@ -110,7 +110,7 @@ void update_cache(vec3 pos, vec3 dir, inout uint seed) {
         if (Le_pdf.w > 0) {
             const float f_p = phase_isotropic();
             const float mis_weight = show_environment > 0 ? power_heuristic(Le_pdf.w, f_p) : 1.f;
-            const float Tr = transmittanceDDA(pos, w_i, seed);
+            const float Tr = transmittance/*DDA*/(pos, w_i, seed);
             Li += mis_weight * f_p * Tr * Le_pdf.rgb / Le_pdf.w;
         }
 

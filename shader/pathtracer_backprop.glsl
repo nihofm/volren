@@ -155,6 +155,7 @@ vec3 path_replay_backprop(vec3 pos, vec3 dir, inout uint seed, vec3 L, const vec
     uint n_paths = 0;
     float t, f_p; // t: end of ray segment (i.e. sampled position or out of volume), f_p: last phase function sample for MIS
     while (sample_volume_adjoint(pos, dir, t, throughput, L, seed, grad)) {
+    // while (sample_volume(pos, dir, t, throughput, L, seed)) {
     // while (sample_volumeDDA_adjoint(pos, dir, t, throughput, L, seed, grad)) {
     // float pdf;
     // while (sample_volume_raymarch(pos, dir, t, throughput, pdf, seed)) {
@@ -199,7 +200,8 @@ vec3 path_replay_backprop(vec3 pos, vec3 dir, inout uint seed, vec3 L, const vec
     }
 
     // TODO FIXME: check seeds and verify path replay
-    return abs(L);
+    return vec3(0);
+    // return abs(L);
     return luma(abs(L)) <= 1e-6 ? vec3(0) : vec3(1e10, 0, 1e10); // pink of doom
 }
 

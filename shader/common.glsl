@@ -228,11 +228,13 @@ vec4 tf_lookup(float d) {
     if (tc < 0.f || tc >= 1.f) return vec4(0);
     const int idx = int(floor(tc * tf_size));
     if (tf_optimization > 0)
-        // return parameters[idx];
-        return vec4(vec3(1), parameters[idx].a);
+        return parameters[idx];
+        // return vec4(vec3(1), parameters[idx].a);
+        // return vec4(parameters[idx].rgb, d);
     else
-        // return tf_lut[idx];
-        return vec4(vec3(1), tf_lut[idx].a);
+        return tf_lut[idx];
+        // return vec4(vec3(1), tf_lut[idx].a);
+        // return vec4(tf_lut[idx].rgb, d);
 }
 
 // TODO pre-compute and store local density gradients (dd) for filtering
@@ -370,7 +372,7 @@ vec3 irradiance_query(const vec3 ipos, inout uint seed) {
 // ---------------------------------
 // null-collision methods
 
-// #define USE_TRANSFERFUNC
+#define USE_TRANSFERFUNC
 
 float transmittance(const vec3 wpos, const vec3 wdir, inout uint seed) {
     // clip volume

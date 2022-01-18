@@ -49,15 +49,15 @@ def l2(x, y):
 def l2_grad(x, y):
     return 2 * (x - y)
 
-def optimize(p, TARGET, EPOCHS, SAMPLES, LR, replay=False, EPS=1e-6):
+def optimize(p, TARGET, EPOCHS, SAMPLES, LR, replay=False):
     for i in range(EPOCHS):
-        xi = np.random.random((int(SAMPLES)))    # draw samples
-        x = monte_carlo(f2, xi, p)          # forward simulation
+        xi = np.random.random((int(SAMPLES)))       # draw samples
+        x = monte_carlo(f2, xi, p)                  # forward simulation
         if not replay:
-            xi = np.random.random((int(SAMPLES)))    # re-draw samples?
-        dx = monte_carlo(f2_grad, xi, p)    # backward simulation (replay)
-        dloss = l2_grad(x, TARGET)          # compute loss gradient
-        p -= LR * dx * dloss                # gradient update step
+            xi = np.random.random((int(SAMPLES)))   # re-draw samples?
+        dx = monte_carlo(f2_grad, xi, p)            # backward simulation (replay)
+        dloss = l2_grad(x, TARGET)                  # compute loss gradient
+        p -= LR * dx * dloss                        # gradient update step
         # print(f'epoch: {i+1:04}, p: {p:.2f}, x: {x:.4f}/{TARGET:.4f}, grad_x: {dx:.2f}, loss: {l2(x, TARGET):.2f}')
     return p
 
@@ -85,7 +85,6 @@ ax.set_xlabel("N samples")
 ax.set_ylabel("optimization result")
 ax.legend()
 # plt.tight_layout()
-
 
 plt.savefig("convergence.pdf", format="pdf", bbox_inches="tight")
 # plt.show()

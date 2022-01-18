@@ -7,7 +7,7 @@ namespace fs = std::filesystem;
 #include <glm/gtc/matrix_transform.hpp>
 
 #include <cppgl.h>
-#include <voldata.h>
+#include <voldata/voldata.h>
 
 #include <pybind11/embed.h>
 #include <pybind11/eval.h>
@@ -15,9 +15,6 @@ namespace py = pybind11;
 
 #include "renderer.h"
 #include "renderer_gl.h"
-#include "cuda/renderer_cuda.h"
-#include "cuda/buffer.cuh"
-#include "cuda/ptx_cache.h" // debug
 
 // ------------------------------------------
 // settings
@@ -33,8 +30,6 @@ static float animation_fps = 30;
 static bool render_animation = false;
 
 static std::shared_ptr<BackpropRendererOpenGL> renderer;
-static std::shared_ptr<RendererCUDA> renderer_cuda;
-static bool use_cuda = true;
 
 // ------------------------------------------
 // helper funcs
@@ -163,7 +158,6 @@ void randomize_parameters() {
 void resize_callback(int w, int h) {
     // resize buffers
     renderer->resize(w, h);
-    renderer_cuda->resize(w, h);
     // restart rendering
     renderer->reset();
 }
@@ -179,11 +173,6 @@ void keyboard_callback(int key, int scancode, int action, int mods) {
     if (key == GLFW_KEY_B && action == GLFW_PRESS) {
         renderer->show_environment = !renderer->show_environment;
         renderer->reset();
-    }
-    if (key == GLFW_KEY_O && action == GLFW_PRESS) {
-        use_cuda = !use_cuda;
-        renderer->reset();
-        renderer_cuda->reset();
     }
     if (key == GLFW_KEY_V && action == GLFW_PRESS) {
         use_vsync = !use_vsync;
@@ -493,11 +482,6 @@ int main(int argc, char** argv) {
     renderer = std::make_shared<BackpropRendererOpenGL>();
     renderer->init();
 
-    // initialize CUDA Renderer
-    cuda_init();
-    renderer_cuda = std::make_shared<RendererCUDA>();
-    renderer_cuda->init();
-
     // install callbacks for interactive mode
     Context::set_resize_callback(resize_callback);
     Context::set_keyboard_callback(keyboard_callback);
@@ -526,10 +510,6 @@ int main(int argc, char** argv) {
         renderer->commit();
     }
 
-    // set volume for CUDA renderer
-    renderer_cuda->volume = renderer->volume;
-    renderer_cuda->commit();
-
     // setup timers
     auto timer_trace = TimerQueryGL("trace");
     auto timer_backprop = TimerQueryGL("backprop");
@@ -541,7 +521,6 @@ int main(int argc, char** argv) {
         // handle input
         if (CameraImpl::default_input_handler(Context::frame_time())) {
             renderer->reset();
-            renderer_cuda->reset();
         }
 
         // update
@@ -564,13 +543,7 @@ int main(int argc, char** argv) {
         }
 
         // trace
-        if (use_cuda) {
-            renderer_cuda->sample++;
-            timer_trace->begin();
-            renderer_cuda->trace();
-            timer_trace->end();
-        }
-        else if (renderer->sample < renderer->sppx) {
+        if (renderer->sample < renderer->sppx) {
             // forward rendering
             renderer->sample++;
             timer_trace->begin();
@@ -605,9 +578,7 @@ int main(int argc, char** argv) {
 
         // draw results
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-        if (use_cuda)
-            renderer_cuda->draw();
-        else if (adjoint)
+        if (adjoint)
             renderer->draw_adjoint();
         else
             renderer->draw();
@@ -615,10 +586,4 @@ int main(int argc, char** argv) {
         // finish frame
         Context::swap_buffers();
     }
-
-    // cleanup
-    std::cout << "cleanup" << std::endl;
-    renderer.reset();
-    renderer_cuda.reset(); // TODO debug CUDA invalid argument error
-    std::cout << "cleanup done" << std::endl;
 }

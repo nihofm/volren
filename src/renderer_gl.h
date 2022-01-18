@@ -1,11 +1,10 @@
 #pragma once
 
 #include "renderer.h"
-
-// OpenGL includes
-#include "cppgl.h"
 #include "environment.h"
 #include "transferfunc.h"
+
+#include <cppgl.h>
 
 struct RendererOpenGL : public Renderer {
     // Renderer interface

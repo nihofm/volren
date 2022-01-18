@@ -9,8 +9,8 @@
 namespace py = pybind11;
 
 #include <cppgl.h>
-#include <voldata.h>
-#include "stb_image_write.h"
+#include <stb_image_write.h>
+#include <voldata/voldata.h>
 
 #include "renderer.h"
 #include "renderer_gl.h"

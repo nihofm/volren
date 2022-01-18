@@ -1,6 +1,6 @@
 #pragma once
 
-#include "voldata.h"
+#include <voldata/voldata.h>
 
 struct Renderer {
     // Renderer interface
