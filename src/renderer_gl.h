@@ -45,7 +45,7 @@ struct BackpropRendererOpenGL : public RendererOpenGL {
 
     // OpenGL data
     Texture2D color_prediction, color_backprop;
-    Shader backprop_shader, adam_shader, mono_shader, draw_shader;
+    Shader backprop_shader, adam_shader, draw_shader;
 
     // Optimization target
     uint32_t n_parameters;      // parameter count

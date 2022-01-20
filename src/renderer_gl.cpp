@@ -236,8 +236,6 @@ void BackpropRendererOpenGL::init() {
         backprop_shader = Shader("backprop", "shader/pathtracer_backprop.glsl");
     if (!adam_shader)
         adam_shader = Shader("adam optimizer", "shader/step_adam.glsl");
-    if (!mono_shader)
-        mono_shader = Shader("monotony shader", "shader/step_mono.glsl");
     if (!draw_shader)
         draw_shader = Shader("draw adjoint", "shader/quad.vs", "shader/adjoint.fs");
 }
@@ -460,23 +458,6 @@ void BackpropRendererOpenGL::gradient_step() {
     gradient_buffer->unbind_base(1);
     parameter_buffer->unbind_base(0);
     adam_shader->unbind();
-
-    /*
-    if (!solve_optimization && !reset_optimization) {
-        // force monotony contraint on extinction values
-        glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
-        glFinish();
-        mono_shader->bind();
-        parameter_buffer->bind_base(0);
-        parameter_backbuffer->bind_base(1);
-        mono_shader->uniform("n_parameters", n_parameters);
-        mono_shader->dispatch_compute(n_parameters);
-        parameter_backbuffer->unbind_base(1);
-        parameter_buffer->unbind_base(0);
-        mono_shader->unbind();
-        std::swap(parameter_buffer, parameter_backbuffer);
-    }
-    */
 
     solve_optimization = false;
     reset_optimization = false;
