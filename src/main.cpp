@@ -212,7 +212,7 @@ void mouse_callback(double xpos, double ypos) {
         if (Context::key_pressed(GLFW_KEY_LEFT_SHIFT))
             renderer->transferfunc->window_width = glm::clamp(renderer->transferfunc->window_width + (xpos - old_xpos) * (maj - min) * 0.001, 0.0, 1.0);
         else
-            renderer->transferfunc->window_left = glm::clamp(renderer->transferfunc->window_left + (xpos - old_xpos) * (maj - min) * 0.001, 0.0, 1.0);
+            renderer->transferfunc->window_left = glm::clamp(renderer->transferfunc->window_left + (xpos - old_xpos) * (maj - min) * 0.001, -1.0, 1.0);
         renderer->sample = 0;
     }
     old_xpos = xpos;

@@ -34,7 +34,7 @@ void TransferFunction::set_uniforms(const Shader& shader, uint32_t& texture_unit
 }
 
 std::vector<glm::vec4> TransferFunction::compute_lut_cdf(const std::vector<glm::vec4>& lut) {
-    return lut; // TODO XXX debug
+    //return lut; // TODO XXX debug
     // copy
     auto lut_cdf = lut;
     // build density CDF (ensure a monotonic nondecreasing function)

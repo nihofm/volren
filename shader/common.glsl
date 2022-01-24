@@ -223,18 +223,18 @@ uniform float tf_window_left;
 uniform float tf_window_width;
 uniform int tf_optimization;
 
+
+float tf_window(float d) {
+    return clamp((d - tf_window_left) / tf_window_width, 0.0, 1.0 - 1e-6);
+}
+
 vec4 tf_lookup(float d) {
-    const float tc = (d - tf_window_left) / tf_window_width;
-    if (tc < 0.f || tc >= 1.f) return vec4(0);
+    const float tc = tf_window(d);
     const int idx = int(floor(tc * tf_size));
     if (tf_optimization > 0)
         return parameters[idx];
-        // return vec4(vec3(1), parameters[idx].a);
-        // return vec4(parameters[idx].rgb, d);
     else
         return tf_lut[idx];
-        // return vec4(vec3(1), tf_lut[idx].a);
-        // return vec4(tf_lut[idx].rgb, d);
 }
 
 // TODO pre-compute and store local density gradients (dd) for filtering
@@ -253,8 +253,7 @@ vec4 tf_lookup(float d) {
 // const vec4 rgba = tf_lookup(lookup_density(ipos + t * idir, dd * vol_inv_majorant, seed) * vol_inv_majorant, dd * vol_inv_majorant, seed);
 
 vec4 tf_lookup(float d, float dd, inout uint seed) {
-    // return tf_lookup(d);
-    const float tc = (d - tf_window_left) / tf_window_width;
+    const float tc = tf_window(d);
     if (tc < 0.f || tc >= 1.f) return vec4(0);
     const int idx = clamp(int(floor(tf_size * (tc + (rng(seed) - 0.5) * dd / tf_window_width))), 0, int(tf_size) - 1);
     if (tf_optimization > 0)
