@@ -15,6 +15,8 @@ uniform int seed;
 uniform int show_environment;
 uniform ivec2 resolution;
 
+#define USE_DDA
+
 vec4 trace_path(vec3 pos, vec3 dir, inout uint seed) {
     // trace path
     vec3 L = vec3(0);
@@ -22,7 +24,11 @@ vec4 trace_path(vec3 pos, vec3 dir, inout uint seed) {
     bool free_path = true;
     uint n_paths = 0;
     float t, f_p; // t: end of ray segment (i.e. sampled position or out of volume), f_p: last phase function sample for MIS
+#ifdef USE_DDA
     while (sample_volumeDDA(pos, dir, t, throughput, L, seed)) {
+#else
+    while (sample_volume(pos, dir, t, throughput, L, seed)) {
+#endif
         // advance ray
         pos = pos + t * dir;
 
@@ -32,7 +38,11 @@ vec4 trace_path(vec3 pos, vec3 dir, inout uint seed) {
         if (Le_pdf.w > 0) {
             f_p = phase_henyey_greenstein(dot(-dir, w_i), vol_phase_g);
             const float mis_weight = show_environment > 0 ? power_heuristic(Le_pdf.w, f_p) : 1.f;
+#ifdef USE_DDA
             const float Tr = transmittanceDDA(pos, w_i, seed);
+#else
+            const float Tr = transmittance(pos, w_i, seed);
+#endif
             L += throughput * mis_weight * f_p * Tr * Le_pdf.rgb / Le_pdf.w;
         }
 
@@ -76,6 +86,7 @@ void main() {
 
     // trace ray
     const vec4 L = trace_path(pos, dir, seed);
+    //const vec4 L = vec4(transmittance(pos, dir, seed));
 
     // write result
     imageStore(color, pixel, mix(imageLoad(color, pixel), sanitize(L), 1.f / current_sample));

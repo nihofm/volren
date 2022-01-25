@@ -193,22 +193,24 @@ vec3 sample_phase_henyey_greenstein(const vec3 dir, const float g, const vec2 ph
 // --------------------------------------------------------------
 // optimization target parameters, gradients and moments stored in SSBOs
 
+uniform uvec3 grid_size;
 uniform uint n_parameters;
+uniform int optimization;
 
 layout(std430, binding = 0) buffer ParameterBuffer {
-    vec4 parameters[];
+    float parameters[];
 };
 
 layout(std430, binding = 1) buffer GradientBuffer {
-    vec4 gradients[];
+    float gradients[];
 };
 
 layout(std430, binding = 2) buffer FirstMomentsBuffer {
-    vec4 first_moments[];
+    float first_moments[];
 };
 
 layout(std430, binding = 3) buffer SecondMomentsBuffer {
-    vec4 second_moments[];
+    float second_moments[];
 };
 
 // --------------------------------------------------------------
@@ -221,8 +223,6 @@ layout(std430, binding = 4) buffer LUTBuffer {
 uniform uint tf_size;
 uniform float tf_window_left;
 uniform float tf_window_width;
-uniform int tf_optimization;
-
 
 float tf_window(float d) {
     return clamp((d - tf_window_left) / tf_window_width, 0.0, 1.0 - 1e-6);
@@ -231,10 +231,7 @@ float tf_window(float d) {
 vec4 tf_lookup(float d) {
     const float tc = tf_window(d);
     const int idx = int(floor(tc * tf_size));
-    if (tf_optimization > 0)
-        return parameters[idx];
-    else
-        return tf_lut[idx];
+    return tf_lut[idx];
 }
 
 // TODO pre-compute and store local density gradients (dd) for filtering
@@ -256,10 +253,7 @@ vec4 tf_lookup(float d, float dd, inout uint seed) {
     const float tc = tf_window(d);
     if (tc < 0.f || tc >= 1.f) return vec4(0);
     const int idx = clamp(int(floor(tf_size * (tc + (rng(seed) - 0.5) * dd / tf_window_width))), 0, int(tf_size) - 1);
-    if (tf_optimization > 0)
-        return parameters[idx];
-    else
-        return tf_lut[idx];
+    return tf_lut[idx];
 }
 
 // --------------------------------------------------------------
@@ -300,7 +294,11 @@ float lookup_majorant(const vec3 ipos, int mip) {
 
 // density lookup (nearest neighbor)
 float lookup_density(const vec3 ipos) {
-    return vol_density_scale * lookup_density_brick(ipos);
+    if (optimization > 0) {
+        const ivec3 iipos = ivec3(floor(ipos));
+        return vol_density_scale * parameters[iipos.z * grid_size.x * grid_size.y + iipos.y * grid_size.x + iipos.x];
+    } else
+        return vol_density_scale * lookup_density_brick(ipos);
 }
 
 // density lookup (stochastic trilinear filter)

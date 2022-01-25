@@ -13,6 +13,7 @@ uniform sampler2D color_backprop;
 // helper funcs
 
 vec3 visualize_grad(const float grad) { return abs(grad) * (abs(grad) <= 0.001f ? vec3(0) : (sign(grad) > 0.f ? vec3(1, 0, 0) : vec3(0, 0, 1))); }
+/*
 vec3 visualize_tf(const vec2 tc, bool use_ref = true) {
     const float xi = tc.x * tf_size - 0.5;
     const int x0 = max(0, int(floor(xi)));
@@ -23,6 +24,7 @@ vec3 visualize_tf(const vec2 tc, bool use_ref = true) {
     const float alpha = smoothstep(0.1, 0.0, tc.y - rgba.a) * 0.5;
     return color + alpha;
 }
+*/
 
 // ---------------------------------------------------
 // main
@@ -33,18 +35,19 @@ void main() {
         if (tc.x < 0.5) {
             // bottom left: transferfunc and gradients visualization
             const vec2 tc_adj = tc * 2;
+            out_col.rgb += texture(color_backprop, tc_adj).rgb;
             if (tc_adj.y < 0.33) {
                 // if (tc_adj.y < 0.33 * 1 / 3.f) out_col.rgb = visualize_grad(gradients[int(tc_adj.x * n_parameters)].b);
                 // else if (tc_adj.y < 0.33 * 2 / 3.f) out_col.rgb = visualize_grad(gradients[int(tc_adj.x * n_parameters)].g);
                 // else out_col.rgb = visualize_grad(gradients[int(tc_adj.x * n_parameters)].b);
-                out_col.rgb = visualize_grad(sum(gradients[int(tc_adj.x * n_parameters)].rgb) * 1e-4);
+                //out_col.rgb = visualize_grad(sum(gradients[int(tc_adj.x * n_parameters)].rgb) * 1e-4);
                 // out_col.rgb = abs(gradients[int(tc_adj.x * n_parameters)].rgb);
                 // out_col.rgb = visualize_grad(sum(gradients[int(tc_adj.x * n_parameters)].rgb));
             } else if (tc_adj.y < 0.66) {
-                out_col.rgb = visualize_tf((tc_adj - vec2(0, 0.33)) * vec2(1, 3), false);
+                //out_col.rgb = visualize_tf((tc_adj - vec2(0, 0.33)) * vec2(1, 3), false);
                 // out_col.rgb = tf_lut[int(tc_adj.x * tf_size)].rgb;
             } else {
-                out_col.rgb = visualize_tf((tc_adj - vec2(0, 0.66)) * vec2(1, 3), true);
+                //out_col.rgb = visualize_tf((tc_adj - vec2(0, 0.66)) * vec2(1, 3), true);
                 // out_col.rgb = parameters[int(tc_adj.x * n_parameters)].rgb;
             }
         } else {
@@ -53,9 +56,9 @@ void main() {
             const vec3 col_adj = texture(color_prediction, tc_adj).rgb;
             const vec3 col_ref = texture(color_reference, tc_adj).rgb;
             const vec3 l2_grad = 2 * (col_adj - col_ref);
-            out_col.rgb = abs(l2_grad);
-            // out_col.rgb = visualize_grad(sum(l2_grad));
-            out_col.rgb += texture(color_backprop, tc_adj).rgb;
+            //out_col.rgb = abs(l2_grad);
+            out_col.rgb = visualize_grad(mean(l2_grad));
+            //out_col.rgb += texture(color_backprop, tc_adj).rgb;
         }
     } else {
         if (tc.x < 0.5) {

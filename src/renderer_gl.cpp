@@ -154,6 +154,7 @@ void RendererOpenGL::trace() {
     trace_shader->uniform("bounces", bounces);
     trace_shader->uniform("seed", seed);
     trace_shader->uniform("show_environment", show_environment ? 1 : 0);
+    trace_shader->uniform("optimization", 0);
     // camera
     trace_shader->uniform("cam_pos", current_camera()->pos);
     trace_shader->uniform("cam_fov", current_camera()->fov_degree);
@@ -188,7 +189,6 @@ void RendererOpenGL::trace() {
     trace_shader->uniform("irradiance_size", glm::uvec3(density_indirection->w, density_indirection->h, density_indirection->d));
     // transfer function
     transferfunc->set_uniforms(trace_shader, tex_unit, 4);
-    trace_shader->uniform("tf_optimization", 0);
     // environment
     trace_shader->uniform("env_model", environment->model);
     trace_shader->uniform("env_inv_model", glm::inverse(environment->model));
@@ -248,29 +248,28 @@ void BackpropRendererOpenGL::resize(uint32_t w, uint32_t h) {
 
 void BackpropRendererOpenGL::commit() {
     RendererOpenGL::commit();
-    // init parameter, gradient and moments buffers
-    n_parameters = transferfunc->lut.size();
+    // init parameter, gradient and moments buffers (optimize density)
+    grid_size = volume->current_grid()->index_extent();
+    n_parameters = grid_size.x * grid_size.y * grid_size.z;
     {
         parameter_buffer = SSBO("parameter buffer");
-        parameter_backbuffer = SSBO("parameter back buffer");
-        std::vector<glm::vec4> param_data = TransferFunction::compute_lut_cdf(std::vector<glm::vec4>(n_parameters, glm::vec4(1)));
-        parameter_buffer->upload_data(param_data.data(), param_data.size() * sizeof(glm::vec4));
-        parameter_backbuffer->upload_data(param_data.data(), param_data.size() * sizeof(glm::vec4));
+        auto param_data = std::vector<float>(n_parameters, 0.1f);
+        parameter_buffer->upload_data(param_data.data(), param_data.size() * sizeof(float));
     }
     {
         gradient_buffer = SSBO("gradients buffer");
-        std::vector<glm::vec4> grad_data = std::vector<glm::vec4>(n_parameters, glm::vec4(0));
-        gradient_buffer->upload_data(grad_data.data(), grad_data.size() * sizeof(glm::vec4));
+        auto grad_data = std::vector<float>(n_parameters, 0.f);
+        gradient_buffer->upload_data(grad_data.data(), grad_data.size() * sizeof(float));
     }
     {
         m1_buffer = SSBO("first moments buffer");
-        std::vector<glm::vec4> m1_data = std::vector<glm::vec4>(n_parameters, glm::vec4(0));
-        m1_buffer->upload_data(m1_data.data(), m1_data.size() * sizeof(glm::vec4));
+        auto m1_data = std::vector<float>(n_parameters, 0.f);
+        m1_buffer->upload_data(m1_data.data(), m1_data.size() * sizeof(float));
     }
     {
         m2_buffer = SSBO("second moments buffer");
-        std::vector<glm::vec4> m2_data = std::vector<glm::vec4>(n_parameters, glm::vec4(1));
-        m2_buffer->upload_data(m2_data.data(), m2_data.size() * sizeof(glm::vec4));
+        auto m2_data = std::vector<float>(n_parameters, 1.f);
+        m2_buffer->upload_data(m2_data.data(), m2_data.size() * sizeof(float));
     }
 }
 
@@ -297,7 +296,9 @@ void BackpropRendererOpenGL::trace_adjoint() {
     trace_shader->uniform("bounces", bounces);
     trace_shader->uniform("seed", seed + 42); // magic number
     trace_shader->uniform("show_environment", show_environment ? 1 : 0);
+    trace_shader->uniform("grid_size", grid_size);
     trace_shader->uniform("n_parameters", n_parameters);
+    trace_shader->uniform("optimization", 1);
     // camera
     trace_shader->uniform("cam_pos", current_camera()->pos);
     trace_shader->uniform("cam_fov", current_camera()->fov_degree);
@@ -332,7 +333,6 @@ void BackpropRendererOpenGL::trace_adjoint() {
     trace_shader->uniform("irradiance_size", glm::uvec3(density_indirection->w, density_indirection->h, density_indirection->d));
     // transfer function
     transferfunc->set_uniforms(trace_shader, tex_unit, 4);
-    trace_shader->uniform("tf_optimization", 1);
     // environment
     trace_shader->uniform("env_model", environment->model);
     trace_shader->uniform("env_inv_model", glm::inverse(environment->model));
@@ -372,7 +372,9 @@ void BackpropRendererOpenGL::backprop() {
     backprop_shader->uniform("bounces", bounces);
     backprop_shader->uniform("seed", seed + 42); // magic number
     backprop_shader->uniform("show_environment", show_environment ? 1 : 0);
+    backprop_shader->uniform("grid_size", grid_size);
     backprop_shader->uniform("n_parameters", n_parameters);
+    backprop_shader->uniform("optimization", 1);
     // camera
     backprop_shader->uniform("cam_pos", current_camera()->pos);
     backprop_shader->uniform("cam_fov", current_camera()->fov_degree);
@@ -407,7 +409,6 @@ void BackpropRendererOpenGL::backprop() {
     backprop_shader->uniform("irradiance_size", glm::uvec3(density_indirection->w, density_indirection->h, density_indirection->d));
     // transfer function
     transferfunc->set_uniforms(backprop_shader, tex_unit, 4);
-    backprop_shader->uniform("tf_optimization", 1);
     // environment
     backprop_shader->uniform("env_model", environment->model);
     backprop_shader->uniform("env_inv_model", glm::inverse(environment->model));
@@ -441,15 +442,24 @@ void BackpropRendererOpenGL::gradient_step() {
     m1_buffer->bind_base(2);
     m2_buffer->bind_base(3);
 
+    adam_shader->uniform("grid_size", grid_size);
     adam_shader->uniform("n_parameters", n_parameters);
     adam_shader->uniform("learning_rate", learning_rate);
     adam_shader->uniform("gradient_normalization", 1.f / float(batch_size * sppx));
+    const auto [min, maj] = volume->minorant_majorant();
+    adam_shader->uniform("param_min", min);
+    adam_shader->uniform("param_max", maj);
     // debug: reset optimization
     adam_shader->uniform("reset", reset_optimization ? 1 : 0);
     // debug: solve optimization
     adam_shader->uniform("solve", solve_optimization ? 1 : 0);
+    // brick grid data
     uint32_t tex_unit = 0;
-    transferfunc->set_uniforms(adam_shader, tex_unit, 4);
+    const auto [density_indirection, density_range, density_atlas] = density_grids[volume->grid_frame_counter];
+    adam_shader->uniform("vol_density_indirection", density_indirection, tex_unit++);
+    adam_shader->uniform("vol_density_range", density_range, tex_unit++);
+    adam_shader->uniform("vol_density_atlas", density_atlas, tex_unit++);
+    //transferfunc->set_uniforms(adam_shader, tex_unit, 4);
     
     adam_shader->dispatch_compute(n_parameters);
 
