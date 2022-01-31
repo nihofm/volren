@@ -15,7 +15,7 @@ uniform int seed;
 uniform int show_environment;
 uniform ivec2 resolution;
 
-#define USE_DDA
+// #define USE_DDA
 
 vec4 trace_path(vec3 pos, vec3 dir, inout uint seed) {
     // trace path
@@ -86,7 +86,7 @@ void main() {
 
     // trace ray
     const vec4 L = trace_path(pos, dir, seed);
-    //const vec4 L = vec4(transmittance(pos, dir, seed));
+    // const vec4 L = vec4(transmittance(pos, dir, seed));
 
     // write result
     imageStore(color, pixel, mix(imageLoad(color, pixel), sanitize(L), 1.f / current_sample));

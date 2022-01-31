@@ -20,7 +20,6 @@ namespace py = pybind11;
 // settings
 
 static bool adjoint = false, randomize = false;
-static int batch_size = 4;
 
 static bool use_vsync = true;
 static float shader_check_delay_ms = 1000;
@@ -277,7 +276,9 @@ void gui_callback(void) {
             renderer->tonemap_exposure = fmaxf(0.f, renderer->tonemap_exposure);
         ImGui::DragFloat("Gamma", &renderer->tonemap_gamma, 0.01f);
         ImGui::Separator();
-        if (ImGui::DragFloat3("Albedo", &renderer->volume->albedo.x, 0.01f, 0.f, 1.f)) renderer->reset();
+        // if (ImGui::DragFloat3("Albedo", &renderer->volume->albedo.x, 0.01f, 0.f, 1.f)) renderer->reset();
+        if (ImGui::DragFloat("Absorption", &renderer->absorption_coefficient, 0.001f, 0.f, 1.f)) renderer->reset();
+        if (ImGui::DragFloat("Scattering", &renderer->scattering_coefficient, 0.001f, 0.f, 1.f)) renderer->reset();
         if (ImGui::DragFloat("Density scale", &renderer->volume->density_scale, 0.01f, 0.01f, 1000.f)) renderer->reset();
         if (ImGui::DragFloat("Emission scale", &renderer->volume->emission_scale, 0.01f, 0.f, 1000.f)) renderer->reset();
         if (ImGui::SliderFloat("Phase g", &renderer->volume->phase, -.95f, .95f)) renderer->reset();

@@ -20,14 +20,14 @@ uniform int current_sample;
 
 void backward_real(const vec3 ipos, const float P_real, const vec3 dy) {
     if (P_real <= 1e-8f || any(lessThan(ipos, vec3(0))) || any(greaterThanEqual(ipos, grid_size))) return;
-    const float dx = mean(dy) / (vol_majorant * P_real) * -1; // TODO: why?
+    const float dx = sum(dy) / (vol_majorant * P_real);
     const ivec3 iipos = ivec3(floor(ipos));
     atomicAdd(gradients[iipos.z * grid_size.x * grid_size.y + iipos.y * grid_size.x + iipos.x], sanitize(dx));
 }
 
 void backward_null(const vec3 ipos, const float P_null, const vec3 dy) {
     if (P_null <= 1e-8f || any(lessThan(ipos, vec3(0))) || any(greaterThanEqual(ipos, grid_size))) return;
-    const float dx = -mean(dy) / (vol_majorant * P_null);
+    const float dx = -sum(dy) / (vol_majorant * P_null);
     const ivec3 iipos = ivec3(floor(ipos));
     atomicAdd(gradients[iipos.z * grid_size.x * grid_size.y + iipos.y * grid_size.x + iipos.x], sanitize(dx));
 }
@@ -56,10 +56,11 @@ void backward_tf_extinction(const float tc, const float P_real, const vec3 dy) {
 // ---------------------------------------------------
 // path replay backprop
 
-float transmittance_adjoint(const vec3 wpos, const vec3 wdir, inout uint seed, const vec3 grad) {
+float transmittance_adjoint(const vec3 wpos, const vec3 wdir, inout uint seed, const vec3 grad, float t_max = FLT_MAX) {
     // clip volume
     vec2 near_far;
     if (!intersect_box(wpos, wdir, vol_bb_min, vol_bb_max, near_far)) return 1.f;
+    near_far.y = min(t_max, near_far.y);
     // to index-space
     const vec3 ipos = vec3(vol_inv_model * vec4(wpos, 1));
     const vec3 idir = vec3(vol_inv_model * vec4(wdir, 0)); // non-normalized!
@@ -89,7 +90,7 @@ float transmittance_adjoint(const vec3 wpos, const vec3 wdir, inout uint seed, c
     return Tr;
 }
 
-bool sample_volume_adjoint(const vec3 wpos, const vec3 wdir, out float t, inout vec3 throughput, inout vec3 L, inout uint seed, const vec3 grad) {
+bool sample_volume_adjoint(const vec3 wpos, const vec3 wdir, out float t, inout vec3 throughput, /*inout*/ vec3 L, inout uint seed, const vec3 grad) {
     // clip volume
     vec2 near_far;
     if (!intersect_box(wpos, wdir, vol_bb_min, vol_bb_max, near_far)) return false;
@@ -108,7 +109,7 @@ bool sample_volume_adjoint(const vec3 wpos, const vec3 wdir, out float t, inout 
         const float d = lookup_density(pos_jitter);
 #endif
         const float P_real = d * vol_inv_majorant;
-        L -= throughput * (1.f - vol_albedo) * lookup_emission(ipos + t * idir, seed) * P_real;
+        // L -= throughput * (1.f - vol_albedo) * lookup_emission(ipos + t * idir, seed) * P_real;
         // classify as real or null collison
         if (rng(seed) < P_real) {
 #ifdef USE_TRANSFERFUNC
@@ -131,7 +132,8 @@ vec3 path_replay_backprop(vec3 pos, vec3 dir, inout uint seed, vec3 L, const vec
     bool free_path = true;
     uint n_paths = 0;
     float t, f_p; // t: end of ray segment (i.e. sampled position or out of volume), f_p: last phase function sample for MIS
-    while (sample_volume_adjoint(pos, dir, t, throughput, L, seed, grad)) {
+    // while (sample_volume_adjoint(pos, dir, t, throughput, L, seed, grad)) {
+    while (sample_volume(pos, dir, t, throughput, L, seed)) {
         // advance ray
         pos += t * dir;
 
@@ -141,12 +143,26 @@ vec3 path_replay_backprop(vec3 pos, vec3 dir, inout uint seed, vec3 L, const vec
         if (Le_pdf.w > 0) {
             f_p = phase_henyey_greenstein(dot(-dir, w_i), vol_phase_g);
             const float mis_weight = show_environment > 0 ? power_heuristic(Le_pdf.w, f_p) : 1.f;
-            const uint saved_seed = seed;
-            const float Tr = transmittance/*DDA*/(pos, w_i, seed);
+            const float Tr = transmittance(pos, w_i, seed);
             const vec3 Li = throughput * mis_weight * f_p * Tr * Le_pdf.rgb / Le_pdf.w;
-            seed = saved_seed;
-            transmittance_adjoint(pos, w_i, seed, Li * grad);
             L -= Li;
+            {
+                const uint saved_seed = seed;
+                // TODO
+                transmittance_adjoint(pos, w_i, seed, Li * grad);
+                // transmittance_adjoint(pos, w_i, seed, L * grad);
+                // transmittance_adjoint(pos, w_i, seed, Le_pdf.rgb / Le_pdf.w * grad));
+                seed = saved_seed;
+            }
+        }
+
+        {
+            // backprop to scatter event
+            const uint saved_seed = seed;
+            const vec3 wpos = pos - t * dir;
+            const float pdf_scatter = 1.f;//lookup_density(vec3(vol_inv_model * vec4(wpos, 1))) * transmittance(wpos, dir, seed, t);
+            if (pdf_scatter > 0) transmittance_adjoint(wpos, dir, seed, L * grad / pdf_scatter, t);
+            seed = saved_seed;
         }
 
         // early out?
@@ -159,7 +175,6 @@ vec3 path_replay_backprop(vec3 pos, vec3 dir, inout uint seed, vec3 L, const vec
             throughput /= 1 - prob;
         }
 
-
         // scatter ray
         const vec3 scatter_dir = sample_phase_henyey_greenstein(dir, vol_phase_g, rng2(seed));
         f_p = phase_henyey_greenstein(dot(-dir, scatter_dir), vol_phase_g);
@@ -169,9 +184,20 @@ vec3 path_replay_backprop(vec3 pos, vec3 dir, inout uint seed, vec3 L, const vec
     if (free_path && show_environment > 0) {
         const vec3 Le = lookup_environment(dir);
         const float mis_weight = n_paths > 0 ? power_heuristic(f_p, pdf_environment(dir)) : 1.f;
-        L -= throughput * mis_weight * Le;
+        const vec3 Li = throughput * mis_weight * Le;
+        L -= Li;
+        {
+            const uint saved_seed = seed;
+            // TODO
+            transmittance_adjoint(pos, dir, seed, L * -grad); // TODO why negate?
+            seed = saved_seed;
+            // return 5 * L * grad;
+        }
+    } else {
+        // TODO handle cancelled ray?
     }
 
+    // return vec3(0);
     return abs(L);
     return luma(abs(L)) <= 1e-6 ? vec3(0) : vec3(1e10, 0, 1e10); // pink of doom
 }
@@ -313,7 +339,7 @@ void main() {
     
     // replay path to backprop gradients
     const vec3 Lr = path_replay_backprop(pos, dir, seed, L, grad);
-    //const vec3 Lr = abs(L - vec3(transmittance_adjoint(pos, dir, seed, grad)));
+    // const vec3 Lr = abs(L - vec3(transmittance_adjoint(pos, dir, seed, grad)));
 
     //float t; vec3 Ltmp = L; vec3 throughput = vec3(1);
     //const vec3 Lr = vec3(sample_volume_adjoint(pos, dir, t, throughput, Ltmp, seed, grad) ? vec3(0) : vec3(1));

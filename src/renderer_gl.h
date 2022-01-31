@@ -57,7 +57,7 @@ struct BackpropRendererOpenGL : public RendererOpenGL {
 
     // Optimization parameters
     float learning_rate = 0.1f;
-    int batch_size = 4;
+    int batch_size = 1;
     int backprop_sample = 0;
     int batch_sample = 0;
     bool reset_optimization = false;

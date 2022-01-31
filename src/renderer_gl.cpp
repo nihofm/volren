@@ -170,6 +170,8 @@ void RendererOpenGL::trace() {
     trace_shader->uniform("vol_majorant", maj * volume->density_scale);
     trace_shader->uniform("vol_inv_majorant", 1.f / (maj * volume->density_scale));
     trace_shader->uniform("vol_albedo", volume->albedo);
+    trace_shader->uniform("vol_absorption", absorption_coefficient);
+    trace_shader->uniform("vol_scattering", absorption_coefficient);
     trace_shader->uniform("vol_phase_g", volume->phase);
     trace_shader->uniform("vol_density_scale", volume->density_scale);
     trace_shader->uniform("vol_emission_scale", volume->emission_scale);
@@ -314,6 +316,8 @@ void BackpropRendererOpenGL::trace_adjoint() {
     trace_shader->uniform("vol_majorant", maj * volume->density_scale);
     trace_shader->uniform("vol_inv_majorant", 1.f / (maj * volume->density_scale));
     trace_shader->uniform("vol_albedo", volume->albedo);
+    trace_shader->uniform("vol_absorption", absorption_coefficient);
+    trace_shader->uniform("vol_scattering", absorption_coefficient);
     trace_shader->uniform("vol_phase_g", volume->phase);
     trace_shader->uniform("vol_density_scale", volume->density_scale);
     trace_shader->uniform("vol_emission_scale", volume->emission_scale);
@@ -390,6 +394,8 @@ void BackpropRendererOpenGL::backprop() {
     backprop_shader->uniform("vol_majorant", maj * volume->density_scale);
     backprop_shader->uniform("vol_inv_majorant", 1.f / (maj * volume->density_scale));
     backprop_shader->uniform("vol_albedo", volume->albedo);
+    backprop_shader->uniform("vol_absorption", absorption_coefficient);
+    backprop_shader->uniform("vol_scattering", absorption_coefficient);
     backprop_shader->uniform("vol_phase_g", volume->phase);
     backprop_shader->uniform("vol_density_scale", volume->density_scale);
     backprop_shader->uniform("vol_emission_scale", volume->emission_scale);
