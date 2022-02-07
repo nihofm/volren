@@ -109,7 +109,8 @@ void RendererOpenGL::init() {
 
     // compile trace shader
     if (!trace_shader)
-        trace_shader = Shader("trace brick", "shader/pathtracer_brick.glsl");
+        //trace_shader = Shader("trace brick", "shader/pathtracer_brick.glsl");
+        trace_shader = Shader("trace brick", "shader/pathtracer_irradiance.glsl"); // TODO DEBUG
 
     // setup color texture
     if (!color) {
@@ -169,9 +170,11 @@ void RendererOpenGL::trace() {
     trace_shader->uniform("vol_minorant", min * volume->density_scale);
     trace_shader->uniform("vol_majorant", maj * volume->density_scale);
     trace_shader->uniform("vol_inv_majorant", 1.f / (maj * volume->density_scale));
-    trace_shader->uniform("vol_albedo", volume->albedo);
+    //trace_shader->uniform("vol_albedo", volume->albedo);
+    trace_shader->uniform("vol_albedo", scattering_coefficient / (absorption_coefficient + scattering_coefficient));
     trace_shader->uniform("vol_absorption", absorption_coefficient);
-    trace_shader->uniform("vol_scattering", absorption_coefficient);
+    trace_shader->uniform("vol_scattering", scattering_coefficient);
+    trace_shader->uniform("vol_extinction", absorption_coefficient + scattering_coefficient);
     trace_shader->uniform("vol_phase_g", volume->phase);
     trace_shader->uniform("vol_density_scale", volume->density_scale);
     trace_shader->uniform("vol_emission_scale", volume->emission_scale);
@@ -273,6 +276,8 @@ void BackpropRendererOpenGL::commit() {
         auto m2_data = std::vector<float>(n_parameters, 1.f);
         m2_buffer->upload_data(m2_data.data(), m2_data.size() * sizeof(float));
     }
+    irradiance_cache_adjoint = SSBO("irradiance cache adjoint", irradiance_cache->size_bytes);
+    irradiance_cache_adjoint->clear();
 }
 
 void BackpropRendererOpenGL::trace() {
@@ -291,7 +296,7 @@ void BackpropRendererOpenGL::trace_adjoint() {
     trace_shader->bind();
     parameter_buffer->bind_base(0);
     color_prediction->bind_image(0, GL_READ_WRITE, GL_RGBA32F);
-    irradiance_cache->bind_base(5);
+    irradiance_cache_adjoint->bind_base(5);
 
     // uniforms
     uint32_t tex_unit = 0;
@@ -315,9 +320,11 @@ void BackpropRendererOpenGL::trace_adjoint() {
     trace_shader->uniform("vol_minorant", min * volume->density_scale);
     trace_shader->uniform("vol_majorant", maj * volume->density_scale);
     trace_shader->uniform("vol_inv_majorant", 1.f / (maj * volume->density_scale));
-    trace_shader->uniform("vol_albedo", volume->albedo);
+    //trace_shader->uniform("vol_albedo", volume->albedo);
+    trace_shader->uniform("vol_albedo", scattering_coefficient / (absorption_coefficient + scattering_coefficient));
     trace_shader->uniform("vol_absorption", absorption_coefficient);
-    trace_shader->uniform("vol_scattering", absorption_coefficient);
+    trace_shader->uniform("vol_scattering", scattering_coefficient);
+    trace_shader->uniform("vol_extinction", absorption_coefficient + scattering_coefficient);
     trace_shader->uniform("vol_phase_g", volume->phase);
     trace_shader->uniform("vol_density_scale", volume->density_scale);
     trace_shader->uniform("vol_emission_scale", volume->emission_scale);
@@ -353,7 +360,7 @@ void BackpropRendererOpenGL::trace_adjoint() {
     trace_shader->dispatch_compute(resolution.x, resolution.y);
 
     // unbind
-    irradiance_cache->unbind_base(5);
+    irradiance_cache_adjoint->unbind_base(5);
     color_prediction->unbind_image(0);
     parameter_buffer->unbind_base(0);
     trace_shader->unbind();
@@ -368,7 +375,7 @@ void BackpropRendererOpenGL::backprop() {
     color_prediction->bind_image(0, GL_READ_WRITE, GL_RGBA32F);
     color->bind_image(1, GL_READ_ONLY, GL_RGBA32F);
     color_backprop->bind_image(2, GL_WRITE_ONLY, GL_RGBA32F);
-    irradiance_cache->bind_base(5);
+    irradiance_cache_adjoint->bind_base(5);
 
     // uniforms
     uint32_t tex_unit = 0;
@@ -393,9 +400,11 @@ void BackpropRendererOpenGL::backprop() {
     backprop_shader->uniform("vol_minorant", min * volume->density_scale);
     backprop_shader->uniform("vol_majorant", maj * volume->density_scale);
     backprop_shader->uniform("vol_inv_majorant", 1.f / (maj * volume->density_scale));
-    backprop_shader->uniform("vol_albedo", volume->albedo);
+    //backprop_shader->uniform("vol_albedo", volume->albedo);
+    backprop_shader->uniform("vol_albedo", scattering_coefficient / (absorption_coefficient + scattering_coefficient));
     backprop_shader->uniform("vol_absorption", absorption_coefficient);
-    backprop_shader->uniform("vol_scattering", absorption_coefficient);
+    backprop_shader->uniform("vol_scattering", scattering_coefficient);
+    backprop_shader->uniform("vol_extinction", absorption_coefficient + scattering_coefficient);
     backprop_shader->uniform("vol_phase_g", volume->phase);
     backprop_shader->uniform("vol_density_scale", volume->density_scale);
     backprop_shader->uniform("vol_emission_scale", volume->emission_scale);
@@ -431,7 +440,7 @@ void BackpropRendererOpenGL::backprop() {
     backprop_shader->dispatch_compute(resolution.x, resolution.y);
 
     // unbind
-    irradiance_cache->unbind_base(5);
+    irradiance_cache_adjoint->unbind_base(5);
     color_backprop->unbind_image(2);
     color->unbind_image(1);
     color_prediction->unbind_image(0);

@@ -266,9 +266,11 @@ uniform vec3 vol_bb_max;
 uniform float vol_minorant;
 uniform float vol_majorant;
 uniform float vol_inv_majorant;
-uniform vec3 vol_albedo; // TODO
+//uniform vec3 vol_albedo; // TODO use coefficients
 uniform float vol_absorption;
 uniform float vol_scattering;
+uniform float vol_extinction;
+uniform float vol_albedo;
 uniform float vol_phase_g;
 uniform float vol_density_scale;
 uniform float vol_emission_scale;
@@ -421,13 +423,13 @@ bool sample_volume(const vec3 wpos, const vec3 wdir, out float t, inout vec3 thr
         const float d = lookup_density(ipos + t * idir, seed);
 #endif
         const float P_real = d * vol_inv_majorant;
-        Le += throughput * (1.f - vol_albedo) * lookup_emission(ipos + t * idir, seed) * P_real;
+        Le += throughput * vol_absorption * lookup_emission(ipos + t * idir, seed) * P_real;
         // classify as real or null collison
         if (rng(seed) < P_real) {
 #ifdef USE_TRANSFERFUNC
-            throughput *= rgba.rgb * vol_albedo;
+            throughput *= rgba.rgb * vol_scattering;
 #else
-            throughput *= vol_albedo;
+            throughput *= vol_scattering;
 #endif
             return true;
         }
@@ -597,7 +599,7 @@ bool sample_volume_raymarch(const vec3 wpos, const vec3 wdir, out float t, inout
 #ifdef USE_TRANSFERFUNC
             const vec3 albedo = rgba.rgb * vol_albedo;
 #else
-            const vec3 albedo = vol_albedo;
+            const vec3 albedo = vec3(vol_albedo);
 #endif
             pdf = mean(albedo) * d * exp(-tau_target);
             throughput *= albedo;

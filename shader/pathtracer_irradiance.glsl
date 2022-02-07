@@ -6,9 +6,6 @@ layout (binding = 0, rgba32f) uniform image2D color;
 
 #include "common.glsl"
 
-// ---------------------------------------------------
-// path tracing
-
 uniform int bounces;
 uniform int seed;
 uniform int show_environment;
@@ -35,17 +32,17 @@ vec3 direct_volume_rendering_irradiance_cache(vec3 pos, vec3 dir, inout uint see
         const float d_real = lookup_density(curr, seed);
         const vec4 rgba = tf_lookup(d_real * vol_inv_majorant);
         const float d = rgba.a * vol_majorant;
-        const vec3 Le = vol_albedo * rgba.rgb * irradiance_query(curr, seed);
+        const vec3 I = vol_albedo * rgba.rgb * irradiance_query(curr, seed);
 #else
         const float d = lookup_density(curr, seed);
-        const vec3 Le = vol_albedo * irradiance_query(curr, seed);
+        const vec3 I = vol_albedo * irradiance_query(curr, seed);
 #endif
         const float dtau = d * dt;
-        // accum emission from irradiance cache with geom avg of transmittance along segment
-        L += Le * dtau * Tr * exp(-dtau * 0.5);
+        // accum emission from irradiance cache
+        L += I * dtau * vol_scattering * Tr * exp(-dtau * vol_extinction * 0.5);
         // update transmittance
-        Tr *= exp(-dtau);
-        if (Tr <= 1e-5) break;
+        Tr *= exp(-dtau * vol_extinction);
+        if (Tr <= 1e-5) return L;
     }
     if (show_environment > 0) L += lookup_environment(dir) * Tr;
     return L;

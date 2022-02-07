@@ -46,6 +46,7 @@ struct BackpropRendererOpenGL : public RendererOpenGL {
     // OpenGL data
     Texture2D color_prediction, color_backprop;
     Shader backprop_shader, adam_shader, draw_shader;
+    SSBO irradiance_cache_adjoint;
 
     // Optimization target (voxel densities)
     glm::uvec3 grid_size;       // density grid size

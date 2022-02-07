@@ -7,29 +7,32 @@ layout (binding = 0, rgba32f)   uniform image2D color_prediction;
 layout (binding = 1, rgba32f)   uniform image2D color_reference;
 layout (binding = 2, rgba32f)   uniform image2D color_backprop;
 
+#include "common.glsl"
+
 uniform int bounces;
 uniform int seed;
 uniform int show_environment;
-uniform ivec2 resolution;
 uniform int current_sample;
-
-#include "common.glsl"
+uniform ivec2 resolution;
 
 // ---------------------------------------------------
 // adjoint delta tracking
 
+void add_density_gradient(const vec3 ipos, const float dx) {
+    const ivec3 iipos = ivec3(floor(ipos));
+    atomicAdd(gradients[iipos.z * grid_size.x * grid_size.y + iipos.y * grid_size.x + iipos.x], sanitize(dx));
+}
+
 void backward_real(const vec3 ipos, const float P_real, const vec3 dy) {
     if (P_real <= 1e-8f || any(lessThan(ipos, vec3(0))) || any(greaterThanEqual(ipos, grid_size))) return;
     const float dx = sum(dy) / (vol_majorant * P_real);
-    const ivec3 iipos = ivec3(floor(ipos));
-    atomicAdd(gradients[iipos.z * grid_size.x * grid_size.y + iipos.y * grid_size.x + iipos.x], sanitize(dx));
+    add_density_gradient(ipos, dx);
 }
 
 void backward_null(const vec3 ipos, const float P_null, const vec3 dy) {
     if (P_null <= 1e-8f || any(lessThan(ipos, vec3(0))) || any(greaterThanEqual(ipos, grid_size))) return;
     const float dx = -sum(dy) / (vol_majorant * P_null);
-    const ivec3 iipos = ivec3(floor(ipos));
-    atomicAdd(gradients[iipos.z * grid_size.x * grid_size.y + iipos.y * grid_size.x + iipos.x], sanitize(dx));
+    add_density_gradient(ipos, dx);
 }
 
 /*
@@ -117,7 +120,7 @@ bool sample_volume_adjoint(const vec3 wpos, const vec3 wdir, out float t, inout 
 #else
             throughput *= vol_albedo;
 #endif
-            backward_real(pos_jitter, P_real * mean(vol_albedo), L * grad / mean(vol_albedo));
+            backward_real(pos_jitter, P_real * vol_albedo, L * grad / vol_albedo);
             return true;
         }
         // advance
@@ -205,11 +208,10 @@ vec3 path_replay_backprop(vec3 pos, vec3 dir, inout uint seed, vec3 L, const vec
 // ---------------------------------------------------
 // direct volume rendering and irradiance cache
 
-vec3 direct_volume_rendering_irradiance_cache(vec3 pos, vec3 dir, inout uint seed, in vec3 dy) {
-    vec3 L = vec3(0);
+vec3 backprop_irradiance_cache(vec3 pos, vec3 dir, inout uint seed, vec3 L, const vec3 dy) {
     // clip volume
     vec2 near_far;
-    if (!intersect_box(pos, dir, vol_bb_min, vol_bb_max, near_far)) return show_environment > 0 ? lookup_environment(dir) : vec3(0);
+    if (!intersect_box(pos, dir, vol_bb_min, vol_bb_max, near_far)) return show_environment > 0 ? L - lookup_environment(dir) : L;
     // to index-space
     const vec3 ipos = vec3(vol_inv_model * vec4(pos, 1));
     const vec3 idir = vec3(vol_inv_model * vec4(dir, 0)); // non-normalized!
@@ -217,107 +219,39 @@ vec3 direct_volume_rendering_irradiance_cache(vec3 pos, vec3 dir, inout uint see
     // jitter starting position
     const float jitter = rng(seed) * dt;
     near_far.x += jitter;
-    float Tr = exp(-lookup_density(ipos + near_far.x * idir, seed) * jitter);
-    const bool partials = !all(equal(vec3(0), dy));
+    float Tr = exp(-lookup_density(ipos + near_far.x * idir, seed) * jitter); // TODO: differentiate this?
     // ray marching
     for (int i = 0; i < RAYMARCH_STEPS; ++i) {
-        const vec3 curr = ipos + min(near_far.x + i * dt, near_far.y) * idir;
+        const vec3 curr = ipos + min(near_far.x + i * dt, near_far.y) * idir + rng3(seed) - .5f;
 #ifdef USE_TRANSFERFUNC
-        const float d_real = lookup_density(curr, seed);
+        const float d_real = lookup_density(curr);
         const vec4 rgba = tf_lookup(d_real * vol_inv_majorant);
         const float d = rgba.a * vol_majorant;
-        const vec3 Le = vol_albedo * rgba.rgb * irradiance_query(curr, seed);
+        const vec3 I = vol_albedo * rgba.rgb * irradiance_query(curr, seed);
 #else
-        const float d = lookup_density(curr, seed);
-        const vec3 Le = vol_albedo * irradiance_query(curr, seed);
+        const float d = lookup_density(curr);
+        const vec3 I = vol_albedo * irradiance_query(curr, seed);
 #endif
+        //return I; // TODO: debug irradiance cache?
         const float dtau = d * dt;
-#ifdef USE_TRANSFERFUNC
-        // partials
-        if (partials) {
-            //backward_tf_color(d_real * vol_inv_majorant, rgba.rbg, L * dy);
-            // TODO partials to extinction
-            const float dx = (1 - dtau * i) * dt;
-            // backward_tf_extinction(d_real * vol_inv_majorant, dtau, dx * L * dy);
-        }
-        // accum emission from irradiance cache with geom avg of transmittance along segment
-        L += Le * dtau * Tr * exp(-dtau * 0.5);
-#endif
+        const float Tr_i = exp(-dtau * vol_extinction);
+        // subtract emission from irradiance cache
+        L -= I * dtau * vol_scattering * Tr * exp(-dtau * vol_extinction * 0.5);
+        // dL/de+s
+        add_density_gradient(curr, sum(dy * Tr * (-dt * Tr_i * L * vol_extinction + dt * I * vol_scattering)));
+        // dL/de
+        //add_density_gradient(curr, sum(dy * Tr * -dt * Tr_i * L * vol_extinction));
+        // dL/ds
+        //add_density_gradient(curr, sum(dy * Tr * dt * I * vol_scattering));
+        // dT/dd
+        //add_density_gradient(curr, sum(dy * -dt * Tr_i * vol_extinction));
         // update transmittance
-        Tr *= exp(-dtau);
-        if (Tr <= 1e-5) break;
+        Tr *= Tr_i;
+        if (Tr <= 1e-5) return L;
     }
-    if (show_environment > 0) L += lookup_environment(dir) * Tr;
+    // TODO: term regarding envmap contribution (along whole ray?)
+    if (show_environment > 0) L -= lookup_environment(dir) * Tr;
     return L;
-}
-
-vec3 trace_path_cache(vec3 pos, vec3 dir, inout uint seed) {
-    // trace path
-    vec3 L = vec3(0), throughput = vec3(1);
-    bool free_path = true;
-    uint n_paths = 0;
-    float t; // t: end of ray segment (i.e. sampled position or out of volume)
-    while (sample_volumeDDA(pos, dir, t, throughput, L, seed)) {
-        // advance ray
-        pos = pos + t * dir;
-
-        // sample light source (environment)
-        vec3 w_i;
-        const vec4 Le_pdf = sample_environment(rng2(seed), w_i);
-        if (Le_pdf.w > 0) {
-            const float f_p = phase_isotropic();
-            const float mis_weight = show_environment > 0 ? power_heuristic(Le_pdf.w, f_p) : 1.f;
-            const float Tr = transmittanceDDA(pos, w_i, seed);
-            L += throughput * mis_weight * f_p * Tr * Le_pdf.rgb / Le_pdf.w;
-        }
-
-        // early out?
-        if (++n_paths >= max(0, bounces-1)) { free_path = false; break; }
-        // russian roulette
-        const float rr_val = luma(throughput);
-        if (rr_val < .1f) {
-            const float prob = 1 - rr_val;
-            if (rng(seed) < prob) { free_path = false; break; }
-            throughput /= 1 - prob;
-        }
-
-        // scatter ray
-        const vec3 scatter_dir = sample_phase_isotropic(rng2(seed));
-        dir = scatter_dir;
-    }
-
-    // free path? -> add envmap contribution
-    if (free_path && show_environment > 0) {
-        const vec3 Le = lookup_environment(dir);
-        const float f_p = phase_isotropic();
-        const float mis_weight = power_heuristic(f_p, pdf_environment(dir));
-        L += throughput * mis_weight * Le;
-    }
-
-    return L;
-}
-
-void update_cache(vec3 pos, vec3 dir, inout uint seed) {
-    float t;
-    vec3 Li = vec3(0);
-    vec3 throughput = vec3(1);
-    if (sample_volumeDDA(pos, dir, t, throughput, Li, seed)) {
-        pos += t * dir;
-
-        // sample light source (environment)
-        vec3 w_i;
-        const vec4 Le_pdf = sample_environment(rng2(seed), w_i);
-        if (Le_pdf.w > 0) {
-            const float f_p = phase_isotropic();
-            const float mis_weight = show_environment > 0 ? power_heuristic(Le_pdf.w, f_p) : 1.f;
-            const float Tr = transmittanceDDA(pos, w_i, seed);
-            Li += mis_weight * f_p * Tr * Le_pdf.rgb / Le_pdf.w;
-        }
-
-        const vec3 scatter_dir = sample_phase_isotropic(rng2(seed));
-        Li += trace_path_cache(pos, scatter_dir, seed);
-        irradiance_update(vec3(vol_inv_model * vec4(pos, 1)), Li);
-    }
 }
 
 // ---------------------------------------------------
@@ -338,12 +272,9 @@ void main() {
     const vec3 dir = view_dir(pixel, resolution, rng2(seed));
     
     // replay path to backprop gradients
-    const vec3 Lr = path_replay_backprop(pos, dir, seed, L, grad);
-    // const vec3 Lr = abs(L - vec3(transmittance_adjoint(pos, dir, seed, grad)));
-
-    //float t; vec3 Ltmp = L; vec3 throughput = vec3(1);
-    //const vec3 Lr = vec3(sample_volume_adjoint(pos, dir, t, throughput, Ltmp, seed, grad) ? vec3(0) : vec3(1));
-    // const vec3 Lr = direct_volume_rendering_irradiance_cache(pos, dir, seed, grad);
+    //const vec3 Lr = path_replay_backprop(pos, dir, seed, L, grad);
+    //const vec3 Lr = abs(L - vec3(transmittance_adjoint(pos, dir, seed, grad)));
+    const vec3 Lr = backprop_irradiance_cache(pos, dir, seed, L, grad);
 
     // store result
     imageStore(color_backprop, pixel, vec4(mix(imageLoad(color_backprop, pixel).rgb, sanitize(Lr), 1.f / current_sample), 1));

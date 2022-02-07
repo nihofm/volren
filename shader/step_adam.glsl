@@ -16,7 +16,8 @@ uniform float param_max;
 
 const float b1 = 0.9;
 const float b2 = 0.999;
-const float eps = 1e-4;
+const float eps = 1e-6;
+const float weight_decay = 0;
 
 // ---------------------------------------------------
 // main
@@ -48,7 +49,7 @@ void main() {
 
     // load parameters
     const float x = parameters[idx];
-    const float dx = clamp(gradients[idx] * gradient_normalization, -1, 1);
+    const float dx = clamp(gradients[idx] * gradient_normalization + weight_decay * x, -.1, .1);
     float m1 = first_moments[idx];
     float m2 = second_moments[idx];
 
@@ -59,11 +60,11 @@ void main() {
     const float m1_c = m1 / (1.f - b1);
     const float m2_c = m2 / (1.f - b2);
     // update parameter
-    const float y = clamp(x - learning_rate * m1_c / (sqrt(m2_c) + eps), param_min + eps, param_max);
+    const float y = x - learning_rate * m1_c / (sqrt(m2_c) + eps);
 
     // store updated parameters and zero gradients
-    parameters[idx] = y;
+    parameters[idx] = clamp(sanitize(y), param_min + eps, param_max);
     gradients[idx] = 0;
-    first_moments[idx] = m1;
-    second_moments[idx] = m2;
+    first_moments[idx] = sanitize(m1);
+    second_moments[idx] = sanitize(m2);
 }
