@@ -1,5 +1,7 @@
 #include "renderer_gl.h"
 
+using namespace cppgl;
+
 // -----------------------------------------------------------
 // helper funcs
 
@@ -109,8 +111,8 @@ void RendererOpenGL::init() {
 
     // compile trace shader
     if (!trace_shader)
-        //trace_shader = Shader("trace brick", "shader/pathtracer_brick.glsl");
-        trace_shader = Shader("trace brick", "shader/pathtracer_irradiance.glsl"); // TODO DEBUG
+        trace_shader = Shader("trace brick", "shader/pathtracer_brick.glsl");
+        //trace_shader = Shader("trace brick", "shader/pathtracer_irradiance.glsl"); // TODO DEBUG
 
     // setup color texture
     if (!color) {

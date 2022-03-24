@@ -242,12 +242,10 @@ vec3 backprop_irradiance_cache(vec3 pos, vec3 dir, inout uint seed, vec3 L, cons
         // dL/de
         //add_density_gradient(curr, sum(dy * Tr * -dt * Tr_i * L * vol_extinction));
         // dL/ds
-        //add_density_gradient(curr, sum(dy * Tr * dt * I * vol_scattering));
-        // dT/dd
-        //add_density_gradient(curr, sum(dy * -dt * Tr_i * vol_extinction));
+        //add_density_gradient(curr, sum(dy * Tr * dt * I * vol_scattering)); // TODO scattering derivative
         // update transmittance
         Tr *= Tr_i;
-        if (Tr <= 1e-5) return L;
+        //if (Tr <= 1e-5) return L;
     }
     // TODO: term regarding envmap contribution (along whole ray?)
     if (show_environment > 0) L -= lookup_environment(dir) * Tr;
@@ -263,6 +261,7 @@ void main() {
 
     // compute gradient of l2 loss between prediction and reference
     const vec3 L = imageLoad(color_prediction, pixel).rgb;
+    if (sum(L) <= 1e-6) return;
     const vec3 L_ref = imageLoad(color_reference, pixel).rgb;
     const vec3 grad = 2 * (L - L_ref);
 

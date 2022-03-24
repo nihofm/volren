@@ -2,6 +2,8 @@
 #include <fstream>
 #include <iostream>
 
+using namespace cppgl;
+
 TransferFunction::TransferFunction() : window_left(0), window_width(1) {}
 
 TransferFunction::TransferFunction(const fs::path& path) : TransferFunction() {

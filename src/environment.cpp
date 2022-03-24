@@ -1,5 +1,7 @@
 #include "environment.h"
 
+using namespace cppgl;
+
 // importance map parameters (power of two!)
 const uint32_t DIMENSION = 512;
 const uint32_t SAMPLES = 64;

@@ -15,18 +15,18 @@ struct RendererOpenGL : public Renderer {
     void draw();
 
     // helper to convert brick grid to OpenGL 3D textures
-    std::tuple<Texture3D, Texture3D, Texture3D> brick_grid_to_textures(const std::shared_ptr<voldata::BrickGrid>& grid);
+    std::tuple<cppgl::Texture3D, cppgl::Texture3D, cppgl::Texture3D> brick_grid_to_textures(const std::shared_ptr<voldata::BrickGrid>& grid);
 
     // Scene data
     std::shared_ptr<Environment> environment;
     std::shared_ptr<TransferFunction> transferfunc;
 
     // OpenGL data
-    Shader trace_shader;
-    Texture2D color;
-    std::vector<std::tuple<Texture3D, Texture3D, Texture3D>> density_grids;
-    std::vector<std::tuple<Texture3D, Texture3D, Texture3D>> emission_grids;
-    SSBO irradiance_cache;
+    cppgl::Shader trace_shader;
+    cppgl::Texture2D color;
+    cppgl::SSBO irradiance_cache;
+    std::vector<std::tuple<cppgl::Texture3D, cppgl::Texture3D, cppgl::Texture3D>> density_grids;
+    std::vector<std::tuple<cppgl::Texture3D, cppgl::Texture3D, cppgl::Texture3D>> emission_grids;
 };
 
 struct BackpropRendererOpenGL : public RendererOpenGL {
@@ -44,17 +44,17 @@ struct BackpropRendererOpenGL : public RendererOpenGL {
     void draw_adjoint();
 
     // OpenGL data
-    Texture2D color_prediction, color_backprop;
-    Shader backprop_shader, adam_shader, draw_shader;
-    SSBO irradiance_cache_adjoint;
+    cppgl::Texture2D color_prediction, color_backprop;
+    cppgl::Shader backprop_shader, adam_shader, draw_shader;
+    cppgl::SSBO irradiance_cache_adjoint;
 
     // Optimization target (voxel densities)
-    glm::uvec3 grid_size;       // density grid size
-    uint32_t n_parameters;      // parameter count
-    SSBO parameter_buffer;      // TF lut parameters
-    SSBO gradient_buffer;       // gradients per parameter
-    SSBO m1_buffer;             // first moments per parameter
-    SSBO m2_buffer;             // second moments per parameter
+    glm::uvec3 grid_size;           // density grid size
+    uint32_t n_parameters;          // parameter count
+    cppgl::SSBO parameter_buffer;   // TF lut parameters
+    cppgl::SSBO gradient_buffer;    // gradients per parameter
+    cppgl::SSBO m1_buffer;          // first moments per parameter
+    cppgl::SSBO m2_buffer;          // second moments per parameter
 
     // Optimization parameters
     float learning_rate = 0.1f;

@@ -6,10 +6,8 @@
 #include <pybind11/operators.h>
 #include <pybind11/numpy.h>
 #include <pybind11/stl.h>
-namespace py = pybind11;
 
 #include <cppgl.h>
-#include <stb_image_write.h>
 #include <voldata/voldata.h>
 
 #include "renderer.h"
@@ -17,48 +15,50 @@ namespace py = pybind11;
 #include "environment.h"
 #include "transferfunc.h"
 
+using namespace cppgl;
+
 // ------------------------------------------------------------------------
 // python bindings
 
 template <typename VecT, typename ScalarT>
-py::class_<VecT> register_vector_operators(py::class_<VecT>& pyclass) {
+pybind11::class_<VecT> register_vector_operators(pybind11::class_<VecT>& pyclass) {
     return pyclass
-        .def(py::self + py::self)
-        .def(py::self + ScalarT())
-        .def(ScalarT() + py::self)
-        .def(py::self += py::self)
-        .def(py::self += ScalarT())
-        .def(py::self - py::self)
-        .def(py::self - ScalarT())
-        .def(ScalarT() - py::self)
-        .def(py::self -= py::self)
-        .def(py::self -= ScalarT())
-        .def(py::self * py::self)
-        .def(py::self * ScalarT())
-        .def(ScalarT() * py::self)
-        .def(py::self *= py::self)
-        .def(py::self *= ScalarT())
-        .def(py::self / py::self)
-        .def(py::self / ScalarT())
-        .def(ScalarT() / py::self)
-        .def(py::self /= py::self)
-        .def(py::self /= ScalarT())
-        .def(-py::self);
+        .def(pybind11::self + pybind11::self)
+        .def(pybind11::self + ScalarT())
+        .def(ScalarT() + pybind11::self)
+        .def(pybind11::self += pybind11::self)
+        .def(pybind11::self += ScalarT())
+        .def(pybind11::self - pybind11::self)
+        .def(pybind11::self - ScalarT())
+        .def(ScalarT() - pybind11::self)
+        .def(pybind11::self -= pybind11::self)
+        .def(pybind11::self -= ScalarT())
+        .def(pybind11::self * pybind11::self)
+        .def(pybind11::self * ScalarT())
+        .def(ScalarT() * pybind11::self)
+        .def(pybind11::self *= pybind11::self)
+        .def(pybind11::self *= ScalarT())
+        .def(pybind11::self / pybind11::self)
+        .def(pybind11::self / ScalarT())
+        .def(ScalarT() / pybind11::self)
+        .def(pybind11::self /= pybind11::self)
+        .def(pybind11::self /= ScalarT())
+        .def(-pybind11::self);
 }
 
 template <typename MatT, typename ScalarT>
-py::class_<MatT> register_matrix_operators(py::class_<MatT>& pyclass) {
+pybind11::class_<MatT> register_matrix_operators(pybind11::class_<MatT>& pyclass) {
     return pyclass
-        .def(py::self + py::self)
-        .def(py::self += py::self)
-        .def(py::self - py::self)
-        .def(py::self -= py::self)
-        .def(py::self * py::self)
-        .def(py::self * ScalarT())
-        .def(ScalarT() * py::self)
-        .def(py::self *= py::self)
-        .def(py::self *= ScalarT())
-        .def(-py::self);
+        .def(pybind11::self + pybind11::self)
+        .def(pybind11::self += pybind11::self)
+        .def(pybind11::self - pybind11::self)
+        .def(pybind11::self -= pybind11::self)
+        .def(pybind11::self * pybind11::self)
+        .def(pybind11::self * ScalarT())
+        .def(ScalarT() * pybind11::self)
+        .def(pybind11::self *= pybind11::self)
+        .def(pybind11::self *= ScalarT())
+        .def(-pybind11::self);
 }
 
 PYBIND11_EMBEDDED_MODULE(volpy, m) {
@@ -66,11 +66,11 @@ PYBIND11_EMBEDDED_MODULE(volpy, m) {
     // ------------------------------------------------------------
     // voldata::Buf3D bindings
 
-    py::class_<voldata::Buf3D<float>, std::shared_ptr<voldata::Buf3D<float>>>(m, "ImageDataFloat", py::buffer_protocol())
-        .def_buffer([](voldata::Buf3D<float>& buf) -> py::buffer_info {
-            return py::buffer_info(buf.data.data(),
+    pybind11::class_<voldata::Buf3D<float>, std::shared_ptr<voldata::Buf3D<float>>>(m, "ImageDataFloat", pybind11::buffer_protocol())
+        .def_buffer([](voldata::Buf3D<float>& buf) -> pybind11::buffer_info {
+            return pybind11::buffer_info(buf.data.data(),
                     sizeof(float),
-                    py::format_descriptor<float>::format(),
+                    pybind11::format_descriptor<float>::format(),
                     3,
                     { buf.stride.x, buf.stride.y, buf.stride.z },
                     { sizeof(float) * buf.stride.z * buf.stride.y, sizeof(float) * buf.stride.z, sizeof(float) });
@@ -79,11 +79,11 @@ PYBIND11_EMBEDDED_MODULE(volpy, m) {
     // ------------------------------------------------------------
     // voldata::Volume bindings
 
-    py::class_<voldata::Volume, std::shared_ptr<voldata::Volume>>(m, "Volume")
-        .def(py::init<>())
-        .def(py::init<std::string>())
-        .def(py::init<size_t, size_t, size_t, const uint8_t*>())
-        .def(py::init<size_t, size_t, size_t, const float*>())
+    pybind11::class_<voldata::Volume, std::shared_ptr<voldata::Volume>>(m, "Volume")
+        .def(pybind11::init<>())
+        .def(pybind11::init<std::string>())
+        .def(pybind11::init<size_t, size_t, size_t, const uint8_t*>())
+        .def(pybind11::init<size_t, size_t, size_t, const float*>())
         .def("clear", &voldata::Volume::clear)
         .def("load_grid", &voldata::Volume::load_grid)
         .def("current_grid", &voldata::Volume::current_grid)
@@ -93,29 +93,29 @@ PYBIND11_EMBEDDED_MODULE(volpy, m) {
         .def_readwrite("phase", &voldata::Volume::phase)
         .def_readwrite("density_scale", &voldata::Volume::density_scale)
         .def_readwrite("grid_frame", &voldata::Volume::grid_frame_counter)
-        .def("__repr__", &voldata::Volume::to_string, py::arg("indent") = "");
+        .def("__repr__", &voldata::Volume::to_string, pybind11::arg("indent") = "");
 
     // ------------------------------------------------------------
     // environment bindings
 
-    py::class_<Environment, std::shared_ptr<Environment>>(m, "Environment")
-        .def(py::init<std::string>())
+    pybind11::class_<Environment, std::shared_ptr<Environment>>(m, "Environment")
+        .def(pybind11::init<std::string>())
         .def_readwrite("strength", &Environment::strength);
 
     // ------------------------------------------------------------
     // transferfunc bindings
 
-    py::class_<TransferFunction, std::shared_ptr<TransferFunction>>(m, "TransferFunction")
-        .def(py::init<const std::string&>())
-        .def(py::init<const std::vector<glm::vec4>&>())
+    pybind11::class_<TransferFunction, std::shared_ptr<TransferFunction>>(m, "TransferFunction")
+        .def(pybind11::init<const std::string&>())
+        .def(pybind11::init<const std::vector<glm::vec4>&>())
         .def_readwrite("window_left", &TransferFunction::window_left)
         .def_readwrite("window_width", &TransferFunction::window_width);
 
     // ------------------------------------------------------------
     // renderer bindings
 
-    py::class_<RendererOpenGL, std::shared_ptr<RendererOpenGL>>(m, "Renderer")
-        .def(py::init<>())
+    pybind11::class_<RendererOpenGL, std::shared_ptr<RendererOpenGL>>(m, "Renderer")
+        .def(pybind11::init<>())
         .def("init", &Renderer::init)
         .def("commit", &Renderer::commit)
         .def("trace", &RendererOpenGL::trace)
@@ -146,13 +146,12 @@ PYBIND11_EMBEDDED_MODULE(volpy, m) {
             Context::screenshot(filename);
         })
         .def("save_with_alpha", [](const std::shared_ptr<RendererOpenGL>& renderer, const std::string& filename = "out.png") {
-            fs::path outfile = fs::path(filename).replace_extension(".png");
-            stbi_flip_vertically_on_write(1);
             const glm::ivec2 size = Context::resolution();
             std::vector<uint8_t> pixels(size.x * size.y * 4);
             glPixelStorei(GL_PACK_ALIGNMENT, 1);
             glReadPixels(0, 0, size.x, size.y, GL_RGBA, GL_UNSIGNED_BYTE, pixels.data());
-            stbi_write_png(outfile.string().c_str(), size.x, size.y, 4, pixels.data(), 0);
+            const fs::path outfile = fs::path(filename).replace_extension(".png");
+            image_store_ldr(outfile, pixels.data(), size.x, size.y, 4);
             std::cout << outfile << " written." << std::endl;
         })
         // members
@@ -219,10 +218,10 @@ PYBIND11_EMBEDDED_MODULE(volpy, m) {
     // glm vector bindings
 
     register_vector_operators<glm::vec2, float>(
-        py::class_<glm::vec2>(m, "vec2")
-            .def(py::init<>())
-            .def(py::init<float>())
-            .def(py::init<float, float>())
+        pybind11::class_<glm::vec2>(m, "vec2")
+            .def(pybind11::init<>())
+            .def(pybind11::init<float>())
+            .def(pybind11::init<float, float>())
             .def_readwrite("x", &glm::vec2::x)
             .def_readwrite("y", &glm::vec2::y)
             .def("normalize", [](const glm::vec2& v) { return glm::normalize(v); })
@@ -232,19 +231,19 @@ PYBIND11_EMBEDDED_MODULE(volpy, m) {
             }));
 
     register_vector_operators<glm::vec3, float>(
-        py::class_<glm::vec3>(m, "vec3", py::buffer_protocol())
-            .def(py::init<>())
-            .def(py::init<float>())
-            .def(py::init<float, float, float>())
+        pybind11::class_<glm::vec3>(m, "vec3", pybind11::buffer_protocol())
+            .def(pybind11::init<>())
+            .def(pybind11::init<float>())
+            .def(pybind11::init<float, float, float>())
             .def_readwrite("x", &glm::vec3::x)
             .def_readwrite("y", &glm::vec3::y)
             .def_readwrite("z", &glm::vec3::z)
             .def("normalize", [](const glm::vec3& v) { return glm::normalize(v); })
             .def("length", [](const glm::vec3& v) { return glm::length(v); })
-            .def_buffer([](glm::vec3& m) -> py::buffer_info {
-                return py::buffer_info(&m[0],
+            .def_buffer([](glm::vec3& m) -> pybind11::buffer_info {
+                return pybind11::buffer_info(&m[0],
                         sizeof(float),
-                        py::format_descriptor<float>::format(),
+                        pybind11::format_descriptor<float>::format(),
                         1,
                         { 3 },
                         { sizeof(float) });
@@ -254,20 +253,20 @@ PYBIND11_EMBEDDED_MODULE(volpy, m) {
             }));
 
     register_vector_operators<glm::vec4, float>(
-        py::class_<glm::vec4>(m, "vec4", py::buffer_protocol())
-            .def(py::init<>())
-            .def(py::init<float>())
-            .def(py::init<float, float, float, float>())
+        pybind11::class_<glm::vec4>(m, "vec4", pybind11::buffer_protocol())
+            .def(pybind11::init<>())
+            .def(pybind11::init<float>())
+            .def(pybind11::init<float, float, float, float>())
             .def_readwrite("x", &glm::vec4::x)
             .def_readwrite("y", &glm::vec4::y)
             .def_readwrite("z", &glm::vec4::z)
             .def_readwrite("w", &glm::vec4::w)
             .def("normalize", [](const glm::vec4& v) { return glm::normalize(v); })
             .def("length", [](const glm::vec4& v) { return glm::length(v); })
-            .def_buffer([](glm::vec4& m) -> py::buffer_info {
-                return py::buffer_info(&m[0],
+            .def_buffer([](glm::vec4& m) -> pybind11::buffer_info {
+                return pybind11::buffer_info(&m[0],
                         sizeof(float),
-                        py::format_descriptor<float>::format(),
+                        pybind11::format_descriptor<float>::format(),
                         1,
                         { 4 },
                         { sizeof(float) });
@@ -277,10 +276,10 @@ PYBIND11_EMBEDDED_MODULE(volpy, m) {
             }));
 
     register_vector_operators<glm::ivec2, int>(
-        py::class_<glm::ivec2>(m, "ivec2")
-            .def(py::init<>())
-            .def(py::init<int>())
-            .def(py::init<int, int>())
+        pybind11::class_<glm::ivec2>(m, "ivec2")
+            .def(pybind11::init<>())
+            .def(pybind11::init<int>())
+            .def(pybind11::init<int, int>())
             .def_readwrite("x", &glm::ivec2::x)
             .def_readwrite("y", &glm::ivec2::y)
             .def("__repr__", [](const glm::ivec2& v) {
@@ -288,10 +287,10 @@ PYBIND11_EMBEDDED_MODULE(volpy, m) {
             }));
 
     register_vector_operators<glm::ivec3, int>(
-        py::class_<glm::ivec3>(m, "ivec3")
-            .def(py::init<>())
-            .def(py::init<int>())
-            .def(py::init<int, int, int>())
+        pybind11::class_<glm::ivec3>(m, "ivec3")
+            .def(pybind11::init<>())
+            .def(pybind11::init<int>())
+            .def(pybind11::init<int, int, int>())
             .def_readwrite("x", &glm::ivec3::x)
             .def_readwrite("y", &glm::ivec3::y)
             .def_readwrite("z", &glm::ivec3::z)
@@ -300,10 +299,10 @@ PYBIND11_EMBEDDED_MODULE(volpy, m) {
             }));
 
     register_vector_operators<glm::ivec4, int>(
-        py::class_<glm::ivec4>(m, "ivec4")
-            .def(py::init<>())
-            .def(py::init<int>())
-            .def(py::init<int, int, int, int>())
+        pybind11::class_<glm::ivec4>(m, "ivec4")
+            .def(pybind11::init<>())
+            .def(pybind11::init<int>())
+            .def(pybind11::init<int, int, int, int>())
             .def_readwrite("x", &glm::ivec4::x)
             .def_readwrite("y", &glm::ivec4::y)
             .def_readwrite("z", &glm::ivec4::z)
@@ -313,10 +312,10 @@ PYBIND11_EMBEDDED_MODULE(volpy, m) {
             }));
 
     register_vector_operators<glm::uvec2, uint32_t>(
-        py::class_<glm::uvec2>(m, "uvec2")
-            .def(py::init<>())
-            .def(py::init<uint32_t>())
-            .def(py::init<uint32_t, uint32_t>())
+        pybind11::class_<glm::uvec2>(m, "uvec2")
+            .def(pybind11::init<>())
+            .def(pybind11::init<uint32_t>())
+            .def(pybind11::init<uint32_t, uint32_t>())
             .def_readwrite("x", &glm::uvec2::x)
             .def_readwrite("y", &glm::uvec2::y)
             .def("__repr__", [](const glm::uvec2& v) {
@@ -324,10 +323,10 @@ PYBIND11_EMBEDDED_MODULE(volpy, m) {
             }));
 
     register_vector_operators<glm::uvec3, uint32_t>(
-        py::class_<glm::uvec3>(m, "uvec3")
-            .def(py::init<>())
-            .def(py::init<uint32_t>())
-            .def(py::init<uint32_t, uint32_t, uint32_t>())
+        pybind11::class_<glm::uvec3>(m, "uvec3")
+            .def(pybind11::init<>())
+            .def(pybind11::init<uint32_t>())
+            .def(pybind11::init<uint32_t, uint32_t, uint32_t>())
             .def_readwrite("x", &glm::uvec3::x)
             .def_readwrite("y", &glm::uvec3::y)
             .def_readwrite("z", &glm::uvec3::z)
@@ -336,10 +335,10 @@ PYBIND11_EMBEDDED_MODULE(volpy, m) {
             }));
 
     register_vector_operators<glm::uvec4, uint32_t>(
-        py::class_<glm::uvec4>(m, "uvec4")
-            .def(py::init<>())
-            .def(py::init<uint32_t>())
-            .def(py::init<uint32_t, uint32_t, uint32_t, uint32_t>())
+        pybind11::class_<glm::uvec4>(m, "uvec4")
+            .def(pybind11::init<>())
+            .def(pybind11::init<uint32_t>())
+            .def(pybind11::init<uint32_t, uint32_t, uint32_t, uint32_t>())
             .def_readwrite("x", &glm::uvec4::x)
             .def_readwrite("y", &glm::uvec4::y)
             .def_readwrite("z", &glm::uvec4::z)
@@ -352,20 +351,20 @@ PYBIND11_EMBEDDED_MODULE(volpy, m) {
     // glm matrix bindings
 
     register_matrix_operators<glm::mat3, float>(
-        py::class_<glm::mat3>(m, "mat3", py::buffer_protocol())
-            .def(py::init<>())
-            .def(py::init<float>())
-            .def(py::init<glm::vec3, glm::vec3, glm::vec3>())
+        pybind11::class_<glm::mat3>(m, "mat3", pybind11::buffer_protocol())
+            .def(pybind11::init<>())
+            .def(pybind11::init<float>())
+            .def(pybind11::init<glm::vec3, glm::vec3, glm::vec3>())
             .def("column", [](const std::shared_ptr<glm::mat3>& m, uint32_t i) {
                 return m->operator[](i);
             })
             .def("value", [](const std::shared_ptr<glm::mat3>& m, uint32_t i, uint32_t j) {
                 return m->operator[](i)[j];
             })
-            .def_buffer([](glm::mat3& m) -> py::buffer_info {
-                return py::buffer_info(&m[0],
+            .def_buffer([](glm::mat3& m) -> pybind11::buffer_info {
+                return pybind11::buffer_info(&m[0],
                         sizeof(float),
-                        py::format_descriptor<float>::format(),
+                        pybind11::format_descriptor<float>::format(),
                         2,
                         { 3, 3 },
                         { sizeof(float) * 3, sizeof(float) });
@@ -375,20 +374,20 @@ PYBIND11_EMBEDDED_MODULE(volpy, m) {
             }));
 
     register_matrix_operators<glm::mat4, float>(
-        py::class_<glm::mat4>(m, "mat4", py::buffer_protocol())
-            .def(py::init<>())
-            .def(py::init<float>())
-            .def(py::init<glm::vec4, glm::vec4, glm::vec4, glm::vec4>())
+        pybind11::class_<glm::mat4>(m, "mat4", pybind11::buffer_protocol())
+            .def(pybind11::init<>())
+            .def(pybind11::init<float>())
+            .def(pybind11::init<glm::vec4, glm::vec4, glm::vec4, glm::vec4>())
             .def("column", [](const std::shared_ptr<glm::mat4>& m, uint32_t i) {
                 return m->operator[](i);
             })
             .def("value", [](const std::shared_ptr<glm::mat4>& m, uint32_t i, uint32_t j) {
                 return m->operator[](i)[j];
             })
-            .def_buffer([](glm::mat4& m) -> py::buffer_info {
-                return py::buffer_info(&m[0],
+            .def_buffer([](glm::mat4& m) -> pybind11::buffer_info {
+                return pybind11::buffer_info(&m[0],
                         sizeof(float),
-                        py::format_descriptor<float>::format(),
+                        pybind11::format_descriptor<float>::format(),
                         2,
                         { 4, 4 },
                         { sizeof(float) * 4, sizeof(float) });
@@ -401,19 +400,19 @@ PYBIND11_EMBEDDED_MODULE(volpy, m) {
     // glm quaternion bindings
 
     register_matrix_operators<glm::quat, float>(
-        py::class_<glm::quat>(m, "quat", py::buffer_protocol())
-            .def(py::init<>())
-            .def(py::init<glm::vec3>())
-            .def(py::init<glm::mat3>())
-            .def(py::init<glm::mat4>())
+        pybind11::class_<glm::quat>(m, "quat", pybind11::buffer_protocol())
+            .def(pybind11::init<>())
+            .def(pybind11::init<glm::vec3>())
+            .def(pybind11::init<glm::mat3>())
+            .def(pybind11::init<glm::mat4>())
             .def_readwrite("x", &glm::quat::x)
             .def_readwrite("y", &glm::quat::y)
             .def_readwrite("z", &glm::quat::z)
             .def_readwrite("w", &glm::quat::w)
-            .def_buffer([](glm::quat& m) -> py::buffer_info {
-                return py::buffer_info(&m[0],
+            .def_buffer([](glm::quat& m) -> pybind11::buffer_info {
+                return pybind11::buffer_info(&m[0],
                         sizeof(float),
-                        py::format_descriptor<float>::format(),
+                        pybind11::format_descriptor<float>::format(),
                         1,
                         { 4 },
                         { sizeof(float) });

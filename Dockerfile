@@ -1,26 +1,26 @@
-FROM nvidia/cuda:11.1-devel
+FROM ubuntu
 
 ENV TZ=Europe/Berlin
 RUN ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && echo $TZ > /etc/timezone
+
+# update system
+ARG DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && apt-get upgrade -y
 
-RUN apt-get install -y -qq --no-install-recommends build-essential cmake
-# cppgl deps
-RUN apt-get install -y -qq --no-install-recommends libx11-dev xorg-dev libopengl-dev freeglut3-dev
-# OpenVDB deps
-RUN apt-get install -y -qq --no-install-recommends libboost-iostreams-dev libboost-system-dev libtbb-dev libilmbase-dev libopenexr-dev
-# TODO verify if this works with OpenVDB
-RUN apt-get install -y -qq --no-install-recommends libblosc-dev
-# python debs
-RUN apt-get install -y -qq --no-install-recommends python3-dev python3-pip
+# install deps
+RUN apt-get install -y build-essential cmake
+RUN apt-get install -y libx11-dev xorg-dev libopengl-dev freeglut3-dev
+RUN apt-get install -y libboost-iostreams-dev
+RUN apt-get install -y libglm-dev libassimp-dev libopenvdb-dev # reduce compile times
+RUN apt-get install -y python3-dev
 
-RUN rm -rf /code
-WORKDIR /code
+# copy code
+WORKDIR /home/volren
 COPY CMakeLists.txt ./
 COPY src/ src/
-COPY ptx/ ptx/
 COPY shader/ shader/
 COPY scripts/ scripts/
 COPY submodules/ submodules/
 
+# build
 RUN cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -Wno-dev && cmake --build build --parallel

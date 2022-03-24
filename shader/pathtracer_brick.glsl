@@ -15,7 +15,7 @@ uniform int seed;
 uniform int show_environment;
 uniform ivec2 resolution;
 
-// #define USE_DDA
+#define USE_DDA
 
 vec4 trace_path(vec3 pos, vec3 dir, inout uint seed) {
     // trace path

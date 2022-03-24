@@ -1,7 +1,6 @@
 #include <iostream>
 #include <fstream>
 #include <filesystem>
-namespace fs = std::filesystem;
 
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
@@ -11,17 +10,18 @@ namespace fs = std::filesystem;
 
 #include <pybind11/embed.h>
 #include <pybind11/eval.h>
-namespace py = pybind11;
 
 #include "renderer.h"
 #include "renderer_gl.h"
+
+using namespace cppgl;
 
 // ------------------------------------------
 // settings
 
 static bool adjoint = false, randomize = false;
 
-static bool use_vsync = true;
+static bool use_vsync = false;
 static float shader_check_delay_ms = 1000;
 
 static bool animate = false;
@@ -38,12 +38,12 @@ void load_volume(const std::string& path) {
         if (fs::is_directory(path)) {
             // load contents of folder
             // TODO FIXME handle empty emission grids
-            renderer->volume = voldata::Volume::load_folder(path, { "density", "flame", "temperature" }); // TODO: hardcoded grid names
+            renderer->volume = voldata::Volume::load_folder(path, { "density", "flame", "temperature" });
         } else {
             // load single grid
             renderer->volume = std::make_shared<voldata::Volume>(path);
             // try to add emission grid
-            if (fs::path(path).extension() == ".vdb") {
+            if (std::filesystem::path(path).extension() == ".vdb") {
                 try {
                     renderer->volume->update_grid_frame(renderer->volume->grid_frame_counter, voldata::Volume::load_grid(path, "flame"), "flame");
                     renderer->volume->emission_scale = 1.f;
@@ -83,8 +83,8 @@ void load_transferfunc(const std::string& path) {
 
 void run_script(const std::string& path) {
     try {
-        py::scoped_interpreter guard{};
-        py::eval_file(path);
+        pybind11::scoped_interpreter guard{};
+        pybind11::eval_file(path);
         renderer->sample = 0;
     } catch (pybind11::error_already_set& e) {
         std::cerr << "Error executing python script " << path << ": " << e.what() << std::endl;
@@ -92,11 +92,11 @@ void run_script(const std::string& path) {
 }
 
 void handle_path(const std::string& path) {
-    if (fs::path(path).extension() == ".py")
+    if (std::filesystem::path(path).extension() == ".py")
         run_script(path);
-    else if (fs::path(path).extension() == ".hdr")
+    else if (std::filesystem::path(path).extension() == ".hdr")
         load_envmap(path);
-    else if (fs::path(path).extension() == ".txt")
+    else if (std::filesystem::path(path).extension() == ".txt")
         load_transferfunc(path);
     else
         load_volume(path);
@@ -403,6 +403,7 @@ static void init_opengl_from_args(int argc, char** argv) {
     // collect args
     ContextParameters params;
     params.title = "VolRen";
+    params.swap_interval = use_vsync ? 1 : 0;
     for (int i = 1; i < argc; ++i) {
         const std::string arg = argv[i];
         if (arg == "-w")
