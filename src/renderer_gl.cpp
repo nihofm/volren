@@ -26,7 +26,7 @@ void tonemap(const Texture2D& tex, float exposure, float gamma) {
 // -----------------------------------------------------------
 // OpenGL renderer
 
-std::tuple<Texture3D, Texture3D, Texture3D> RendererOpenGL::brick_grid_to_textures(const std::shared_ptr<voldata::BrickGrid>& bricks) {
+BrickGridGL RendererOpenGL::brick_grid_to_textures(const std::shared_ptr<voldata::BrickGrid>& bricks) {
     // create indirection texture
     Texture3D indirection = Texture3D("brick indirection",
             bricks->indirection.stride.x,
@@ -90,8 +90,8 @@ std::tuple<Texture3D, Texture3D, Texture3D> RendererOpenGL::brick_grid_to_textur
     glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
     glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
     atlas->unbind();
-    // return as tuple
-    return { indirection, range, atlas };
+    // return BrickGridGL
+    return BrickGridGL{ indirection, range, atlas, bricks->transform };
 }
 
 void RendererOpenGL::init() {
@@ -112,7 +112,6 @@ void RendererOpenGL::init() {
     // compile trace shader
     if (!trace_shader)
         trace_shader = Shader("trace brick", "shader/pathtracer_brick.glsl");
-        //trace_shader = Shader("trace brick", "shader/pathtracer_irradiance.glsl"); // TODO DEBUG
 
     // setup color texture
     if (!color) {
@@ -126,7 +125,6 @@ void RendererOpenGL::resize(uint32_t w, uint32_t h) {
 }
 
 void RendererOpenGL::commit() {
-    // TODO XXX: properly add emission to brick grid (ensure matching transform) and use for irradiance cache?
     density_grids.clear();
     emission_grids.clear();
     std::cout << "Preparing brick grids for OpenGL..." << std::endl;
@@ -139,8 +137,8 @@ void RendererOpenGL::commit() {
     }
     // create irradiance cache texture in same resolution as largest indirection grid
     glm::uvec3 n_probes = glm::uvec3(0);
-    for (const auto& [indirection, range, atlas] : density_grids) {
-        n_probes = glm::max(n_probes, glm::uvec3(indirection->w, indirection->h, indirection->d));        
+    for (const BrickGridGL& grid : density_grids) {
+        n_probes = glm::max(n_probes, glm::uvec3(grid.indirection->w, grid.indirection->h, grid.indirection->d));
     }
     irradiance_cache = SSBO("irradiance cache", sizeof(glm::vec4) * n_probes.x * n_probes.y * n_probes.z);
     irradiance_cache->clear();
@@ -165,40 +163,38 @@ void RendererOpenGL::trace() {
     // volume
     const auto [bb_min, bb_max] = volume->AABB();
     const auto [min, maj] = volume->minorant_majorant();
-    trace_shader->uniform("vol_model", volume->get_transform());
-    trace_shader->uniform("vol_inv_model", glm::inverse(volume->get_transform()));
     trace_shader->uniform("vol_bb_min", bb_min + vol_clip_min * (bb_max - bb_min));
     trace_shader->uniform("vol_bb_max", bb_min + vol_clip_max * (bb_max - bb_min));
     trace_shader->uniform("vol_minorant", min * volume->density_scale);
     trace_shader->uniform("vol_majorant", maj * volume->density_scale);
     trace_shader->uniform("vol_inv_majorant", 1.f / (maj * volume->density_scale));
-    //trace_shader->uniform("vol_albedo", volume->albedo);
-    trace_shader->uniform("vol_albedo", scattering_coefficient / (absorption_coefficient + scattering_coefficient));
-    trace_shader->uniform("vol_absorption", absorption_coefficient);
-    trace_shader->uniform("vol_scattering", scattering_coefficient);
-    trace_shader->uniform("vol_extinction", absorption_coefficient + scattering_coefficient);
+    trace_shader->uniform("vol_albedo", volume->albedo);
     trace_shader->uniform("vol_phase_g", volume->phase);
     trace_shader->uniform("vol_density_scale", volume->density_scale);
     trace_shader->uniform("vol_emission_scale", volume->emission_scale);
     // density brick grid data
-    const auto [density_indirection, density_range, density_atlas] = density_grids[volume->grid_frame_counter];
-    trace_shader->uniform("vol_density_indirection", density_indirection, tex_unit++);
-    trace_shader->uniform("vol_density_range", density_range, tex_unit++);
-    trace_shader->uniform("vol_density_atlas", density_atlas, tex_unit++);
-    // emission brick grid data TODO: finalize layout
+    const BrickGridGL density = density_grids[volume->grid_frame_counter];
+    trace_shader->uniform("vol_density_transform", density.transform);
+    trace_shader->uniform("vol_density_inv_transform", glm::inverse(density.transform));
+    trace_shader->uniform("vol_density_indirection", density.indirection, tex_unit++);
+    trace_shader->uniform("vol_density_range", density.range, tex_unit++);
+    trace_shader->uniform("vol_density_atlas", density.atlas, tex_unit++);
+    // emission brick grid data
     if (volume->grid_frame_counter < emission_grids.size()) {
-        const auto [emission_indirection, emission_range, emission_atlas] = emission_grids[volume->grid_frame_counter];
-        trace_shader->uniform("vol_emission_indirection", emission_indirection, tex_unit++);
-        trace_shader->uniform("vol_emission_range", emission_range, tex_unit++);
-        trace_shader->uniform("vol_emission_atlas", emission_atlas, tex_unit++);
+        const BrickGridGL emission = emission_grids[volume->grid_frame_counter];
+        trace_shader->uniform("vol_emission_transform", emission.transform);
+        trace_shader->uniform("vol_emission_inv_transform", glm::inverse(emission.transform));
+        trace_shader->uniform("vol_emission_indirection", emission.indirection, tex_unit++);
+        trace_shader->uniform("vol_emission_range", emission.range, tex_unit++);
+        trace_shader->uniform("vol_emission_atlas", emission.atlas, tex_unit++);
     }
     // irradiance cache
-    trace_shader->uniform("irradiance_size", glm::uvec3(density_indirection->w, density_indirection->h, density_indirection->d));
+    trace_shader->uniform("irradiance_size", glm::uvec3(density.indirection->w, density.indirection->h, density.indirection->d));
     // transfer function
     transferfunc->set_uniforms(trace_shader, tex_unit, 4);
     // environment
-    trace_shader->uniform("env_model", environment->model);
-    trace_shader->uniform("env_inv_model", glm::inverse(environment->model));
+    trace_shader->uniform("env_transform", environment->transform);
+    trace_shader->uniform("env_inv_transform", glm::inverse(environment->transform));
     trace_shader->uniform("env_strength", environment->strength);
     trace_shader->uniform("env_imp_inv_dim", glm::vec2(1.f / environment->dimension()));
     trace_shader->uniform("env_imp_base_mip", int(floor(log2(environment->dimension()))));
@@ -223,293 +219,4 @@ void RendererOpenGL::draw() {
         tonemap(color, tonemap_exposure, tonemap_gamma);
     else
         blit(color);
-}
-
-// -----------------------------------------------------------
-// OpenGL backpropagation
-
-void BackpropRendererOpenGL::init() {
-    RendererOpenGL::init();
-
-    // setup textures
-    const glm::ivec2 res = Context::resolution();
-    if (!color_prediction)
-        color_prediction = Texture2D("prediction color", res.x, res.y, GL_RGBA32F, GL_RGBA, GL_FLOAT);
-    if (!color_backprop)
-        color_backprop = Texture2D("debug color", res.x, res.y, GL_RGBA32F, GL_RGBA, GL_FLOAT);
-
-    // compile shaders
-    if (!backprop_shader)
-        backprop_shader = Shader("backprop", "shader/pathtracer_backprop.glsl");
-    if (!adam_shader)
-        adam_shader = Shader("adam optimizer", "shader/step_adam.glsl");
-    if (!draw_shader)
-        draw_shader = Shader("draw adjoint", "shader/quad.vs", "shader/adjoint.fs");
-}
-
-void BackpropRendererOpenGL::resize(uint32_t w, uint32_t h) {
-    RendererOpenGL::resize(w, h);
-    if (color_prediction) color_prediction->resize(w, h);
-    if (color_backprop) color_backprop->resize(w, h);
-}
-
-void BackpropRendererOpenGL::commit() {
-    RendererOpenGL::commit();
-    // init parameter, gradient and moments buffers (optimize density)
-    grid_size = volume->current_grid()->index_extent();
-    n_parameters = grid_size.x * grid_size.y * grid_size.z;
-    {
-        parameter_buffer = SSBO("parameter buffer");
-        auto param_data = std::vector<float>(n_parameters, 0.1f);
-        parameter_buffer->upload_data(param_data.data(), param_data.size() * sizeof(float));
-    }
-    {
-        gradient_buffer = SSBO("gradients buffer");
-        auto grad_data = std::vector<float>(n_parameters, 0.f);
-        gradient_buffer->upload_data(grad_data.data(), grad_data.size() * sizeof(float));
-    }
-    {
-        m1_buffer = SSBO("first moments buffer");
-        auto m1_data = std::vector<float>(n_parameters, 0.f);
-        m1_buffer->upload_data(m1_data.data(), m1_data.size() * sizeof(float));
-    }
-    {
-        m2_buffer = SSBO("second moments buffer");
-        auto m2_data = std::vector<float>(n_parameters, 1.f);
-        m2_buffer->upload_data(m2_data.data(), m2_data.size() * sizeof(float));
-    }
-    irradiance_cache_adjoint = SSBO("irradiance cache adjoint", irradiance_cache->size_bytes);
-    irradiance_cache_adjoint->clear();
-}
-
-void BackpropRendererOpenGL::trace() {
-    // trace reference sample
-    RendererOpenGL::trace();
-}
-
-void BackpropRendererOpenGL::reset() {
-    sample = 0;
-    backprop_sample = 0;
-    batch_sample = 0;
-}
-
-void BackpropRendererOpenGL::trace_adjoint() {
-    // bind
-    trace_shader->bind();
-    parameter_buffer->bind_base(0);
-    color_prediction->bind_image(0, GL_READ_WRITE, GL_RGBA32F);
-    irradiance_cache_adjoint->bind_base(5);
-
-    // uniforms
-    uint32_t tex_unit = 0;
-    trace_shader->uniform("bounces", bounces);
-    trace_shader->uniform("seed", seed + 42); // magic number
-    trace_shader->uniform("show_environment", show_environment ? 1 : 0);
-    trace_shader->uniform("grid_size", grid_size);
-    trace_shader->uniform("n_parameters", n_parameters);
-    trace_shader->uniform("optimization", 1);
-    // camera
-    trace_shader->uniform("cam_pos", current_camera()->pos);
-    trace_shader->uniform("cam_fov", current_camera()->fov_degree);
-    trace_shader->uniform("cam_transform", glm::inverse(glm::mat3(current_camera()->view)));
-    // volume
-    const auto [bb_min, bb_max] = volume->AABB();
-    const auto [min, maj] = volume->minorant_majorant();
-    trace_shader->uniform("vol_model", volume->get_transform());
-    trace_shader->uniform("vol_inv_model", glm::inverse(volume->get_transform()));
-    trace_shader->uniform("vol_bb_min", bb_min + vol_clip_min * (bb_max - bb_min));
-    trace_shader->uniform("vol_bb_max", bb_min + vol_clip_max * (bb_max - bb_min));
-    trace_shader->uniform("vol_minorant", min * volume->density_scale);
-    trace_shader->uniform("vol_majorant", maj * volume->density_scale);
-    trace_shader->uniform("vol_inv_majorant", 1.f / (maj * volume->density_scale));
-    //trace_shader->uniform("vol_albedo", volume->albedo);
-    trace_shader->uniform("vol_albedo", scattering_coefficient / (absorption_coefficient + scattering_coefficient));
-    trace_shader->uniform("vol_absorption", absorption_coefficient);
-    trace_shader->uniform("vol_scattering", scattering_coefficient);
-    trace_shader->uniform("vol_extinction", absorption_coefficient + scattering_coefficient);
-    trace_shader->uniform("vol_phase_g", volume->phase);
-    trace_shader->uniform("vol_density_scale", volume->density_scale);
-    trace_shader->uniform("vol_emission_scale", volume->emission_scale);
-    // density brick grid data
-    const auto [density_indirection, density_range, density_atlas] = density_grids[volume->grid_frame_counter];
-    trace_shader->uniform("vol_density_indirection", density_indirection, tex_unit++);
-    trace_shader->uniform("vol_density_range", density_range, tex_unit++);
-    trace_shader->uniform("vol_density_atlas", density_atlas, tex_unit++);
-    // emission brick grid data TODO: finalize layout
-    if (volume->grid_frame_counter < emission_grids.size()) {
-        const auto [emission_indirection, emission_range, emission_atlas] = emission_grids[volume->grid_frame_counter];
-        trace_shader->uniform("vol_emission_indirection", emission_indirection, tex_unit++);
-        trace_shader->uniform("vol_emission_range", emission_range, tex_unit++);
-        trace_shader->uniform("vol_emission_atlas", emission_atlas, tex_unit++);
-    }
-    // irradiance cache
-    trace_shader->uniform("irradiance_size", glm::uvec3(density_indirection->w, density_indirection->h, density_indirection->d));
-    // transfer function
-    transferfunc->set_uniforms(trace_shader, tex_unit, 4);
-    // environment
-    trace_shader->uniform("env_model", environment->model);
-    trace_shader->uniform("env_inv_model", glm::inverse(environment->model));
-    trace_shader->uniform("env_strength", environment->strength);
-    trace_shader->uniform("env_imp_inv_dim", glm::vec2(1.f / environment->dimension()));
-    trace_shader->uniform("env_imp_base_mip", int(floor(log2(environment->dimension()))));
-    trace_shader->uniform("env_envmap", environment->envmap, tex_unit++);
-    trace_shader->uniform("env_impmap", environment->impmap, tex_unit++);
-
-    // trace
-    const glm::ivec2 resolution = Context::resolution();
-    trace_shader->uniform("current_sample", sample);
-    trace_shader->uniform("resolution", resolution);
-    trace_shader->dispatch_compute(resolution.x, resolution.y);
-
-    // unbind
-    irradiance_cache_adjoint->unbind_base(5);
-    color_prediction->unbind_image(0);
-    parameter_buffer->unbind_base(0);
-    trace_shader->unbind();
-}
-
-void BackpropRendererOpenGL::backprop() {
-    glMemoryBarrier(GL_SHADER_IMAGE_ACCESS_BARRIER_BIT);
-    // bind
-    backprop_shader->bind();
-    parameter_buffer->bind_base(0);
-    gradient_buffer->bind_base(1);
-    color_prediction->bind_image(0, GL_READ_WRITE, GL_RGBA32F);
-    color->bind_image(1, GL_READ_ONLY, GL_RGBA32F);
-    color_backprop->bind_image(2, GL_WRITE_ONLY, GL_RGBA32F);
-    irradiance_cache_adjoint->bind_base(5);
-
-    // uniforms
-    uint32_t tex_unit = 0;
-    backprop_shader->uniform("sppx", sppx);
-    backprop_shader->uniform("bounces", bounces);
-    backprop_shader->uniform("seed", seed + 42); // magic number
-    backprop_shader->uniform("show_environment", show_environment ? 1 : 0);
-    backprop_shader->uniform("grid_size", grid_size);
-    backprop_shader->uniform("n_parameters", n_parameters);
-    backprop_shader->uniform("optimization", 1);
-    // camera
-    backprop_shader->uniform("cam_pos", current_camera()->pos);
-    backprop_shader->uniform("cam_fov", current_camera()->fov_degree);
-    backprop_shader->uniform("cam_transform", glm::inverse(glm::mat3(current_camera()->view)));
-    // volume
-    const auto [bb_min, bb_max] = volume->AABB();
-    const auto [min, maj] = volume->minorant_majorant();
-    backprop_shader->uniform("vol_model", volume->get_transform());
-    backprop_shader->uniform("vol_inv_model", glm::inverse(volume->get_transform()));
-    backprop_shader->uniform("vol_bb_min", bb_min + vol_clip_min * (bb_max - bb_min));
-    backprop_shader->uniform("vol_bb_max", bb_min + vol_clip_max * (bb_max - bb_min));
-    backprop_shader->uniform("vol_minorant", min * volume->density_scale);
-    backprop_shader->uniform("vol_majorant", maj * volume->density_scale);
-    backprop_shader->uniform("vol_inv_majorant", 1.f / (maj * volume->density_scale));
-    //backprop_shader->uniform("vol_albedo", volume->albedo);
-    backprop_shader->uniform("vol_albedo", scattering_coefficient / (absorption_coefficient + scattering_coefficient));
-    backprop_shader->uniform("vol_absorption", absorption_coefficient);
-    backprop_shader->uniform("vol_scattering", scattering_coefficient);
-    backprop_shader->uniform("vol_extinction", absorption_coefficient + scattering_coefficient);
-    backprop_shader->uniform("vol_phase_g", volume->phase);
-    backprop_shader->uniform("vol_density_scale", volume->density_scale);
-    backprop_shader->uniform("vol_emission_scale", volume->emission_scale);
-    // brick grid data
-    const auto [density_indirection, density_range, density_atlas] = density_grids[volume->grid_frame_counter];
-    backprop_shader->uniform("vol_density_indirection", density_indirection, tex_unit++);
-    backprop_shader->uniform("vol_density_range", density_range, tex_unit++);
-    backprop_shader->uniform("vol_density_atlas", density_atlas, tex_unit++);
-    // emission brick grid data TODO: finalize layout
-    if (volume->grid_frame_counter < emission_grids.size()) {
-        const auto [emission_indirection, emission_range, emission_atlas] = emission_grids[volume->grid_frame_counter];
-        backprop_shader->uniform("vol_emission_indirection", emission_indirection, tex_unit++);
-        backprop_shader->uniform("vol_emission_range", emission_range, tex_unit++);
-        backprop_shader->uniform("vol_emission_atlas", emission_atlas, tex_unit++);
-    }
-    // irradiance cache
-    backprop_shader->uniform("irradiance_size", glm::uvec3(density_indirection->w, density_indirection->h, density_indirection->d));
-    // transfer function
-    transferfunc->set_uniforms(backprop_shader, tex_unit, 4);
-    // environment
-    backprop_shader->uniform("env_model", environment->model);
-    backprop_shader->uniform("env_inv_model", glm::inverse(environment->model));
-    backprop_shader->uniform("env_strength", environment->strength);
-    backprop_shader->uniform("env_imp_inv_dim", glm::vec2(1.f / environment->dimension()));
-    backprop_shader->uniform("env_imp_base_mip", int(floor(log2(environment->dimension()))));
-    backprop_shader->uniform("env_envmap", environment->envmap, tex_unit++);
-    backprop_shader->uniform("env_impmap", environment->impmap, tex_unit++);
-
-    // backprop
-    const glm::ivec2 resolution = Context::resolution();
-    backprop_shader->uniform("current_sample", backprop_sample);
-    backprop_shader->uniform("resolution", resolution);
-    backprop_shader->dispatch_compute(resolution.x, resolution.y);
-
-    // unbind
-    irradiance_cache_adjoint->unbind_base(5);
-    color_backprop->unbind_image(2);
-    color->unbind_image(1);
-    color_prediction->unbind_image(0);
-    gradient_buffer->unbind_base(1);
-    parameter_buffer->unbind_base(0);
-    backprop_shader->unbind();
-}
-
-void BackpropRendererOpenGL::gradient_step() {
-    glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
-    adam_shader->bind();
-    parameter_buffer->bind_base(0);
-    gradient_buffer->bind_base(1);
-    m1_buffer->bind_base(2);
-    m2_buffer->bind_base(3);
-
-    adam_shader->uniform("grid_size", grid_size);
-    adam_shader->uniform("n_parameters", n_parameters);
-    adam_shader->uniform("learning_rate", learning_rate);
-    adam_shader->uniform("gradient_normalization", 1.f / float(batch_size * sppx));
-    const auto [min, maj] = volume->minorant_majorant();
-    adam_shader->uniform("param_min", min);
-    adam_shader->uniform("param_max", maj);
-    // debug: reset optimization
-    adam_shader->uniform("reset", reset_optimization ? 1 : 0);
-    // debug: solve optimization
-    adam_shader->uniform("solve", solve_optimization ? 1 : 0);
-    // brick grid data
-    uint32_t tex_unit = 0;
-    const auto [density_indirection, density_range, density_atlas] = density_grids[volume->grid_frame_counter];
-    adam_shader->uniform("vol_density_indirection", density_indirection, tex_unit++);
-    adam_shader->uniform("vol_density_range", density_range, tex_unit++);
-    adam_shader->uniform("vol_density_atlas", density_atlas, tex_unit++);
-    //transferfunc->set_uniforms(adam_shader, tex_unit, 4);
-    
-    adam_shader->dispatch_compute(n_parameters);
-
-    m2_buffer->unbind_base(3);
-    m1_buffer->unbind_base(2);
-    gradient_buffer->unbind_base(1);
-    parameter_buffer->unbind_base(0);
-    adam_shader->unbind();
-
-    solve_optimization = false;
-    reset_optimization = false;
-}
-
-void BackpropRendererOpenGL::draw_adjoint() {
-    draw_shader->bind();
-    parameter_buffer->bind_base(0);
-    gradient_buffer->bind_base(1);
-    draw_shader->uniform("n_parameters", n_parameters);
-    // textures
-    uint32_t tex_unit = 0;
-    draw_shader->uniform("color_prediction", color_prediction, tex_unit++);
-    draw_shader->uniform("color_reference", color, tex_unit++);
-    draw_shader->uniform("color_backprop", color_backprop, tex_unit++);
-    // transferfunc
-    transferfunc->set_uniforms(draw_shader, tex_unit, 4);
-
-    Quad::draw();
-
-    gradient_buffer->unbind_base(1);
-    parameter_buffer->unbind_base(0);
-    draw_shader->unbind();
-}
-
-void BackpropRendererOpenGL::draw() {
-    RendererOpenGL::draw();
 }

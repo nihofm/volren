@@ -28,16 +28,17 @@ static bool animate = false;
 static float animation_fps = 30;
 static bool render_animation = false;
 
-static std::shared_ptr<BackpropRendererOpenGL> renderer;
+static std::shared_ptr<RendererOpenGL> renderer;
 
 // ------------------------------------------
 // helper funcs
 
 void load_volume(const std::string& path) {
     try {
+        std::cout << "load volume: " << path << std::endl;
         if (fs::is_directory(path)) {
             // load contents of folder
-            // TODO FIXME handle empty emission grids
+            // TODO handle empty emission grids?
             renderer->volume = voldata::Volume::load_folder(path, { "density", "flame", "temperature" });
         } else {
             // load single grid
@@ -73,9 +74,8 @@ void load_envmap(const std::string& path) {
 void load_transferfunc(const std::string& path) {
     try {
         renderer->transferfunc = std::make_shared<TransferFunction>(path);
-        renderer->commit();
+        renderer->transferfunc->upload_gpu();
         renderer->sample = 0;
-        renderer->reset_optimization = true;
     } catch (std::runtime_error& e) {
         std::cerr << "Unable to load transferfunc from " << path << ": " << e.what() << std::endl;
     }
@@ -250,37 +250,19 @@ void gui_callback(void) {
             renderer->reset();
         }
         ImGui::Separator();
-        ImGui::Text("Backprop:");
-        ImGui::InputInt("Batch size", &renderer->batch_size);
-        ImGui::DragFloat("Learning rate", &renderer->learning_rate, 0.0001f, 0.f, 1.f);
-        if (ImGui::Checkbox("Adjoint", &adjoint))
-            renderer->reset();
-        ImGui::Checkbox("Randomize params", &randomize);
-        if (ImGui::Button("Reset")) {
-            renderer->reset_optimization = true;
-            renderer->gradient_step();
-        }
-        ImGui::SameLine();
-        if (ImGui::Button("Solve")) {
-            renderer->solve_optimization = true;
-            renderer->gradient_step();
-        }
-        ImGui::Separator();
         if (ImGui::Checkbox("Environment", &renderer->show_environment)) renderer->reset();
-        if (ImGui::DragFloat("Env strength", &renderer->environment->strength, 0.1f)) {
+        if (ImGui::DragFloat("Env strength", &renderer->environment->strength, 0.1f, 0.f)) {
             renderer->reset();
             renderer->environment->strength = fmaxf(0.f, renderer->environment->strength);
         }
         ImGui::Checkbox("Tonemapping", &renderer->tonemapping);
-        if (ImGui::DragFloat("Exposure", &renderer->tonemap_exposure, 0.01f))
+        if (ImGui::DragFloat("Exposure", &renderer->tonemap_exposure, 0.01f, 0.f))
             renderer->tonemap_exposure = fmaxf(0.f, renderer->tonemap_exposure);
-        ImGui::DragFloat("Gamma", &renderer->tonemap_gamma, 0.01f);
+        ImGui::DragFloat("Gamma", &renderer->tonemap_gamma, 0.01f, 0.f);
         ImGui::Separator();
-         //if (ImGui::DragFloat3("Albedo", &renderer->volume->albedo.x, 0.01f, 0.f, 1.f)) renderer->reset();
-        if (ImGui::DragFloat("Absorption", &renderer->absorption_coefficient, 0.001f, 0.f, 1.f)) renderer->reset();
-        if (ImGui::DragFloat("Scattering", &renderer->scattering_coefficient, 0.001f, 0.f, 1.f)) renderer->reset();
+        if (ImGui::DragFloat3("Albedo", &renderer->volume->albedo.x, 0.01f, 0.f, 1.f)) renderer->reset();
         if (ImGui::DragFloat("Density scale", &renderer->volume->density_scale, 0.01f, 0.01f, 1000.f)) renderer->reset();
-        if (ImGui::DragFloat("Emission scale", &renderer->volume->emission_scale, 0.01f, 0.f, 1000.f)) renderer->reset();
+        if (ImGui::DragFloat("Emission scale", &renderer->volume->emission_scale, 0.1f, 0.f, 1000.f)) renderer->reset();
         if (ImGui::SliderFloat("Phase g", &renderer->volume->phase, -.95f, .95f)) renderer->reset();
         size_t frame_min = 0, frame_max = renderer->volume->n_grid_frames() - 1;
         if (ImGui::SliderScalar("Grid frame", ImGuiDataType_U64, &renderer->volume->grid_frame_counter, &frame_min, &frame_max)) renderer->sample = 0;
@@ -294,26 +276,17 @@ void gui_callback(void) {
             renderer->transferfunc->lut = std::vector<glm::vec4>({ glm::vec4(1) });
             renderer->transferfunc->upload_gpu();
             renderer->reset();
-            renderer->commit();
-            renderer->reset_optimization = true;
-            renderer->gradient_step();
         }
         ImGui::SameLine();
         if (ImGui::Button("Gradient TF")) {
             renderer->transferfunc->lut = std::vector<glm::vec4>({ glm::vec4(0), glm::vec4(1) });
             renderer->transferfunc->upload_gpu();
             renderer->reset();
-            renderer->commit();
-            renderer->reset_optimization = true;
-            renderer->gradient_step();
         }
         if (ImGui::Button("RGB TF")) {
             renderer->transferfunc->lut = std::vector<glm::vec4>({ glm::vec4(0), glm::vec4(1,0,0,0.25), glm::vec4(0,1,0,0.5), glm::vec4(0,0,1,0.75), glm::vec4(1) });
             renderer->transferfunc->upload_gpu();
             renderer->reset();
-            renderer->commit();
-            renderer->reset_optimization = true;
-            renderer->gradient_step();
         }
         ImGui::SameLine();
         if (ImGui::Button("RNG TF")) {
@@ -321,12 +294,8 @@ void gui_callback(void) {
             const int N = 32;
             for (int i = 0; i < N; ++i)
                 renderer->transferfunc->lut.push_back(i == 0 ? glm::vec4(0) : glm::vec4(randf(), randf(), randf(), randf()));
-                // renderer->transferfunc->lut.push_back(glm::vec4(1.f, 1.f, 1.f, i == 0 ? 0.f : randf()));
             renderer->transferfunc->upload_gpu();
             renderer->reset();
-            renderer->commit();
-            renderer->reset_optimization = true;
-            renderer->gradient_step();
         }
         if (ImGui::Button("Gray background")) {
             glm::vec3 color(.5f);
@@ -377,17 +346,17 @@ void gui_callback(void) {
         ImGui::Separator();
         ImGui::Text("Rotate ENVMAP");
         if (ImGui::Button("90° X##E")) {
-            renderer->environment->model = glm::mat3(glm::rotate(glm::mat4(renderer->environment->model), 1.5f * float(M_PI), glm::vec3(1, 0, 0)));
+            renderer->environment->transform = glm::mat3(glm::rotate(glm::mat4(renderer->environment->transform), 1.5f * float(M_PI), glm::vec3(1, 0, 0)));
             renderer->reset();
         }
         ImGui::SameLine();
         if (ImGui::Button("90° Y##E")) {
-            renderer->environment->model = glm::mat3(glm::rotate(glm::mat4(renderer->environment->model), 1.5f * float(M_PI), glm::vec3(0, 1, 0)));
+            renderer->environment->transform = glm::mat3(glm::rotate(glm::mat4(renderer->environment->transform), 1.5f * float(M_PI), glm::vec3(0, 1, 0)));
             renderer->reset();
         }
         ImGui::SameLine();
         if (ImGui::Button("90° Z##E")) {
-            renderer->environment->model = glm::mat3(glm::rotate(glm::mat4(renderer->environment->model), 1.5f * float(M_PI), glm::vec3(0, 0, 1)));
+            renderer->environment->transform = glm::mat3(glm::rotate(glm::mat4(renderer->environment->transform), 1.5f * float(M_PI), glm::vec3(0, 0, 1)));
             renderer->reset();
         }
         ImGui::PopStyleVar();
@@ -468,7 +437,7 @@ static void parse_cmd(int argc, char** argv) {
             renderer->tonemap_exposure = std::stof(argv[++i]);
         else if (arg == "-gamma")
             renderer->tonemap_gamma = std::stof(argv[++i]);
-        else if (std::filesystem::is_regular_file(argv[i]))
+        else
             handle_path(argv[i]);
     }
 }
@@ -481,7 +450,7 @@ int main(int argc, char** argv) {
     init_opengl_from_args(argc, argv);
 
     // initialize Renderer
-    renderer = std::make_shared<BackpropRendererOpenGL>();
+    renderer = std::make_shared<RendererOpenGL>();
     renderer->init();
 
     // install callbacks for interactive mode
@@ -550,40 +519,13 @@ int main(int argc, char** argv) {
             renderer->sample++;
             timer_trace->begin();
             renderer->trace();
-            if (adjoint) renderer->trace_adjoint();
             timer_trace->end();
-        } else if (adjoint) {
-            if (renderer->backprop_sample < renderer->sppx) {
-                // radiative backprop
-                renderer->backprop_sample++;
-                timer_backprop->begin();
-                renderer->backprop();
-                timer_backprop->end();
-            } else {
-                renderer->batch_sample++;
-                if (renderer->batch_sample >= renderer->batch_size) {
-                    // gradient update step
-                    timer_update->begin();
-                    renderer->gradient_step();
-                    timer_update->end();
-                    // reset batch
-                    renderer->batch_sample = 0;
-                }
-                // reset view
-                if (randomize) randomize_parameters();
-                renderer->sample = 0;
-                renderer->backprop_sample = 0;
-                renderer->seed = rand();
-            }
         } else
             glfwWaitEventsTimeout(1.f / 10); // 10fps idle
 
         // draw results
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-        if (adjoint)
-            renderer->draw_adjoint();
-        else
-            renderer->draw();
+        renderer->draw();
 
         // finish frame
         Context::swap_buffers();

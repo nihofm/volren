@@ -82,8 +82,8 @@ vec3 view_dir(const ivec2 xy, const ivec2 wh, const vec2 pixel_sample) {
 // --------------------------------------------------------------
 // environment helper (input vectors assumed in world space!)
 
-uniform mat3 env_model;
-uniform mat3 env_inv_model;
+uniform mat3 env_transform;
+uniform mat3 env_inv_transform;
 uniform float env_strength;
 //uniform float env_integral; // TODO precompute
 uniform vec2 env_imp_inv_dim;
@@ -92,7 +92,7 @@ uniform sampler2D env_envmap;
 uniform sampler2D env_impmap;
 
 vec3 lookup_environment(const vec3 dir) {
-    const vec3 idir = env_inv_model * dir;
+    const vec3 idir = env_inv_transform * dir;
     const float u = atan(idir.z, idir.x) / (2 * M_PI) + 0.5f;
     const float v = 1.f - acos(idir.y) / M_PI;
     return env_strength * texture(env_envmap, vec2(u, v)).rgb;
@@ -138,7 +138,7 @@ vec4 sample_environment(const vec2 rng, out vec3 w_i) {
     const float theta = saturate(1.f - uv.y) * M_PI;
     const float phi   = (saturate(uv.x) * 2.f - 1.f) * M_PI;
     const float sin_t = sin(theta);
-    w_i = env_model * vec3(sin_t * cos(phi), cos(theta), sin_t * sin(phi));
+    w_i = env_transform * vec3(sin_t * cos(phi), cos(theta), sin_t * sin(phi));
     // sample envmap and compute pdf
     const vec3 Le = env_strength * texture(env_envmap, uv).rgb;
     const float avg_w = texelFetch(env_impmap, ivec2(0, 0), env_imp_base_mip).r; // TODO precompute (uniform)
@@ -259,23 +259,19 @@ vec4 tf_lookup(float d, float dd, inout uint seed) {
 // --------------------------------------------------------------
 // volume sampling helpers (input vectors assumed in index space!)
 
-uniform mat4 vol_model;
-uniform mat4 vol_inv_model;
 uniform vec3 vol_bb_min;
 uniform vec3 vol_bb_max;
 uniform float vol_minorant;
 uniform float vol_majorant;
 uniform float vol_inv_majorant;
-//uniform vec3 vol_albedo; // TODO use coefficients
-uniform float vol_absorption;
-uniform float vol_scattering;
-uniform float vol_extinction;
-uniform float vol_albedo;
+uniform vec3 vol_albedo;
 uniform float vol_phase_g;
 uniform float vol_density_scale;
 uniform float vol_emission_scale;
 
 // density brick grid stored as textures
+uniform mat4 vol_density_transform;
+uniform mat4 vol_density_inv_transform;
 uniform usampler3D vol_density_indirection;
 uniform sampler3D vol_density_range;
 uniform sampler3D vol_density_atlas;
@@ -316,6 +312,8 @@ float lookup_density(const vec3 ipos, const vec3 dd, inout uint seed) {
 }
 
 // temperature brick grid stored as textures
+uniform mat4 vol_emission_transform;
+uniform mat4 vol_emission_inv_transform;
 uniform usampler3D vol_emission_indirection;
 uniform sampler3D vol_emission_range;
 uniform sampler3D vol_emission_atlas;
@@ -332,7 +330,8 @@ float lookup_temperature_brick(const vec3 ipos) {
 
 // emission lookup (stochastic trilinear filter)
 vec3 lookup_emission(const vec3 ipos, inout uint seed) {
-    const float t = clamp(lookup_temperature_brick(ipos + rng3(seed) - .5f), 0.f, 1.f);
+    const vec3 ipos_emission = vec3(vol_emission_inv_transform * vol_density_transform * vec4(ipos, 1));
+    const float t = clamp(lookup_temperature_brick(ipos_emission + rng3(seed) - .5f), 0.f, 1.f);
     return vol_emission_scale * sqr(vec3(t, sqr(t), sqr(sqr(t))));
 }
 
@@ -373,7 +372,7 @@ vec3 irradiance_query(const vec3 ipos, inout uint seed) {
 // ---------------------------------
 // null-collision methods
 
-#define USE_TRANSFERFUNC
+// #define USE_TRANSFERFUNC
 
 float transmittance(const vec3 wpos, const vec3 wdir, inout uint seed, float t_max = FLT_MAX) {
     // clip volume
@@ -381,8 +380,8 @@ float transmittance(const vec3 wpos, const vec3 wdir, inout uint seed, float t_m
     if (!intersect_box(wpos, wdir, vol_bb_min, vol_bb_max, near_far)) return 1.f;
     near_far.y = min(t_max, near_far.y);
     // to index-space
-    const vec3 ipos = vec3(vol_inv_model * vec4(wpos, 1));
-    const vec3 idir = vec3(vol_inv_model * vec4(wdir, 0)); // non-normalized!
+    const vec3 ipos = vec3(vol_density_inv_transform * vec4(wpos, 1));
+    const vec3 idir = vec3(vol_density_inv_transform * vec4(wdir, 0)); // non-normalized!
     // ratio tracking
     float t = near_far.x - log(1 - rng(seed)) * vol_inv_majorant, Tr = 1.f;
     while (t < near_far.y) {
@@ -411,8 +410,8 @@ bool sample_volume(const vec3 wpos, const vec3 wdir, out float t, inout vec3 thr
     vec2 near_far;
     if (!intersect_box(wpos, wdir, vol_bb_min, vol_bb_max, near_far)) return false;
     // to index-space
-    const vec3 ipos = vec3(vol_inv_model * vec4(wpos, 1));
-    const vec3 idir = vec3(vol_inv_model * vec4(wdir, 0)); // non-normalized!
+    const vec3 ipos = vec3(vol_density_inv_transform * vec4(wpos, 1));
+    const vec3 idir = vec3(vol_density_inv_transform * vec4(wdir, 0)); // non-normalized!
     // delta tracking
     t = near_far.x - log(1 - rng(seed)) * vol_inv_majorant;
     while (t < near_far.y) {
@@ -423,13 +422,13 @@ bool sample_volume(const vec3 wpos, const vec3 wdir, out float t, inout vec3 thr
         const float d = lookup_density(ipos + t * idir, seed);
 #endif
         const float P_real = d * vol_inv_majorant;
-        Le += throughput * vol_absorption * lookup_emission(ipos + t * idir, seed) * P_real;
+        Le += throughput * (1 - vol_albedo) * lookup_emission(ipos + t * idir, seed) * P_real;
         // classify as real or null collison
         if (rng(seed) < P_real) {
 #ifdef USE_TRANSFERFUNC
-            throughput *= rgba.rgb * vol_scattering;
+            throughput *= rgba.rgb * vol_albedo;
 #else
-            throughput *= vol_scattering;
+            throughput *= vol_albedo;
 #endif
             return true;
         }
@@ -460,8 +459,8 @@ float transmittanceDDA(const vec3 wpos, const vec3 wdir, inout uint seed) {
     vec2 near_far;
     if (!intersect_box(wpos, wdir, vol_bb_min, vol_bb_max, near_far)) return 1.f;
     // to index-space
-    const vec3 ipos = vec3(vol_inv_model * vec4(wpos, 1));
-    const vec3 idir = (vec3(vol_inv_model * vec4(wdir, 0))); // non-normalized!
+    const vec3 ipos = vec3(vol_density_inv_transform * vec4(wpos, 1));
+    const vec3 idir = vec3(vol_density_inv_transform * vec4(wdir, 0)); // non-normalized!
     const vec3 ri = 1.f / idir;
     // march brick grid
     float t = near_far.x + 1e-6f, Tr = 1.f, tau = -log(1.f - rng(seed)), mip = MIP_START;
@@ -506,8 +505,8 @@ bool sample_volumeDDA(const vec3 wpos, const vec3 wdir, out float t, inout vec3 
     vec2 near_far;
     if (!intersect_box(wpos, wdir, vol_bb_min, vol_bb_max, near_far)) return false;
     // to index-space
-    const vec3 ipos = vec3(vol_inv_model * vec4(wpos, 1));
-    const vec3 idir = vec3(vol_inv_model * vec4(wdir, 0)); // non-normalized!
+    const vec3 ipos = vec3(vol_density_inv_transform * vec4(wpos, 1));
+    const vec3 idir = vec3(vol_density_inv_transform * vec4(wdir, 0)); // non-normalized!
     const vec3 ri = 1.f / idir;
     // march brick grid
     t = near_far.x + 1e-6f;
@@ -556,8 +555,8 @@ float transmittance_raymarch(const vec3 wpos, const vec3 wdir, inout uint seed) 
     vec2 near_far;
     if (!intersect_box(wpos, wdir, vol_bb_min, vol_bb_max, near_far)) return 1.f;
     // to index-space
-    const vec3 ipos = vec3(vol_inv_model * vec4(wpos, 1));
-    const vec3 idir = vec3(vol_inv_model * vec4(wdir, 0)); // non-normalized!
+    const vec3 ipos = vec3(vol_density_inv_transform * vec4(wpos, 1));
+    const vec3 idir = vec3(vol_density_inv_transform * vec4(wdir, 0)); // non-normalized!
     // ray marching
     const float dt = (near_far.y - near_far.x) / float(RAYMARCH_STEPS);
     near_far.x += rng(seed) * dt; // jitter starting position
@@ -578,8 +577,8 @@ bool sample_volume_raymarch(const vec3 wpos, const vec3 wdir, out float t, inout
     vec2 near_far;
     if (!intersect_box(wpos, wdir, vol_bb_min, vol_bb_max, near_far)) return false;
     // to index-space
-    const vec3 ipos = vec3(vol_inv_model * vec4(wpos, 1));
-    const vec3 idir = vec3(vol_inv_model * vec4(wdir, 0)); // non-normalized!
+    const vec3 ipos = vec3(vol_density_inv_transform * vec4(wpos, 1));
+    const vec3 idir = vec3(vol_density_inv_transform * vec4(wdir, 0)); // non-normalized!
     // ray marching
     const float tau_target = -log(1.f - rng(seed));
     const float dt = (near_far.y - near_far.x) / float(RAYMARCH_STEPS);
@@ -619,8 +618,8 @@ vec3 direct_volume_rendering(vec3 pos, vec3 dir, inout uint seed) {
     vec2 near_far;
     if (!intersect_box(pos, dir, vol_bb_min, vol_bb_max, near_far)) return lookup_environment(dir);
     // to index-space
-    const vec3 ipos = vec3(vol_inv_model * vec4(pos, 1));
-    const vec3 idir = vec3(vol_inv_model * vec4(dir, 0)); // non-normalized!
+    const vec3 ipos = vec3(vol_density_inv_transform * vec4(pos, 1));
+    const vec3 idir = vec3(vol_density_inv_transform * vec4(dir, 0)); // non-normalized!
     // ray marching
     const float dt = (near_far.y - near_far.x) / float(RAYMARCH_STEPS);
     near_far.x += rng(seed) * dt; // jitter starting position

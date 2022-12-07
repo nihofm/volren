@@ -14,8 +14,6 @@ struct Renderer {
 
     // Volume data
     std::shared_ptr<voldata::Volume> volume;
-    float absorption_coefficient = 1.f;
-    float scattering_coefficient = 1.f;
 
     // Volume clip planes
     glm::vec3 vol_clip_min = glm::vec3(0.f);

@@ -9,7 +9,7 @@ const uint32_t SAMPLES = 64;
 Environment::Environment(const std::string& path) : Environment(Texture2D("environment", path)) {}
 
 Environment::Environment(const Texture2D& envmap) :
-    model(1),
+    transform(1),
     strength(1),
     envmap(envmap),
     impmap(envmap->name + "_importance", DIMENSION, DIMENSION, GL_R32F, GL_RED, GL_FLOAT)
@@ -43,8 +43,8 @@ uint32_t Environment::dimension() const {
 }
 
 void Environment::set_uniforms(const Shader& shader, uint32_t& texture_unit) const {
-    shader->uniform("env_model", model);
-    shader->uniform("env_inv_model", glm::inverse(model));
+    shader->uniform("env_model", transform);
+    shader->uniform("env_inv_model", glm::inverse(transform));
     shader->uniform("env_strength", strength);
     shader->uniform("env_imp_inv_dim", glm::vec2(1.f / DIMENSION));
     shader->uniform("env_imp_base_mip", int(floor(log2(DIMENSION))));

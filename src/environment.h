@@ -17,7 +17,7 @@ public:
     void set_uniforms(const cppgl::Shader& shader, uint32_t& texture_unit) const;
 
     // data
-    glm::mat3 model;
+    glm::mat3 transform;
     float strength;
     cppgl::Texture2D envmap, impmap;
 };
