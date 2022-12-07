@@ -9,19 +9,32 @@ PROJECT(volren
 # ---------------------------------------------------------------------
 # options
 
+option(VOLREN_BUILD_CPPGL "" ON)
+option(VOLREN_BUILD_VOLDATA "" ON)
+option(VOLREN_BUILD_PYBIND "" ON)
+
+if (VOLREN_BUILD_CPPGL AND VOLREN_BUILD_VOLDATA)
+    set(VOLDATA_BUILD_GLM OFF CACHE BOOL " " FORCE)
+endif()
 
 # ---------------------------------------------------------------------
 # dependencies
 
-add_subdirectory(submodules/cppgl)
-include_directories(submodules/cppgl/src)
+if (VOLREN_BUILD_CPPGL)
+    add_subdirectory(submodules/cppgl)
+    include_directories(submodules/cppgl/src)
+endif()
 
-add_subdirectory(submodules/voldata)
-include_directories(submodules/voldata/include)
-include_directories(submodules/voldata/submodules/openvdb/nanovdb)
+if (VOLREN_BUILD_VOLDATA)
+    add_subdirectory(submodules/voldata)
+    include_directories(submodules/voldata/include)
+    include_directories(submodules/voldata/submodules/openvdb/nanovdb)
+endif()
 
-add_subdirectory(submodules/pybind11)
-include_directories(submodules/pybind11/include)
+if (VOLREN_BUILD_PYBIND)
+    add_subdirectory(submodules/pybind11)
+    include_directories(submodules/pybind11/include)
+endif()
 
 # ---------------------------------------------------------------------
 # compiler setup
