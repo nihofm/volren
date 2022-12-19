@@ -134,23 +134,6 @@ glm::vec3 uniform_sample_sphere() {
     return glm::vec3(r * cosf(phi), r * sinf(phi), z);
 }
 
-void randomize_parameters() {
-    // randomize camera
-    const auto& [bb_min, bb_max] = renderer->volume->AABB();
-    const auto& center = bb_min + (bb_max - bb_min) * .5f;
-    const float radius = glm::length(bb_max - bb_min) * .5f;
-    current_camera()->pos = center + uniform_sample_sphere() * radius;
-    current_camera()->dir = glm::normalize(center + uniform_sample_sphere() * .1f * radius - current_camera()->pos);
-    current_camera()->up = glm::vec3(0, 1, 0);
-    current_camera()->fov_degree = 40 + randf() * 60;
-    // randomize volume
-    // renderer->volume->density_scale = 0.01 + 2.f * randf();
-    // renderer->volume->phase = -0.8 + 1.6 * randf();
-    // randomize TF
-    renderer->transferfunc->window_left = randf() * 0.5;
-    renderer->transferfunc->window_width = 0.5 + randf() * 0.5;
-}
-
 // ------------------------------------------
 // callbacks
 
@@ -163,12 +146,6 @@ void resize_callback(int w, int h) {
 
 void keyboard_callback(int key, int scancode, int action, int mods) {
     if (ImGui::GetIO().WantCaptureKeyboard) return;
-    if (key == GLFW_KEY_H && action == GLFW_PRESS) {
-        // DEBUG AffineTransform class
-        // renderer->volume->current_grid()->transform2.from_mat4x4(renderer->volume->get_transform());
-        // std::cout << "Matrix4x4:" << std::endl << glm::to_string(renderer->volume->get_transform()) << std::endl;
-        // std::cout << "AffineTransform:" << std::endl << renderer->volume->current_grid()->transform2.to_string() << std::endl;
-    }
     if (key == GLFW_KEY_B && action == GLFW_PRESS) {
         renderer->show_environment = !renderer->show_environment;
         renderer->reset();
@@ -240,13 +217,8 @@ void gui_callback(void) {
             renderer->reset();
         }
         ImGui::SameLine();
-        if (ImGui::Button("Use Irradiance PT")) {
-            renderer->trace_shader = Shader("trace brick irradiance", "shader/pathtracer_irradiance.glsl");
-            renderer->reset();
-        }
-        ImGui::SameLine();
-        if (ImGui::Button("Clear Irradiance Cache")) {
-            renderer->irradiance_cache->clear();
+        if (ImGui::Button("Use Quilt PT")) {
+            renderer->trace_shader = Shader("trace quilt", "shader/pathtracer_quilt.glsl");
             renderer->reset();
         }
         ImGui::Separator();
@@ -483,8 +455,6 @@ int main(int argc, char** argv) {
 
     // setup timers
     auto timer_trace = TimerQueryGL("trace");
-    auto timer_backprop = TimerQueryGL("backprop");
-    auto timer_update = TimerQueryGL("gradient gradient_step");
 
     // run the main loop
     float shader_timer = 0, animation_timer = 0;

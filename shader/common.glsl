@@ -335,40 +335,6 @@ vec3 lookup_emission(const vec3 ipos, inout uint seed) {
     return vol_emission_scale * sqr(vec3(t, sqr(t), sqr(sqr(t))));
 }
 
-// --------------------------------------------------------------
-// irradiance caching helpers (input vectors in index space!)
-
-layout(std430, binding = 5) buffer IrradianceCacheBuffer {
-    vec4 irradiance_cache[];
-};
-
-uniform uvec3 irradiance_size;
-
-uint irradiance_idx(const vec3 ipos) {
-    const ivec3 iipos = ivec3(floor(ipos));
-    const ivec3 brick = iipos >> 3;
-    return brick.z * irradiance_size.x * irradiance_size.y + brick.y * irradiance_size.x + brick.x;
-}
-
-void irradiance_update(const uint idx, const vec3 Li) {
-    const float alpha = 1 / float(1 << 10);
-    irradiance_cache[idx].rgb = (1-alpha) * irradiance_cache[idx].rgb + alpha * Li;
-}
-void irradiance_update(const vec3 ipos, const vec3 Li) {
-    irradiance_update(irradiance_idx(ipos), sanitize(Li));
-}
-
-vec3 irradiance_query(const uint idx) {
-    if (idx > irradiance_size.x * irradiance_size.y * irradiance_size.z) return vec3(0);
-    return irradiance_cache[idx].rgb;
-}
-vec3 irradiance_query(const vec3 ipos) {
-    return irradiance_query(irradiance_idx(ipos));
-}
-vec3 irradiance_query(const vec3 ipos, inout uint seed) {
-    return irradiance_query(irradiance_idx(ipos + 8 * (rng3(seed) - 0.5))); // one light probe per brick
-}
-
 // ---------------------------------
 // null-collision methods
 
