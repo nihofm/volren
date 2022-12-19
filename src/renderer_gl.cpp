@@ -174,16 +174,16 @@ void RendererOpenGL::trace() {
     trace_shader->uniform("vol_emission_scale", volume->emission_scale);
     // density brick grid data
     const BrickGridGL density = density_grids[volume->grid_frame_counter];
-    trace_shader->uniform("vol_density_transform", density.transform);
-    trace_shader->uniform("vol_density_inv_transform", glm::inverse(density.transform));
+    trace_shader->uniform("vol_density_transform", volume->model * density.transform);
+    trace_shader->uniform("vol_density_inv_transform", glm::inverse(volume->model * density.transform));
     trace_shader->uniform("vol_density_indirection", density.indirection, tex_unit++);
     trace_shader->uniform("vol_density_range", density.range, tex_unit++);
     trace_shader->uniform("vol_density_atlas", density.atlas, tex_unit++);
     // emission brick grid data
     if (volume->grid_frame_counter < emission_grids.size()) {
         const BrickGridGL emission = emission_grids[volume->grid_frame_counter];
-        trace_shader->uniform("vol_emission_transform", emission.transform);
-        trace_shader->uniform("vol_emission_inv_transform", glm::inverse(emission.transform));
+        trace_shader->uniform("vol_emission_transform", volume->model * emission.transform);
+        trace_shader->uniform("vol_emission_inv_transform", glm::inverse(volume->model * emission.transform));
         trace_shader->uniform("vol_emission_indirection", emission.indirection, tex_unit++);
         trace_shader->uniform("vol_emission_range", emission.range, tex_unit++);
         trace_shader->uniform("vol_emission_atlas", emission.atlas, tex_unit++);
