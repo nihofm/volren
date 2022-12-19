@@ -212,6 +212,15 @@ PYBIND11_EMBEDDED_MODULE(volpy, m) {
                 0.0, 0.0, (-far - near) / (far - near), -2.0*far*near/(far-near),
                 0.0, 0.0, -1.0, 0.0);
             return glm::transpose(proj);
+        })
+        // Quilt stuff
+        // TODO: parameters
+        .def_static("quilt_mode", [](const std::shared_ptr<RendererOpenGL>& renderer, const bool enable = true) {
+            if (enable)
+                renderer->trace_shader = Shader("trace quilt", "shader/pathtracer_quilt.glsl");
+            else
+                renderer->trace_shader = Shader("trace brick", "shader/pathtracer_brick.glsl");
+            renderer->reset();
         });
 
     // ------------------------------------------------------------
