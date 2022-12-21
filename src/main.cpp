@@ -331,6 +331,9 @@ void gui_callback(void) {
             renderer->environment->transform = glm::mat3(glm::rotate(glm::mat4(renderer->environment->transform), 1.5f * float(M_PI), glm::vec3(0, 0, 1)));
             renderer->reset();
         }
+        ImGui::Separator();
+        if (ImGui::Button("Print volume"))
+            std::cout << "volume: " << std::endl << renderer->volume->to_string("\t") << std::endl;
         ImGui::PopStyleVar();
         ImGui::End();
     }
@@ -449,11 +452,10 @@ int main(int argc, char** argv) {
         renderer->commit();
     }
 
-    // default to unit cube
+    // map to unit cube per default
     renderer->volume->scale_and_move_to_unit_cube();
     current_camera()->pos = glm::vec3(0.5);
     current_camera()->dir = glm::normalize(-current_camera()->pos);
-    std::cout << "volume: " << *renderer->volume << std::endl;
 
     // setup timers
     auto timer_trace = TimerQueryGL("trace");
