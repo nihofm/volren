@@ -9,38 +9,21 @@ PROJECT(volren
 # ---------------------------------------------------------------------
 # options
 
-option(VOLREN_BUILD_CPPGL "" ON)
-option(VOLREN_BUILD_VOLDATA "" ON)
-option(VOLREN_BUILD_PYBIND "" ON)
-option(VOLREN_BUILD_CUDA "" ON)
-
-if (VOLREN_BUILD_CUDA)
-    enable_language(CUDA)
-endif()
-
-if (VOLREN_BUILD_CPPGL AND VOLREN_BUILD_VOLDATA)
-    set(VOLDATA_BUILD_GLM OFF CACHE BOOL " " FORCE)
-endif()
+# TODO: build standalone pybind module?
 
 # ---------------------------------------------------------------------
 # dependencies
 
-if (VOLREN_BUILD_CPPGL)
-    add_subdirectory(submodules/cppgl)
-    include_directories(submodules/cppgl/src)
-endif()
+add_subdirectory(submodules/cppgl)
+include_directories(submodules/cppgl/src)
 
-if (VOLREN_BUILD_VOLDATA)
-    set(VOLDATA_BUILD_OPENVDB ON CACHE BOOL " " FORCE)
-    add_subdirectory(submodules/voldata)
-    include_directories(submodules/voldata/include)
-    include_directories(submodules/voldata/submodules/openvdb/nanovdb)
-endif()
+set(VOLDATA_BUILD_GLM OFF) # avoid including GLM twice
+add_subdirectory(submodules/voldata)
+include_directories(submodules/voldata/include)
+include_directories(submodules/voldata/submodules)
 
-if (VOLREN_BUILD_PYBIND)
-    add_subdirectory(submodules/pybind11)
-    include_directories(submodules/pybind11/include)
-endif()
+add_subdirectory(submodules/pybind11)
+include_directories(submodules/pybind11/include)
 
 # ---------------------------------------------------------------------
 # compiler setup
@@ -53,7 +36,6 @@ endif()
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
-set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 # ---------------------------------------------------------------------
 # directory management

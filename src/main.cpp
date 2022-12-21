@@ -437,23 +437,8 @@ int main(int argc, char** argv) {
     // parse command line arguments
     parse_cmd(argc, argv);
 
-    // set some defaults if volume has been loaded
-    if (renderer->volume->grids.size() > 0) {
-        std::cout << "volume: " << *renderer->volume << std::endl;
-        // compute max AABB over whole volume (animation)
-        glm::vec3 bb_min = glm::vec3(FLT_MAX), bb_max = glm::vec3(FLT_MIN);
-        for (const auto frame : renderer->volume->grids) {
-            const auto grid = frame.at("density");
-            bb_min = glm::min(bb_min, glm::vec3(grid->transform * glm::vec4(0, 0, 0, 1)));
-            bb_max = glm::max(bb_max, glm::vec3(grid->transform * glm::vec4(glm::vec3(grid->index_extent()), 1)));
-        }
-        // scale to unit cube and move to origin
-        const glm::vec3 extent = bb_max - bb_min;
-        const float size = fmaxf(extent.x, fmaxf(extent.y, extent.z));
-        renderer->volume->model = glm::translate(glm::scale(glm::mat4(1), glm::vec3(1.f / size)), -extent * 0.5f / size);
-        current_camera()->pos = glm::vec3(0.5);
-        current_camera()->dir = glm::normalize(-current_camera()->pos);
-    } else {
+    // set some defaults if no volume has been loaded
+    if (renderer->volume->grids.empty()) {
         // load debug box
         const uint32_t size = 4;
         const float scale = 1.f;
@@ -463,6 +448,12 @@ int main(int argc, char** argv) {
         renderer->volume = std::make_shared<voldata::Volume>(box);
         renderer->commit();
     }
+
+    // default to unit cube
+    renderer->volume->scale_and_move_to_unit_cube();
+    current_camera()->pos = glm::vec3(0.5);
+    current_camera()->dir = glm::normalize(-current_camera()->pos);
+    std::cout << "volume: " << *renderer->volume << std::endl;
 
     // setup timers
     auto timer_trace = TimerQueryGL("trace");
