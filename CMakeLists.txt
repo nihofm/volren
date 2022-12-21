@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.16)
 
 PROJECT(volren
     VERSION 0.2
-    DESCRIPTION "OpenGL volume rendering framework."
+    DESCRIPTION "Volume rendering framework."
     LANGUAGES C CXX
 )
 
@@ -12,6 +12,11 @@ PROJECT(volren
 option(VOLREN_BUILD_CPPGL "" ON)
 option(VOLREN_BUILD_VOLDATA "" ON)
 option(VOLREN_BUILD_PYBIND "" ON)
+option(VOLREN_BUILD_CUDA "" ON)
+
+if (VOLREN_BUILD_CUDA)
+    enable_language(CUDA)
+endif()
 
 if (VOLREN_BUILD_CPPGL AND VOLREN_BUILD_VOLDATA)
     set(VOLDATA_BUILD_GLM OFF CACHE BOOL " " FORCE)
@@ -26,6 +31,7 @@ if (VOLREN_BUILD_CPPGL)
 endif()
 
 if (VOLREN_BUILD_VOLDATA)
+    set(VOLDATA_BUILD_OPENVDB ON CACHE BOOL " " FORCE)
     add_subdirectory(submodules/voldata)
     include_directories(submodules/voldata/include)
     include_directories(submodules/voldata/submodules/openvdb/nanovdb)

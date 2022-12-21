@@ -75,18 +75,17 @@ vec4 trace_path(vec3 pos, vec3 dir, inout uint seed) {
 
 // ---------------------------------------------------
 // quilt helper
-// TODO FIXME: properly set parameters
 
 // Quilt parameters (https://docs.lookingglassfactory.com/keyconcepts/quilts)
 const uint quiltcolumns = 8;
 const uint quiltrows = 6;
 const uint totalViews = quiltcolumns * quiltrows;
-const uint framebufferwidth = resolution.x;//3360;
-const uint framebufferheight = resolution.y;//3360;
+const uint framebufferwidth = resolution.x;
+const uint framebufferheight = resolution.y;
 const float fov = 14 * M_PI / 180.f;
 const float viewCone = 35 * M_PI / 180.f;
-const float cameraSize = 1; // TODO: what is this?
-const float cameraDistance = -cameraSize / tan(fov / 2.0f);;
+const float cameraSize = 0.5; // TODO: wtf is this?
+const float cameraDistance = 1;//-cameraSize / tan(fov / 2.0f);
 const bool singleRenderCall = true;
 const uint quiltindex = 0;
 const vec3 cameraU = cam_transform[0];
