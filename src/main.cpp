@@ -233,8 +233,8 @@ void gui_callback(void) {
         ImGui::DragFloat("Gamma", &renderer->tonemap_gamma, 0.01f, 0.f);
         ImGui::Separator();
         if (ImGui::DragFloat3("Albedo", &renderer->volume->albedo.x, 0.01f, 0.f, 1.f)) renderer->reset();
-        if (ImGui::DragFloat("Density scale", &renderer->volume->density_scale, 0.01f, 0.01f, 1000.f)) renderer->reset();
-        if (ImGui::DragFloat("Emission scale", &renderer->volume->emission_scale, 0.1f, 0.f, 1000.f)) renderer->reset();
+        if (ImGui::DragFloat("Density scale", &renderer->volume->density_scale, 0.1f, 0.f)) renderer->reset();
+        if (ImGui::DragFloat("Emission scale", &renderer->volume->emission_scale, 0.1f, 0.f)) renderer->reset();
         if (ImGui::SliderFloat("Phase g", &renderer->volume->phase, -.95f, .95f)) renderer->reset();
         size_t frame_min = 0, frame_max = renderer->volume->n_grid_frames() - 1;
         if (ImGui::SliderScalar("Grid frame", ImGuiDataType_U64, &renderer->volume->grid_frame_counter, &frame_min, &frame_max)) renderer->sample = 0;
