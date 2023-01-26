@@ -19,14 +19,11 @@ using namespace cppgl;
 // ------------------------------------------
 // settings
 
-static bool adjoint = false, randomize = false;
-
 static bool use_vsync = false;
 static float shader_check_delay_ms = 1000;
 
 static bool animate = false;
 static float animation_fps = 30;
-static bool render_animation = false;
 
 static std::shared_ptr<RendererOpenGL> renderer;
 
@@ -38,7 +35,6 @@ void load_volume(const std::string& path) {
         std::cout << "load volume: " << path << std::endl;
         if (fs::is_directory(path)) {
             // load contents of folder
-            // TODO handle empty emission grids?
             renderer->volume = voldata::Volume::load_folder(path, { "density", "flame", "temperature" });
         } else {
             // load single grid
@@ -75,6 +71,8 @@ void load_transferfunc(const std::string& path) {
     try {
         renderer->transferfunc = std::make_shared<TransferFunction>(path);
         renderer->transferfunc->upload_gpu();
+        renderer->trace_shader = Shader("trace_tf", "shader/pathtracer_brick_tf.glsl");
+        renderer->show_environment = false;
         renderer->sample = 0;
     } catch (std::runtime_error& e) {
         std::cerr << "Unable to load transferfunc from " << path << ": " << e.what() << std::endl;
@@ -154,14 +152,6 @@ void keyboard_callback(int key, int scancode, int action, int mods) {
         use_vsync = !use_vsync;
         Context::set_swap_interval(use_vsync ? 1 : 0);
     }
-    if (key == GLFW_KEY_C && action == GLFW_PRESS) {
-        adjoint = !adjoint;
-        renderer->reset();
-    }
-    if (key == GLFW_KEY_X && action == GLFW_PRESS) {
-        randomize = !randomize;
-        renderer->reset();
-    }
     if (key == GLFW_KEY_T && action == GLFW_PRESS)
         renderer->tonemapping = !renderer->tonemapping;
     if (key == GLFW_KEY_SPACE && action == GLFW_PRESS) {
@@ -183,13 +173,15 @@ void mouse_callback(double xpos, double ypos) {
         old_xpos = xpos;
         old_ypos = ypos;
     }
-    if (Context::mouse_button_pressed(GLFW_MOUSE_BUTTON_RIGHT)) {
-        const auto [min, maj] = renderer->volume->current_grid()->minorant_majorant();
-        if (Context::key_pressed(GLFW_KEY_LEFT_SHIFT))
-            renderer->transferfunc->window_width = glm::clamp(renderer->transferfunc->window_width + (xpos - old_xpos) * (maj - min) * 0.001, 0.0, 1.0);
-        else
-            renderer->transferfunc->window_left = glm::clamp(renderer->transferfunc->window_left + (xpos - old_xpos) * (maj - min) * 0.001, -1.0, 1.0);
-        renderer->sample = 0;
+    if (renderer->transferfunc) {
+        if (Context::mouse_button_pressed(GLFW_MOUSE_BUTTON_RIGHT)) {
+            const auto [min, maj] = renderer->volume->current_grid()->minorant_majorant();
+            if (Context::key_pressed(GLFW_KEY_LEFT_SHIFT))
+                renderer->transferfunc->window_width = glm::clamp(renderer->transferfunc->window_width + (xpos - old_xpos) * (maj - min) * 0.001, 0.0, 1.0);
+            else
+                renderer->transferfunc->window_left = glm::clamp(renderer->transferfunc->window_left + (xpos - old_xpos) * (maj - min) * 0.001, -1.0, 1.0);
+            renderer->sample = 0;
+        }
     }
     old_xpos = xpos;
     old_ypos = ypos;
@@ -212,81 +204,64 @@ void gui_callback(void) {
         if (ImGui::InputInt("Sppx", &renderer->sppx)) renderer->reset();
         if (ImGui::InputInt("Bounces", &renderer->bounces)) renderer->reset();
         if (ImGui::Checkbox("Vsync", &use_vsync)) Context::set_swap_interval(use_vsync ? 1 : 0);
-        if (ImGui::Button("Use Brick PT")) {
-            renderer->trace_shader = Shader("trace brick", "shader/pathtracer_brick.glsl");
-            renderer->reset();
-        }
-        ImGui::SameLine();
-        if (ImGui::Button("Use Quilt PT")) {
-            renderer->trace_shader = Shader("trace quilt", "shader/pathtracer_quilt.glsl");
-            renderer->reset();
-        }
         ImGui::Separator();
         if (ImGui::Checkbox("Environment", &renderer->show_environment)) renderer->reset();
-        if (ImGui::DragFloat("Env strength", &renderer->environment->strength, 0.1f, 0.f)) {
-            renderer->reset();
-            renderer->environment->strength = fmaxf(0.f, renderer->environment->strength);
-        }
-        ImGui::Checkbox("Tonemapping", &renderer->tonemapping);
-        if (ImGui::DragFloat("Exposure", &renderer->tonemap_exposure, 0.01f, 0.f))
-            renderer->tonemap_exposure = fmaxf(0.f, renderer->tonemap_exposure);
-        ImGui::DragFloat("Gamma", &renderer->tonemap_gamma, 0.01f, 0.f);
-        ImGui::Separator();
-        if (ImGui::DragFloat3("Albedo", &renderer->volume->albedo.x, 0.01f, 0.f, 1.f)) renderer->reset();
-        if (ImGui::DragFloat("Density scale", &renderer->volume->density_scale, 0.1f, 0.f)) renderer->reset();
-        if (ImGui::DragFloat("Emission scale", &renderer->volume->emission_scale, 0.1f, 0.f)) renderer->reset();
-        if (ImGui::SliderFloat("Phase g", &renderer->volume->phase, -.95f, .95f)) renderer->reset();
-        size_t frame_min = 0, frame_max = renderer->volume->n_grid_frames() - 1;
-        if (ImGui::SliderScalar("Grid frame", ImGuiDataType_U64, &renderer->volume->grid_frame_counter, &frame_min, &frame_max)) renderer->sample = 0;
-        ImGui::Checkbox("Animate Volume", &animate);
-        ImGui::SameLine();
-        ImGui::DragFloat("FPS", &animation_fps, 0.01, 1, 60);
-        ImGui::Separator();
-        if (ImGui::DragFloat("Window left", &renderer->transferfunc->window_left, 0.01f, -1.f, 1.f)) renderer->reset();
-        if (ImGui::DragFloat("Window width", &renderer->transferfunc->window_width, 0.01f, 0.f, 1.f)) renderer->reset();
-        if (ImGui::Button("Neutral TF")) {
-            renderer->transferfunc->lut = std::vector<glm::vec4>({ glm::vec4(1) });
-            renderer->transferfunc->upload_gpu();
-            renderer->reset();
-        }
-        ImGui::SameLine();
-        if (ImGui::Button("Gradient TF")) {
-            renderer->transferfunc->lut = std::vector<glm::vec4>({ glm::vec4(0), glm::vec4(1) });
-            renderer->transferfunc->upload_gpu();
-            renderer->reset();
-        }
-        if (ImGui::Button("RGB TF")) {
-            renderer->transferfunc->lut = std::vector<glm::vec4>({ glm::vec4(0), glm::vec4(1,0,0,0.25), glm::vec4(0,1,0,0.5), glm::vec4(0,0,1,0.75), glm::vec4(1) });
-            renderer->transferfunc->upload_gpu();
-            renderer->reset();
-        }
-        ImGui::SameLine();
-        if (ImGui::Button("RNG TF")) {
-            renderer->transferfunc->lut.clear();
-            const int N = 32;
-            for (int i = 0; i < N; ++i)
-                renderer->transferfunc->lut.push_back(i == 0 ? glm::vec4(0) : glm::vec4(randf(), randf(), randf(), randf()));
-            renderer->transferfunc->upload_gpu();
-            renderer->reset();
-        }
-        if (ImGui::Button("Gray background")) {
-            glm::vec3 color(.5f);
-            renderer->environment = std::make_shared<Environment>(Texture2D("gray_background", 1, 1, GL_RGB32F, GL_RGB, GL_FLOAT, &color.x));
-            renderer->reset();
-        }
-        ImGui::SameLine();
+        if (ImGui::DragFloat("Env strength", &renderer->environment->strength, 0.01f, 0.f, 1000.f)) renderer->reset();
         if (ImGui::Button("White background")) {
             glm::vec3 color(1);
             renderer->environment = std::make_shared<Environment>(Texture2D("white_background", 1, 1, GL_RGB32F, GL_RGB, GL_FLOAT, &color.x));
             renderer->reset();
         }
         ImGui::Separator();
-        if (ImGui::SliderFloat("Vol crop min X", &renderer->vol_clip_min.x, 0.f, 1.f)) renderer->sample = 0;
-        if (ImGui::SliderFloat("Vol crop min Y", &renderer->vol_clip_min.y, 0.f, 1.f)) renderer->sample = 0;
-        if (ImGui::SliderFloat("Vol crop min Z", &renderer->vol_clip_min.z, 0.f, 1.f)) renderer->sample = 0;
-        if (ImGui::SliderFloat("Vol crop max X", &renderer->vol_clip_max.x, 0.f, 1.f)) renderer->sample = 0;
-        if (ImGui::SliderFloat("Vol crop max Y", &renderer->vol_clip_max.y, 0.f, 1.f)) renderer->sample = 0;
-        if (ImGui::SliderFloat("Vol crop max Z", &renderer->vol_clip_max.z, 0.f, 1.f)) renderer->sample = 0;
+        ImGui::Checkbox("Tonemapping", &renderer->tonemapping);
+        if (ImGui::DragFloat("Exposure", &renderer->tonemap_exposure, 0.01f, 0.f))
+            renderer->tonemap_exposure = fmaxf(0.f, renderer->tonemap_exposure);
+        ImGui::DragFloat("Gamma", &renderer->tonemap_gamma, 0.01f, 0.f);
+        ImGui::Separator();
+        if (ImGui::DragFloat3("Albedo", &renderer->volume->albedo.x, 0.01f, 0.f, 1.f)) renderer->reset();
+        if (ImGui::DragFloat("Density scale", &renderer->volume->density_scale, 0.1f, 0.f, 1e6f)) renderer->reset();
+        if (ImGui::DragFloat("Emission scale", &renderer->volume->emission_scale, 0.1f, 0.f, 1e6f)) renderer->reset();
+        if (ImGui::SliderFloat("Phase g", &renderer->volume->phase, -.95f, .95f)) renderer->reset();
+        size_t frame_min = 0, frame_max = renderer->volume->n_grid_frames() - 1;
+        if (ImGui::SliderScalar("Grid frame", ImGuiDataType_U64, &renderer->volume->grid_frame_counter, &frame_min, &frame_max)) renderer->reset();
+        ImGui::Checkbox("Animate Volume", &animate);
+        ImGui::SameLine();
+        ImGui::DragFloat("FPS", &animation_fps, 0.01, 1, 60);
+        ImGui::Separator();
+        if (ImGui::Button("Clear TF")) {
+            renderer->transferfunc.reset();
+            renderer->reset();
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Gradient TF")) {
+            renderer->transferfunc = std::make_shared<TransferFunction>(std::vector<glm::vec4>({ glm::vec4(0), glm::vec4(1) }));
+            renderer->transferfunc->upload_gpu();
+            renderer->reset();
+        }
+        if (ImGui::Button("RGB TF")) {
+            renderer->transferfunc = std::make_shared<TransferFunction>(std::vector<glm::vec4>({ glm::vec4(0), glm::vec4(1,0,0,0.25), glm::vec4(0,1,0,0.5), glm::vec4(0,0,1,0.75), glm::vec4(1) }));
+            renderer->transferfunc->upload_gpu();
+            renderer->reset();
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Random TF")) {
+            renderer->transferfunc = std::make_shared<TransferFunction>();
+            for (int i = 0; i < 8; ++i)
+                renderer->transferfunc->lut.push_back(i == 0 ? glm::vec4(0) : glm::vec4(randf(), randf(), randf(), randf()));
+            renderer->transferfunc->upload_gpu();
+            renderer->reset();
+        }
+        if (renderer->transferfunc) {
+            if (ImGui::DragFloat("Window left", &renderer->transferfunc->window_left, 0.01f, -1.f, 1.f)) renderer->reset();
+            if (ImGui::DragFloat("Window width", &renderer->transferfunc->window_width, 0.01f, 0.f, 1.f)) renderer->reset();
+        }
+        ImGui::Separator();
+        if (ImGui::SliderFloat("Vol crop min X", &renderer->vol_clip_min.x, 0.f, 1.f)) renderer->reset();
+        if (ImGui::SliderFloat("Vol crop min Y", &renderer->vol_clip_min.y, 0.f, 1.f)) renderer->reset();
+        if (ImGui::SliderFloat("Vol crop min Z", &renderer->vol_clip_min.z, 0.f, 1.f)) renderer->reset();
+        if (ImGui::SliderFloat("Vol crop max X", &renderer->vol_clip_max.x, 0.f, 1.f)) renderer->reset();
+        if (ImGui::SliderFloat("Vol crop max Y", &renderer->vol_clip_max.y, 0.f, 1.f)) renderer->reset();
+        if (ImGui::SliderFloat("Vol crop max Z", &renderer->vol_clip_max.z, 0.f, 1.f)) renderer->reset();
         ImGui::Separator();
         ImGui::Text("Modelmatrix:");
         glm::mat4 row_maj = glm::transpose(renderer->volume->model);
@@ -332,8 +307,13 @@ void gui_callback(void) {
             renderer->reset();
         }
         ImGui::Separator();
-        if (ImGui::Button("Print volume"))
+        if (ImGui::Button("Print volume properties"))
             std::cout << "volume: " << std::endl << renderer->volume->to_string("\t") << std::endl;
+        // ImGui::Separator();
+        // if (ImGui::Button("Use Quilt PT")) {
+        //     renderer->trace_shader = Shader("trace_quilt", "shader/pathtracer_quilt.glsl");
+        //     renderer->reset();
+        // }
         ImGui::PopStyleVar();
         ImGui::End();
     }

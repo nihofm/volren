@@ -338,8 +338,6 @@ vec3 lookup_emission(const vec3 ipos, inout uint seed) {
 // ---------------------------------
 // null-collision methods
 
-// #define USE_TRANSFERFUNC
-
 float transmittance(const vec3 wpos, const vec3 wdir, inout uint seed, float t_max = FLT_MAX) {
     // clip volume
     vec2 near_far;

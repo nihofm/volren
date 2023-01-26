@@ -8,6 +8,7 @@ layout (binding = 0, rgba32f) uniform image2D color;
 // settings
 
 #define USE_DDA
+#define USE_TRANSFERFUNC
 #include "common.glsl"
 
 // ---------------------------------------------------
@@ -18,6 +19,7 @@ uniform int bounces;
 uniform int seed;
 uniform int show_environment;
 uniform ivec2 resolution;
+
 
 vec4 trace_path(vec3 pos, vec3 dir, inout uint seed) {
     // trace path
