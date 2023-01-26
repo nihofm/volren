@@ -134,11 +134,6 @@ void RendererOpenGL::commit() {
         else if (frame.find("temperature") != frame.end())
             emission_grids.push_back(brick_grid_to_textures(voldata::Volume::to_brick_grid(frame.at("temperature"))));
     }
-    // create irradiance cache texture in same resolution as largest indirection grid
-    glm::uvec3 n_probes = glm::uvec3(0);
-    for (const BrickGridGL& grid : density_grids) {
-        n_probes = glm::max(n_probes, glm::uvec3(grid.indirection->w, grid.indirection->h, grid.indirection->d));
-    }
 }
 
 void RendererOpenGL::trace() {
