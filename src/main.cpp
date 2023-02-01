@@ -38,7 +38,7 @@ void load_volume(const std::string& path) {
         std::cout << "load volume: " << path << std::endl;
         if (fs::is_directory(path)) {
             // load contents of folder
-            renderer->volume = voldata::Volume::load_folder(path, { "density", "flame", "temperature" });
+            renderer->volume = voldata::Volume::load_folder(path, { "density", "temperature", "flame", "flames" });
         } else {
             // load single grid
             renderer->volume = std::make_shared<voldata::Volume>(path);
