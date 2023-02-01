@@ -29,7 +29,7 @@ struct RendererOpenGL : public Renderer {
     std::shared_ptr<TransferFunction> transferfunc;
 
     // OpenGL data
-    cppgl::Shader trace_shader, trace_shader_tf, trace_shader_quilt;
+    cppgl::Shader trace_shader, trace_shader_tf, trace_shader_quilt, tonemap_shader;
     cppgl::Texture2D color;
     std::vector<BrickGridGL> density_grids;
     std::vector<BrickGridGL> emission_grids;

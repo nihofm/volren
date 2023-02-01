@@ -25,6 +25,9 @@ static float shader_check_delay_ms = 1000;
 static bool animate = false;
 static float animation_fps = 30;
 
+static bool interactive = true;
+static std::string out_filename = "output.png";
+
 static std::shared_ptr<RendererOpenGL> renderer;
 
 // ------------------------------------------
@@ -51,6 +54,7 @@ void load_volume(const std::string& path) {
                 } catch (std::runtime_error& e) {}
             }
         }
+        renderer->volume->scale_and_move_to_unit_cube();
         renderer->commit();
         renderer->sample = 0;
     } catch (std::runtime_error& e) {
@@ -277,17 +281,17 @@ void gui_callback(void) {
         ImGui::Separator();
         ImGui::Text("Rotate VOLUME");
         if (ImGui::Button("90° X##V")) {
-            renderer->volume->model = glm::rotate(renderer->volume->model, 1.5f * float(M_PI), glm::vec3(1, 0, 0));
+            renderer->volume->model = glm::rotate(renderer->volume->model, .5f * float(M_PI), glm::vec3(1, 0, 0));
             renderer->reset();
         }
         ImGui::SameLine();
         if (ImGui::Button("90° Y##V")) {
-            renderer->volume->model = glm::rotate(renderer->volume->model, 1.5f * float(M_PI), glm::vec3(0, 1, 0));
+            renderer->volume->model = glm::rotate(renderer->volume->model, .5f * float(M_PI), glm::vec3(0, 1, 0));
             renderer->reset();
         }
         ImGui::SameLine();
         if (ImGui::Button("90° Z##V")) {
-            renderer->volume->model = glm::rotate(renderer->volume->model, 1.5f * float(M_PI), glm::vec3(0, 0, 1));
+            renderer->volume->model = glm::rotate(renderer->volume->model, .5f * float(M_PI), glm::vec3(0, 0, 1));
             renderer->reset();
         }
         ImGui::Separator();
@@ -342,7 +346,7 @@ static void init_opengl_from_args(int argc, char** argv) {
             params.gl_major = std::stoi(argv[++i]);
         else if (arg == "--no-resize")
             params.resizable = GLFW_FALSE;
-        else if (arg == "--hidden")
+        else if (arg == "--hidden" || arg == "--render")
             params.visible = GLFW_FALSE;
         else if (arg == "--no-decoration")
             params.decorated = GLFW_FALSE;
@@ -350,7 +354,7 @@ static void init_opengl_from_args(int argc, char** argv) {
             params.floating = GLFW_TRUE;
         else if (arg == "--maximised")
             params.maximised = GLFW_TRUE;
-        else if (arg == "--no-debug")
+        else if (arg == "--no-debug" || arg == "--render")
             params.gl_debug_context = GLFW_FALSE;
         else if (arg == "--swap")
             params.swap_interval = std::stoi(argv[++i]);
@@ -374,24 +378,43 @@ static void init_opengl_from_args(int argc, char** argv) {
 static void parse_cmd(int argc, char** argv) {
     for (int i = 1; i < argc; ++i) {
         const std::string arg = argv[i];
-        if (arg == "-spp")
+        if (arg == "--render")
+            interactive = false;
+        else if (arg == "--samples" || arg == "--spp" || arg == "--sppx")
             renderer->sppx = std::stoi(argv[++i]);
-        else if (arg == "-b")
+        else if (arg == "--bounces")
             renderer->bounces = std::stoi(argv[++i]);
-        else if (arg == "-pos") {
+        else if (arg == "--albedo")
+            renderer->volume->albedo = glm::vec3(std::stof(argv[++i]));
+        else if (arg == "--density")
+            renderer->volume->density_scale = std::stof(argv[++i]);
+        else if (arg == "--emission")
+            renderer->volume->emission_scale = std::stof(argv[++i]);
+        else if (arg == "--phase")
+            renderer->volume->phase = std::stof(argv[++i]);
+        else if (arg == "--env_strength")
+            renderer->environment->strength = std::stof(argv[++i]);
+        else if (arg == "--env_rot")
+            renderer->environment->transform = glm::mat3(glm::rotate(glm::mat4(renderer->environment->transform), glm::radians(std::stof(argv[++i])), glm::vec3(0, 1, 0)));
+        else if (arg == "--env_hide")
+            renderer->show_environment = false;
+        else if (arg == "--cam_pos") {
             current_camera()->pos.x = std::stof(argv[++i]);
             current_camera()->pos.y = std::stof(argv[++i]);
             current_camera()->pos.z = std::stof(argv[++i]);
-        } else if (arg == "-dir") {
+        } else if (arg == "--cam_dir") {
             current_camera()->dir.x = std::stof(argv[++i]);
             current_camera()->dir.y = std::stof(argv[++i]);
             current_camera()->dir.z = std::stof(argv[++i]);
-        } else if (arg == "-fov")
+        } else if (arg == "--cam_fov")
             current_camera()->fov_degree = std::stof(argv[++i]);
-        else if (arg == "-exp")
+        else if (arg == "--exposure")
             renderer->tonemap_exposure = std::stof(argv[++i]);
-        else if (arg == "-gamma")
+        else if (arg == "--gamma")
             renderer->tonemap_gamma = std::stof(argv[++i]);
+        // TODO XXX: this is just a hack
+        else if (arg == "--quilt")
+            renderer->trace_shader = Shader("trace_quilt", "shader/pathtracer_quilt.glsl");
         else
             handle_path(argv[i]);
     }
@@ -431,57 +454,81 @@ int main(int argc, char** argv) {
         renderer->volume = std::make_shared<voldata::Volume>(box);
         renderer->commit();
     }
+    renderer->reset();
 
-    // map to unit cube per default
-    renderer->volume->scale_and_move_to_unit_cube();
-    current_camera()->pos = glm::vec3(0.5);
-    current_camera()->dir = glm::normalize(-current_camera()->pos);
-
-    // setup timers
-    auto timer_trace = TimerQueryGL("trace");
-
-    // run the main loop
-    float shader_timer = 0, animation_timer = 0;
-    while (Context::running()) {
-        // handle input
-        if (CameraImpl::default_input_handler(Context::frame_time())) {
-            renderer->reset();
-        }
-
-        // update
-        current_camera()->update();
-        // reload shaders?
-        shader_timer -= Context::frame_time();
-        if (shader_timer <= 0) {
-            if (reload_modified_shaders())
+    if (interactive) {
+        // setup timers
+        auto timer_trace = TimerQueryGL("trace");
+        // run the main loop
+        float shader_timer = 0, animation_timer = 0;
+        while (Context::running()) {
+            // handle input
+            if (CameraImpl::default_input_handler(Context::frame_time())) {
                 renderer->reset();
-            shader_timer = shader_check_delay_ms;
-        }
-        // advance animation?
-        if (animate) {
-            animation_timer -= Context::frame_time();
-            if (animation_timer <= 0) {
-                animation_timer = 1000 / animation_fps;
-                renderer->volume->grid_frame_counter = (renderer->volume->grid_frame_counter + 1) % renderer->volume->n_grid_frames();
-                renderer->sample = 0;
             }
+
+            // update
+            current_camera()->update();
+            // reload shaders?
+            shader_timer -= Context::frame_time();
+            if (shader_timer <= 0) {
+                if (reload_modified_shaders())
+                    renderer->reset();
+                shader_timer = shader_check_delay_ms;
+            }
+            // advance animation?
+            if (animate) {
+                animation_timer -= Context::frame_time();
+                if (animation_timer <= 0) {
+                    animation_timer = 1000 / animation_fps;
+                    renderer->volume->grid_frame_counter = (renderer->volume->grid_frame_counter + 1) % renderer->volume->n_grid_frames();
+                    renderer->reset();
+                }
+            }
+
+            // trace
+            if (renderer->sample < renderer->sppx) {
+                timer_trace->begin();
+                renderer->trace();
+                timer_trace->end();
+            } else
+                glfwWaitEventsTimeout(1.f / 10); // 10fps idle
+
+            // draw results
+            glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+            renderer->draw();
+
+            // finish frame
+            Context::swap_buffers();
         }
-
-        // trace
-        if (renderer->sample < renderer->sppx) {
-            // forward rendering
-            renderer->sample++;
-            timer_trace->begin();
-            renderer->trace();
-            timer_trace->end();
-        } else
-            glfwWaitEventsTimeout(1.f / 10); // 10fps idle
-
-        // draw results
-        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-        renderer->draw();
-
-        // finish frame
-        Context::swap_buffers();
+    } else {
+        // prepare rendering
+        current_camera()->update();
+        reload_modified_shaders();
+        // render
+        std::cout << "rendering..." << std::endl;
+        for (int i = 0; i < renderer->volume->n_grid_frames(); ++i) {
+            renderer->reset();
+            renderer->volume->grid_frame_counter = i;
+            while (renderer->sample < renderer->sppx)
+                renderer->trace();
+            // tonemap
+            static Shader tonemap_shader("tonemap", "shader/tonemap.glsl");
+            tonemap_shader->bind();
+            renderer->color->bind_image(0, GL_READ_WRITE, GL_RGBA32F);
+            const glm::ivec2 resolution = Context::resolution();
+            tonemap_shader->uniform("resolution", resolution);
+            tonemap_shader->uniform("exposure", renderer->tonemap_exposure);
+            tonemap_shader->uniform("gamma", renderer->tonemap_gamma);
+            tonemap_shader->dispatch_compute(resolution.x, resolution.y);
+            renderer->color->unbind_image(0);
+            tonemap_shader->unbind();
+            Context::swap_buffers(); // sync
+            // write result
+            const size_t n_zero = 6;
+            std::string out_filename = "render_" + std::string(n_zero - std::min(n_zero, std::to_string(i).length()), '0') + std::to_string(i) + ".png";
+            renderer->color->save_ldr(out_filename);
+            std::cout << out_filename << " written." << std::endl;
+        }
     }
 }

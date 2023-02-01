@@ -4,6 +4,10 @@ layout (local_size_x = 16, local_size_y = 16) in;
 
 layout (binding = 0, rgba32f) uniform image2D color;
 
+// ---------------------------------------------------
+// settings
+
+#define USE_DDA
 #include "common.glsl"
 
 // ---------------------------------------------------
@@ -14,8 +18,6 @@ uniform int bounces;
 uniform int seed;
 uniform int show_environment;
 uniform ivec2 resolution;
-
-#define USE_DDA
 
 vec4 trace_path(vec3 pos, vec3 dir, inout uint seed) {
     // trace path
@@ -74,9 +76,9 @@ vec4 trace_path(vec3 pos, vec3 dir, inout uint seed) {
 
 
 // ---------------------------------------------------
-// quilt helper
+// Quilt stuff
 
-// Quilt parameters (https://docs.lookingglassfactory.com/keyconcepts/quilts)
+// parameters (https://docs.lookingglassfactory.com/keyconcepts/quilts)
 const uint quiltcolumns = 8;
 const uint quiltrows = 6;
 const uint totalViews = quiltcolumns * quiltrows;

@@ -195,7 +195,7 @@ void RendererOpenGL::trace() {
 
     // trace
     const glm::ivec2 resolution = Context::resolution();
-    shader->uniform("current_sample", sample);
+    shader->uniform("current_sample", ++sample);
     shader->uniform("resolution", resolution);
     shader->dispatch_compute(resolution.x, resolution.y);
 
