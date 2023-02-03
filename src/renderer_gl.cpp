@@ -131,7 +131,7 @@ void RendererOpenGL::commit() {
     for (const auto& frame : volume->grids) {
         voldata::Volume::GridPtr density_grid = frame.at("density");
         density_grids.push_back(brick_grid_to_textures(voldata::Volume::to_brick_grid(density_grid)));
-        voldata::Volume::GridPtr emission_grid = nullptr;
+        voldata::Volume::GridPtr emission_grid;
         for (const auto& name : { "flame", "flames", "temperature" }) {
             if (frame.find(name) != frame.end()) {
                 emission_grid = frame.at(name);
@@ -175,7 +175,7 @@ void RendererOpenGL::trace() {
     shader->uniform("vol_phase_g", volume->phase);
     shader->uniform("vol_density_scale", volume->density_scale);
     shader->uniform("vol_emission_scale", volume->emission_scale);
-    shader->uniform("vol_emission_norm", 1.f / majorant_emission);
+    shader->uniform("vol_emission_norm", majorant_emission > 0.f ? 1.f / majorant_emission : 1.f);
     // density brick grid data
     const BrickGridGL density = density_grids[volume->grid_frame_counter];
     shader->uniform("vol_density_transform", volume->model * density.transform);
