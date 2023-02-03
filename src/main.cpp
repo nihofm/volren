@@ -44,14 +44,12 @@ void load_volume(const std::string& path) {
             renderer->volume = std::make_shared<voldata::Volume>(path);
             // try to add emission grid
             if (std::filesystem::path(path).extension() == ".vdb") {
-                try {
-                    renderer->volume->update_grid_frame(renderer->volume->grid_frame_counter, voldata::Volume::load_grid(path, "flame"), "flame");
-                    renderer->volume->emission_scale = 1.f;
-                } catch (std::runtime_error& e) {}
-                try {
-                    renderer->volume->update_grid_frame(renderer->volume->grid_frame_counter, voldata::Volume::load_grid(path, "temperature"), "temperature");
-                    renderer->volume->emission_scale = 1.f;
-                } catch (std::runtime_error& e) {}
+                for (const auto& name : { "flame", "flames", "temperature" }) {
+                    try {
+                        renderer->volume->update_grid_frame(renderer->volume->grid_frame_counter, voldata::Volume::load_grid(path, name), name);
+                        renderer->volume->emission_scale = 1.f;
+                    } catch (std::runtime_error& e) {}
+                }
             }
         }
         renderer->volume->scale_and_move_to_unit_cube();
@@ -297,17 +295,17 @@ void gui_callback(void) {
         ImGui::Separator();
         ImGui::Text("Rotate ENVMAP");
         if (ImGui::Button("90° X##E")) {
-            renderer->environment->transform = glm::mat3(glm::rotate(glm::mat4(renderer->environment->transform), 1.5f * float(M_PI), glm::vec3(1, 0, 0)));
+            renderer->environment->transform = glm::mat3(glm::rotate(glm::mat4(renderer->environment->transform), .5f * float(M_PI), glm::vec3(1, 0, 0)));
             renderer->reset();
         }
         ImGui::SameLine();
         if (ImGui::Button("90° Y##E")) {
-            renderer->environment->transform = glm::mat3(glm::rotate(glm::mat4(renderer->environment->transform), 1.5f * float(M_PI), glm::vec3(0, 1, 0)));
+            renderer->environment->transform = glm::mat3(glm::rotate(glm::mat4(renderer->environment->transform), .5f * float(M_PI), glm::vec3(0, 1, 0)));
             renderer->reset();
         }
         ImGui::SameLine();
         if (ImGui::Button("90° Z##E")) {
-            renderer->environment->transform = glm::mat3(glm::rotate(glm::mat4(renderer->environment->transform), 1.5f * float(M_PI), glm::vec3(0, 0, 1)));
+            renderer->environment->transform = glm::mat3(glm::rotate(glm::mat4(renderer->environment->transform), .5f * float(M_PI), glm::vec3(0, 0, 1)));
             renderer->reset();
         }
         ImGui::Separator();
@@ -415,6 +413,12 @@ static void parse_cmd(int argc, char** argv) {
         // TODO XXX: this is just a hack
         else if (arg == "--quilt")
             renderer->trace_shader = Shader("trace_quilt", "shader/pathtracer_quilt.glsl");
+        else if (arg == "--vol_rot_x")
+            renderer->volume->model = glm::mat3(glm::rotate(glm::mat4(renderer->volume->model), glm::radians(std::stof(argv[++i])), glm::vec3(1, 0, 0)));
+        else if (arg == "--vol_rot_y")
+            renderer->volume->model = glm::mat3(glm::rotate(glm::mat4(renderer->volume->model), glm::radians(std::stof(argv[++i])), glm::vec3(0, 1, 0)));
+        else if (arg == "--vol_rot_z")
+            renderer->volume->model = glm::mat3(glm::rotate(glm::mat4(renderer->volume->model), glm::radians(std::stof(argv[++i])), glm::vec3(0, 0, 1)));
         else
             handle_path(argv[i]);
     }
@@ -439,6 +443,10 @@ int main(int argc, char** argv) {
     gui_add_callback("vol_gui", gui_callback);
     glfwSetDropCallback(Context::instance().glfw_window, drag_drop_callback);
     Context::swap_buffers(); // fetch updates once
+
+    // default cam pos
+    current_camera()->pos = glm::vec3(1, 0, 1);
+    current_camera()->dir = glm::normalize(-current_camera()->pos);
 
     // parse command line arguments
     parse_cmd(argc, argv);
@@ -510,8 +518,11 @@ int main(int argc, char** argv) {
         for (int i = 0; i < renderer->volume->n_grid_frames(); ++i) {
             renderer->reset();
             renderer->volume->grid_frame_counter = i;
-            while (renderer->sample < renderer->sppx)
+            while (renderer->sample < renderer->sppx) {
                 renderer->trace();
+                Context::swap_buffers(); // sync (please don't ask why this is only required for >= 1024spp)
+            }
+            glMemoryBarrier(GL_ALL_BARRIER_BITS);
             // tonemap
             static Shader tonemap_shader("tonemap", "shader/tonemap.glsl");
             tonemap_shader->bind();
@@ -523,12 +534,13 @@ int main(int argc, char** argv) {
             tonemap_shader->dispatch_compute(resolution.x, resolution.y);
             renderer->color->unbind_image(0);
             tonemap_shader->unbind();
-            Context::swap_buffers(); // sync
+            glMemoryBarrier(GL_ALL_BARRIER_BITS);
             // write result
             const size_t n_zero = 6;
             std::string out_filename = "render_" + std::string(n_zero - std::min(n_zero, std::to_string(i).length()), '0') + std::to_string(i) + ".png";
             renderer->color->save_ldr(out_filename);
             std::cout << out_filename << " written." << std::endl;
+            Context::swap_buffers();
         }
     }
 }

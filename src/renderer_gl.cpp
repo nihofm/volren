@@ -126,13 +126,22 @@ void RendererOpenGL::resize(uint32_t w, uint32_t h) {
 void RendererOpenGL::commit() {
     density_grids.clear();
     emission_grids.clear();
+    majorant_emission = 0.f;
     std::cout << "Preparing brick grids for OpenGL..." << std::endl;
     for (const auto& frame : volume->grids) {
-        density_grids.push_back(brick_grid_to_textures(voldata::Volume::to_brick_grid(frame.at("density"))));
-        if (frame.find("flame") != frame.end())
-            emission_grids.push_back(brick_grid_to_textures(voldata::Volume::to_brick_grid(frame.at("flame"))));
-        else if (frame.find("temperature") != frame.end())
-            emission_grids.push_back(brick_grid_to_textures(voldata::Volume::to_brick_grid(frame.at("temperature"))));
+        voldata::Volume::GridPtr density_grid = frame.at("density");
+        density_grids.push_back(brick_grid_to_textures(voldata::Volume::to_brick_grid(density_grid)));
+        voldata::Volume::GridPtr emission_grid = nullptr;
+        for (const auto& name : { "flame", "flames", "temperature" }) {
+            if (frame.find(name) != frame.end()) {
+                emission_grid = frame.at(name);
+                break;
+            }
+        }
+        if (emission_grid) {
+            emission_grids.push_back(brick_grid_to_textures(voldata::Volume::to_brick_grid(emission_grid)));
+            majorant_emission = std::max(majorant_emission, emission_grid->minorant_majorant().second);
+        }
     }
 }
 
@@ -166,6 +175,7 @@ void RendererOpenGL::trace() {
     shader->uniform("vol_phase_g", volume->phase);
     shader->uniform("vol_density_scale", volume->density_scale);
     shader->uniform("vol_emission_scale", volume->emission_scale);
+    shader->uniform("vol_emission_norm", 1.f / majorant_emission);
     // density brick grid data
     const BrickGridGL density = density_grids[volume->grid_frame_counter];
     shader->uniform("vol_density_transform", volume->model * density.transform);

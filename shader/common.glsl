@@ -268,6 +268,7 @@ uniform vec3 vol_albedo;
 uniform float vol_phase_g;
 uniform float vol_density_scale;
 uniform float vol_emission_scale;
+uniform float vol_emission_norm;
 
 // density brick grid stored as textures
 uniform mat4 vol_density_transform;
@@ -331,11 +332,11 @@ float lookup_temperature_brick(const vec3 ipos) {
 // emission lookup (stochastic trilinear filter)
 vec3 lookup_emission(const vec3 ipos, inout uint seed) {
     const vec3 ipos_emission = vec3(vol_emission_inv_transform * vol_density_transform * vec4(ipos, 1));
-    const float t = clamp(lookup_temperature_brick(ipos_emission + rng3(seed) - .5f), 0.f, 1.f);
+    const float t = lookup_temperature_brick(ipos_emission + rng3(seed) - .5f) * vol_emission_norm;
     return vol_emission_scale * sqr(vec3(t, sqr(t), sqr(sqr(t))));
 }
 
-// ---------------------------------
+// --------------------------------------------------------------
 // null-collision methods
 
 float transmittance(const vec3 wpos, const vec3 wdir, inout uint seed, float t_max = FLT_MAX) {
@@ -402,7 +403,7 @@ bool sample_volume(const vec3 wpos, const vec3 wdir, out float t, inout vec3 thr
     return false;
 }
 
-// ---------------------------------
+// --------------------------------------------------------------
 // DDA-based null-collision methods
 
 #define MIP_START 3
@@ -509,7 +510,7 @@ bool sample_volumeDDA(const vec3 wpos, const vec3 wdir, out float t, inout vec3 
     return false;
 }
 
-// ---------------------------------
+// --------------------------------------------------------------
 // ray-marching
 
 #define RAYMARCH_STEPS 64
@@ -573,7 +574,7 @@ bool sample_volume_raymarch(const vec3 wpos, const vec3 wdir, out float t, inout
     return false;
 }
 
-// ---------------------------------
+// --------------------------------------------------------------
 // simple direct volume rendering
 
 vec3 direct_volume_rendering(vec3 pos, vec3 dir, inout uint seed) {
@@ -596,4 +597,65 @@ vec3 direct_volume_rendering(vec3 pos, vec3 dir, inout uint seed) {
         if (Tr <= 1e-6) return L;
     }
     return L + lookup_environment(dir) * Tr;
+}
+
+// --------------------------------------------------------------
+// volumetric path tracing
+
+uniform int bounces;
+uniform int show_environment;
+
+vec4 trace_path(vec3 pos, vec3 dir, inout uint seed) {
+    // trace path
+    vec3 L = vec3(0);
+    vec3 throughput = vec3(1);
+    bool free_path = true;
+    uint n_paths = 0;
+    float t, f_p; // t: end of ray segment (i.e. sampled position or out of volume), f_p: last phase function sample for MIS
+#ifdef USE_DDA
+    while (sample_volumeDDA(pos, dir, t, throughput, L, seed)) {
+#else
+    while (sample_volume(pos, dir, t, throughput, L, seed)) {
+#endif
+        // advance ray
+        pos = pos + t * dir;
+
+        // sample light source (environment)
+        vec3 w_i;
+        const vec4 Le_pdf = sample_environment(rng2(seed), w_i);
+        if (Le_pdf.w > 0) {
+            f_p = phase_henyey_greenstein(dot(-dir, w_i), vol_phase_g);
+            const float mis_weight = show_environment > 0 ? power_heuristic(Le_pdf.w, f_p) : 1.f;
+#ifdef USE_DDA
+            const float Tr = transmittanceDDA(pos, w_i, seed);
+#else
+            const float Tr = transmittance(pos, w_i, seed);
+#endif
+            L += throughput * mis_weight * f_p * Tr * Le_pdf.rgb / Le_pdf.w;
+        }
+
+        // early out?
+        if (++n_paths >= bounces) { free_path = false; break; }
+        // russian roulette
+        const float rr_val = luma(throughput);
+        if (rr_val < .1f) {
+            const float prob = 1 - rr_val;
+            if (rng(seed) < prob) { free_path = false; break; }
+            throughput /= 1 - prob;
+        }
+
+        // scatter ray
+        const vec3 scatter_dir = sample_phase_henyey_greenstein(dir, vol_phase_g, rng2(seed));
+        f_p = phase_henyey_greenstein(dot(-dir, scatter_dir), vol_phase_g);
+        dir = scatter_dir;
+    }
+
+    // free path? -> add envmap contribution
+    if (free_path && show_environment > 0) {
+        const vec3 Le = lookup_environment(dir);
+        const float mis_weight = n_paths > 0 ? power_heuristic(f_p, pdf_environment(dir)) : 1.f;
+        L += throughput * mis_weight * Le;
+    }
+
+    return vec4(L, clamp(n_paths, 0.f, 1.f));
 }

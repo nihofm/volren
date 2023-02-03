@@ -33,4 +33,5 @@ struct RendererOpenGL : public Renderer {
     cppgl::Texture2D color;
     std::vector<BrickGridGL> density_grids;
     std::vector<BrickGridGL> emission_grids;
+    float majorant_emission = 0.f;
 };
