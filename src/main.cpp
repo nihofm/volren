@@ -169,13 +169,12 @@ void mouse_button_callback(int button, int action, int mods) {
 }
 
 void mouse_callback(double xpos, double ypos) {
-    if (ImGui::GetIO().WantCaptureMouse) return;
     static double old_xpos = -1, old_ypos = -1;
     if (old_xpos == -1 || old_ypos == -1) {
         old_xpos = xpos;
         old_ypos = ypos;
     }
-    if (renderer->transferfunc) {
+    if (!ImGui::GetIO().WantCaptureMouse && renderer->transferfunc) {
         if (Context::mouse_button_pressed(GLFW_MOUSE_BUTTON_RIGHT)) {
             const auto [min, maj] = renderer->volume->current_grid()->minorant_majorant();
             if (Context::key_pressed(GLFW_KEY_LEFT_SHIFT))
