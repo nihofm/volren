@@ -6,13 +6,9 @@
 #include <glm/gtc/matrix_transform.hpp>
 
 #include <cppgl.h>
-#include <voldata/voldata.h>
-
-#include <pybind11/embed.h>
-#include <pybind11/eval.h>
+#include <voldata.h>
 
 #include "renderer.h"
-#include "renderer_gl.h"
 
 using namespace cppgl;
 
@@ -33,6 +29,8 @@ static std::shared_ptr<RendererOpenGL> renderer;
 // ------------------------------------------
 // helper funcs
 
+inline float randf() { return rand() / (RAND_MAX + 1.f); }
+
 void load_volume(const std::string& path) {
     try {
         std::cout << "load volume: " << path << std::endl;
@@ -47,12 +45,11 @@ void load_volume(const std::string& path) {
                 for (const auto& name : { "flame", "flames", "temperature" }) {
                     try {
                         renderer->volume->update_grid_frame(renderer->volume->grid_frame_counter, voldata::Volume::load_grid(path, name), name);
-                        renderer->volume->emission_scale = 1.f;
                     } catch (std::runtime_error& e) {}
                 }
             }
         }
-        renderer->volume->scale_and_move_to_unit_cube();
+        renderer->scale_and_move_to_unit_cube();
         renderer->commit();
         renderer->sample = 0;
     } catch (std::runtime_error& e) {
@@ -81,57 +78,13 @@ void load_transferfunc(const std::string& path) {
     }
 }
 
-void run_script(const std::string& path) {
-    try {
-        pybind11::scoped_interpreter guard{};
-        pybind11::eval_file(path);
-        renderer->sample = 0;
-    } catch (pybind11::error_already_set& e) {
-        std::cerr << "Error executing python script " << path << ": " << e.what() << std::endl;
-    }
-}
-
 void handle_path(const std::string& path) {
-    if (std::filesystem::path(path).extension() == ".py")
-        run_script(path);
-    else if (std::filesystem::path(path).extension() == ".hdr")
+    if (std::filesystem::path(path).extension() == ".hdr")
         load_envmap(path);
     else if (std::filesystem::path(path).extension() == ".txt")
         load_transferfunc(path);
     else
         load_volume(path);
-}
-
-inline float randf() { return rand() / (RAND_MAX + 1.f); }
-
-inline float vandercorput(uint32_t i, uint32_t scramble) {
-    i = (i << 16) | (i >> 16);
-    i = ((i & 0x00ff00ff) << 8) | ((i & 0xff00ff00) >> 8);
-    i = ((i & 0x0f0f0f0f) << 4) | ((i & 0xf0f0f0f0) >> 4);
-    i = ((i & 0x33333333) << 2) | ((i & 0xcccccccc) >> 2);
-    i = ((i & 0x55555555) << 1) | ((i & 0xaaaaaaaa) >> 1);
-    i ^= scramble;
-    return ((i >> 8) & 0xffffff) / float(1 << 24);
-}
-
-inline float sobol2(uint32_t i, uint32_t scramble) {
-    for (uint32_t v = 1 << 31; i != 0; i >>= 1, v ^= v >> 1)
-        if (i & 0x1)
-            scramble ^= v;
-    return ((scramble >> 8) & 0xffffff) / float(1 << 24);
-}
-
-inline glm::vec2 sample02(uint32_t i) {
-    return glm::vec2(vandercorput(i, 0xDEADBEEF), sobol2(i, 0x8BADF00D));
-}
-
-glm::vec3 uniform_sample_sphere() {
-    static uint32_t i = 0;
-    const glm::vec2 sample = sample02(++i);
-    const float z = 1.f - 2.f * sample.x;
-    const float r = sqrtf(fmaxf(0.f, 1.f - z * z));
-    const float phi = 2.f * M_PI * sample.y;
-    return glm::vec3(r * cosf(phi), r * sinf(phi), z);
 }
 
 // ------------------------------------------
@@ -219,10 +172,10 @@ void gui_callback(void) {
             renderer->tonemap_exposure = fmaxf(0.f, renderer->tonemap_exposure);
         ImGui::DragFloat("Gamma", &renderer->tonemap_gamma, 0.01f, 0.f);
         ImGui::Separator();
-        if (ImGui::DragFloat3("Albedo", &renderer->volume->albedo.x, 0.01f, 0.f, 1.f)) renderer->reset();
-        if (ImGui::DragFloat("Density scale", &renderer->volume->density_scale, 0.1f, 0.f, 1e6f)) renderer->reset();
-        if (ImGui::DragFloat("Emission scale", &renderer->volume->emission_scale, 0.1f, 0.f, 1e6f)) renderer->reset();
-        if (ImGui::SliderFloat("Phase g", &renderer->volume->phase, -.95f, .95f)) renderer->reset();
+        if (ImGui::DragFloat3("Albedo", &renderer->albedo.x, 0.01f, 0.f, 1.f)) renderer->reset();
+        if (ImGui::DragFloat("Density scale", &renderer->density_scale, 0.1f, 0.f, 1e6f)) renderer->reset();
+        if (ImGui::DragFloat("Emission scale", &renderer->emission_scale, 0.1f, 0.f, 1e6f)) renderer->reset();
+        if (ImGui::SliderFloat("Phase g", &renderer->phase, -.95f, .95f)) renderer->reset();
         size_t frame_min = 0, frame_max = renderer->volume->n_grid_frames() - 1;
         if (ImGui::SliderScalar("Grid frame", ImGuiDataType_U64, &renderer->volume->grid_frame_counter, &frame_min, &frame_max)) renderer->reset();
         ImGui::Checkbox("Animate Volume", &animate);
@@ -265,30 +218,30 @@ void gui_callback(void) {
         if (ImGui::SliderFloat("Vol crop max Z", &renderer->vol_clip_max.z, 0.f, 1.f)) renderer->reset();
         ImGui::Separator();
         ImGui::Text("Modelmatrix:");
-        glm::mat4 row_maj = glm::transpose(renderer->volume->model);
+        glm::mat4 row_maj = glm::transpose(renderer->volume->transform);
         bool modified = false;
         if (ImGui::InputFloat4("row0", &row_maj[0][0], "%.2f")) modified = true;
         if (ImGui::InputFloat4("row1", &row_maj[1][0], "%.2f")) modified = true;
         if (ImGui::InputFloat4("row2", &row_maj[2][0], "%.2f")) modified = true;
         if (ImGui::InputFloat4("row3", &row_maj[3][0], "%.2f")) modified = true;
         if (modified) {
-            renderer->volume->model = glm::transpose(row_maj);
+            renderer->volume->transform = glm::transpose(row_maj);
             renderer->reset();
         }
         ImGui::Separator();
         ImGui::Text("Rotate VOLUME");
         if (ImGui::Button("90° X##V")) {
-            renderer->volume->model = glm::rotate(renderer->volume->model, .5f * float(M_PI), glm::vec3(1, 0, 0));
+            renderer->volume->transform = glm::rotate(renderer->volume->transform, .5f * float(M_PI), glm::vec3(1, 0, 0));
             renderer->reset();
         }
         ImGui::SameLine();
         if (ImGui::Button("90° Y##V")) {
-            renderer->volume->model = glm::rotate(renderer->volume->model, .5f * float(M_PI), glm::vec3(0, 1, 0));
+            renderer->volume->transform = glm::rotate(renderer->volume->transform, .5f * float(M_PI), glm::vec3(0, 1, 0));
             renderer->reset();
         }
         ImGui::SameLine();
         if (ImGui::Button("90° Z##V")) {
-            renderer->volume->model = glm::rotate(renderer->volume->model, .5f * float(M_PI), glm::vec3(0, 0, 1));
+            renderer->volume->transform = glm::rotate(renderer->volume->transform, .5f * float(M_PI), glm::vec3(0, 0, 1));
             renderer->reset();
         }
         ImGui::Separator();
@@ -310,11 +263,6 @@ void gui_callback(void) {
         ImGui::Separator();
         if (ImGui::Button("Print volume properties"))
             std::cout << "volume: " << std::endl << renderer->volume->to_string("\t") << std::endl;
-        // ImGui::Separator();
-        // if (ImGui::Button("Use Quilt PT")) {
-        //     renderer->trace_shader = Shader("trace_quilt", "shader/pathtracer_quilt.glsl");
-        //     renderer->reset();
-        // }
         ImGui::PopStyleVar();
         ImGui::End();
     }
@@ -382,13 +330,13 @@ static void parse_cmd(int argc, char** argv) {
         else if (arg == "--bounces")
             renderer->bounces = std::stoi(argv[++i]);
         else if (arg == "--albedo")
-            renderer->volume->albedo = glm::vec3(std::stof(argv[++i]));
+            renderer->albedo = glm::vec3(std::stof(argv[++i]));
         else if (arg == "--density")
-            renderer->volume->density_scale = std::stof(argv[++i]);
+            renderer->density_scale = std::stof(argv[++i]);
         else if (arg == "--emission")
-            renderer->volume->emission_scale = std::stof(argv[++i]);
+            renderer->emission_scale = std::stof(argv[++i]);
         else if (arg == "--phase")
-            renderer->volume->phase = std::stof(argv[++i]);
+            renderer->phase = std::stof(argv[++i]);
         else if (arg == "--env_strength")
             renderer->environment->strength = std::stof(argv[++i]);
         else if (arg == "--env_rot")
@@ -409,15 +357,12 @@ static void parse_cmd(int argc, char** argv) {
             renderer->tonemap_exposure = std::stof(argv[++i]);
         else if (arg == "--gamma")
             renderer->tonemap_gamma = std::stof(argv[++i]);
-        // TODO XXX: this is just a hack
-        else if (arg == "--quilt")
-            renderer->trace_shader = Shader("trace_quilt", "shader/pathtracer_quilt.glsl");
         else if (arg == "--vol_rot_x")
-            renderer->volume->model = glm::mat3(glm::rotate(glm::mat4(renderer->volume->model), glm::radians(std::stof(argv[++i])), glm::vec3(1, 0, 0)));
+            renderer->volume->transform = glm::mat3(glm::rotate(glm::mat4(renderer->volume->transform), glm::radians(std::stof(argv[++i])), glm::vec3(1, 0, 0)));
         else if (arg == "--vol_rot_y")
-            renderer->volume->model = glm::mat3(glm::rotate(glm::mat4(renderer->volume->model), glm::radians(std::stof(argv[++i])), glm::vec3(0, 1, 0)));
+            renderer->volume->transform = glm::mat3(glm::rotate(glm::mat4(renderer->volume->transform), glm::radians(std::stof(argv[++i])), glm::vec3(0, 1, 0)));
         else if (arg == "--vol_rot_z")
-            renderer->volume->model = glm::mat3(glm::rotate(glm::mat4(renderer->volume->model), glm::radians(std::stof(argv[++i])), glm::vec3(0, 0, 1)));
+            renderer->volume->transform = glm::mat3(glm::rotate(glm::mat4(renderer->volume->transform), glm::radians(std::stof(argv[++i])), glm::vec3(0, 0, 1)));
         else
             handle_path(argv[i]);
     }
@@ -498,6 +443,8 @@ int main(int argc, char** argv) {
                 timer_trace->begin();
                 renderer->trace();
                 timer_trace->end();
+                if (renderer->sample == renderer->sppx)
+                    renderer->color->save_ldr(out_filename, true, true); // TODO: apply tonemapping
             } else
                 glfwWaitEventsTimeout(1.f / 10); // 10fps idle
 
@@ -519,7 +466,7 @@ int main(int argc, char** argv) {
             renderer->volume->grid_frame_counter = i;
             while (renderer->sample < renderer->sppx) {
                 renderer->trace();
-                Context::swap_buffers(); // sync (please don't ask why this is only required for >= 1024spp)
+                Context::swap_buffers(); // sync (this is somehow required for >= 1024spp)
             }
             glMemoryBarrier(GL_ALL_BARRIER_BITS);
             // tonemap
@@ -536,9 +483,9 @@ int main(int argc, char** argv) {
             glMemoryBarrier(GL_ALL_BARRIER_BITS);
             // write result
             const size_t n_zero = 6;
-            std::string out_filename = "render_" + std::string(n_zero - std::min(n_zero, std::to_string(i).length()), '0') + std::to_string(i) + ".png";
-            renderer->color->save_ldr(out_filename);
-            std::cout << out_filename << " written." << std::endl;
+            std::string out_fn = fs::path(out_filename).stem().string() + "_" + std::string(n_zero - std::min(n_zero, std::to_string(i).length()), '0') + std::to_string(i) + ".png";
+            renderer->color->save_ldr(out_fn);
+            std::cout << out_fn << " written." << std::endl;
             Context::swap_buffers();
         }
     }

@@ -2,16 +2,15 @@
 #include <glm/gtx/quaternion.hpp>
 
 #include <pybind11/pybind11.h>
-#include <pybind11/embed.h>
-#include <pybind11/operators.h>
-#include <pybind11/numpy.h>
 #include <pybind11/stl.h>
+#include <pybind11/embed.h>
+#include <pybind11/numpy.h>
+#include <pybind11/operators.h>
 
 #include <cppgl.h>
-#include <voldata/voldata.h>
+#include <voldata.h>
 
 #include "renderer.h"
-#include "renderer_gl.h"
 #include "environment.h"
 #include "transferfunc.h"
 
@@ -89,9 +88,6 @@ PYBIND11_EMBEDDED_MODULE(volpy, m) {
         .def("current_grid", &voldata::Volume::current_grid)
         .def("AABB", &voldata::Volume::AABB) // TODO default argument
         .def("minorant_majorant", &voldata::Volume::minorant_majorant)
-        .def_readwrite("albedo", &voldata::Volume::albedo)
-        .def_readwrite("phase", &voldata::Volume::phase)
-        .def_readwrite("density_scale", &voldata::Volume::density_scale)
         .def_readwrite("grid_frame", &voldata::Volume::grid_frame_counter)
         .def("__repr__", &voldata::Volume::to_string, pybind11::arg("indent") = "");
 
@@ -116,14 +112,16 @@ PYBIND11_EMBEDDED_MODULE(volpy, m) {
 
     pybind11::class_<RendererOpenGL, std::shared_ptr<RendererOpenGL>>(m, "Renderer")
         .def(pybind11::init<>())
-        .def("init", &Renderer::init)
-        .def("commit", &Renderer::commit)
+        .def("init", &RendererOpenGL::init)
+        .def("commit", &RendererOpenGL::commit)
         .def("trace", &RendererOpenGL::trace)
+        .def("reset", &RendererOpenGL::reset)
+        .def("scale_and_move_to_unit_cube", &RendererOpenGL::scale_and_move_to_unit_cube)
         .def("render", [](const std::shared_ptr<RendererOpenGL>& renderer, int spp) {
             current_camera()->update();
             renderer->sample = 0;
             glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-            while (renderer->sample++ < spp)
+            while (renderer->sample < spp)
                 renderer->trace();
         })
         .def("draw", [](const std::shared_ptr<RendererOpenGL>& renderer) {
@@ -166,6 +164,10 @@ PYBIND11_EMBEDDED_MODULE(volpy, m) {
         .def_readwrite("tonemap_gamma", &RendererOpenGL::tonemap_gamma)
         .def_readwrite("tonemapping", &RendererOpenGL::tonemapping)
         .def_readwrite("show_environment", &RendererOpenGL::show_environment)
+        .def_readwrite("albedo", &RendererOpenGL::albedo)
+        .def_readwrite("phase", &RendererOpenGL::phase)
+        .def_readwrite("density_scale", &RendererOpenGL::density_scale)
+        .def_readwrite("emission_scale", &RendererOpenGL::emission_scale)
         .def_readwrite("vol_clip_min", &RendererOpenGL::vol_clip_min)
         .def_readwrite("vol_clip_max", &RendererOpenGL::vol_clip_max)
         // camera
@@ -187,40 +189,9 @@ PYBIND11_EMBEDDED_MODULE(volpy, m) {
         .def_static("colmap_view_rot", []() {
             const glm::mat4 GL_TO_COLMAP = glm::inverse(glm::mat4(1, 0, 0, 0,   0, -1, 0, 0,    0, 0, -1, 0,    0, 0, 0, 1));
             return glm::normalize(glm::toQuat(GL_TO_COLMAP * current_camera()->view));
-            // return glm::normalize(glm::quat_cast(GL_TO_COLMAP * current_camera()->view)); // TODO this the same as above?
         })
         .def_static("colmap_focal_length", []() {
-            // TODO different f_x and f_y params?
             return Context::resolution().y / (2 * tan(0.5 * glm::radians(current_camera()->fov_degree)));
-        })
-        .def_static("colmap_test_pos", [](const glm::quat& rot, const glm::vec3& trans) {
-            glm::mat3 R = glm::mat3_cast(rot);
-            glm::mat3 C = (-1.f*glm::transpose(R));
-            glm::vec3 cam_pos = C*trans;
-            return cam_pos;
-        })
-        .def_static("colmap_test_view", [](const glm::quat& rot, const glm::vec3& trans) {
-            const glm::mat4 COLMAP_TO_GL = glm::mat4(1, 0, 0, 0,   0, -1, 0, 0,    0, 0, -1, 0,    0, 0, 0, 1);
-            glm::mat4 V = glm::mat4_cast(rot); // R mat
-            V[3] = glm::vec4(trans.x, trans.y, trans.z, 1.f);
-            return COLMAP_TO_GL * V;
-        })
-        .def_static("colmap_test_proj", [](float f_x, float f_y, float c_x, float c_y, float near, float far, uint32_t w, uint32_t h) {
-            const glm::mat4 proj = glm::mat4( 
-                2*f_x/w,  0.0,    (w - 2*c_x)/w, 0.0,
-                0.0,    2*f_y/h, (h - 2*c_y)/h, 0.0,
-                0.0, 0.0, (-far - near) / (far - near), -2.0*far*near/(far-near),
-                0.0, 0.0, -1.0, 0.0);
-            return glm::transpose(proj);
-        })
-        // Quilt stuff
-        // TODO: parameters
-        .def_static("quilt_mode", [](const std::shared_ptr<RendererOpenGL>& renderer, const bool enable = true) {
-            if (enable)
-                renderer->trace_shader = Shader("trace quilt", "shader/pathtracer_quilt.glsl");
-            else
-                renderer->trace_shader = Shader("trace brick", "shader/pathtracer_brick.glsl");
-            renderer->reset();
         });
 
     // ------------------------------------------------------------

@@ -85,7 +85,7 @@ vec3 view_dir(const ivec2 xy, const ivec2 wh, const vec2 pixel_sample) {
 uniform mat3 env_transform;
 uniform mat3 env_inv_transform;
 uniform float env_strength;
-//uniform float env_integral; // TODO precompute
+// uniform float env_integral; // TODO precompute?
 uniform vec2 env_imp_inv_dim;
 uniform int env_imp_base_mip;
 uniform sampler2D env_envmap;
@@ -191,29 +191,6 @@ vec3 sample_phase_henyey_greenstein(const vec3 dir, const float g, const vec2 ph
 }
 
 // --------------------------------------------------------------
-// optimization target parameters, gradients and moments stored in SSBOs
-
-uniform uvec3 grid_size;
-uniform uint n_parameters;
-uniform int optimization;
-
-layout(std430, binding = 0) buffer ParameterBuffer {
-    float parameters[];
-};
-
-layout(std430, binding = 1) buffer GradientBuffer {
-    float gradients[];
-};
-
-layout(std430, binding = 2) buffer FirstMomentsBuffer {
-    float first_moments[];
-};
-
-layout(std430, binding = 3) buffer SecondMomentsBuffer {
-    float second_moments[];
-};
-
-// --------------------------------------------------------------
 // transfer function helper
 
 layout(std430, binding = 4) buffer LUTBuffer {
@@ -231,28 +208,6 @@ float tf_window(float d) {
 vec4 tf_lookup(float d) {
     const float tc = tf_window(d);
     const int idx = int(floor(tc * tf_size));
-    return tf_lut[idx];
-}
-
-// TODO pre-compute and store local density gradients (dd) for filtering
-// code snippet:
-// float dmin = vol_majorant, dmax = 0;
-// for (int z = -1; z < 1; ++z) {
-//     for (int y = -1; y < 1; ++y) {
-//         for (int x = -1; x < 1; ++x) {
-//             const float d = lookup_density(clamp(ipos + t * idir + ivec3(x, y, z), ivec3(0), textureSize(vol_density_indirection, 0).xyz * 8));
-//             dmin = min(dmin, d);
-//             dmax = max(dmax, d);
-//         }
-//     }
-// }
-// const float dd = abs(dmax - dmin);
-// const vec4 rgba = tf_lookup(lookup_density(ipos + t * idir, dd * vol_inv_majorant, seed) * vol_inv_majorant, dd * vol_inv_majorant, seed);
-
-vec4 tf_lookup(float d, float dd, inout uint seed) {
-    const float tc = tf_window(d);
-    if (tc < 0.f || tc >= 1.f) return vec4(0);
-    const int idx = clamp(int(floor(tf_size * (tc + (rng(seed) - 0.5) * dd / tf_window_width))), 0, int(tf_size) - 1);
     return tf_lut[idx];
 }
 
@@ -295,21 +250,23 @@ float lookup_majorant(const vec3 ipos, int mip) {
 
 // density lookup (nearest neighbor)
 float lookup_density(const vec3 ipos) {
-    if (optimization > 0) {
-        const ivec3 iipos = ivec3(floor(ipos));
-        return vol_density_scale * parameters[iipos.z * grid_size.x * grid_size.y + iipos.y * grid_size.x + iipos.x];
-    } else
-        return vol_density_scale * lookup_density_brick(ipos);
+    return vol_density_scale * lookup_density_brick(ipos);
 }
 
-// density lookup (stochastic trilinear filter)
-float lookup_density(const vec3 ipos, inout uint seed) {
+// density lookup (trilinear filter)
+float lookup_density_trilinear(const vec3 ipos) {
+    const vec3 f = fract(ipos - 0.5);
+    const ivec3 iipos = ivec3(floor(ipos - 0.5));
+    const float lx0 = mix(lookup_density_brick(iipos + ivec3(0, 0, 0)), lookup_density_brick(iipos + ivec3(1, 0, 0)), f.x);
+    const float lx1 = mix(lookup_density_brick(iipos + ivec3(0, 1, 0)), lookup_density_brick(iipos + ivec3(1, 1, 0)), f.x);
+    const float hx0 = mix(lookup_density_brick(iipos + ivec3(0, 0, 1)), lookup_density_brick(iipos + ivec3(1, 0, 1)), f.x);
+    const float hx1 = mix(lookup_density_brick(iipos + ivec3(0, 1, 1)), lookup_density_brick(iipos + ivec3(1, 1, 1)), f.x);
+    return vol_density_scale * mix(mix(lx0, lx1, f.y), mix(hx0, hx1, f.y), f.z);
+}
+
+// density lookup (stochastic filter)
+float lookup_density_stochastic(const vec3 ipos, inout uint seed) {
     return lookup_density(ipos + rng3(seed) - .5f);
-}
-
-// TODO world-space ray differentials for filtering
-float lookup_density(const vec3 ipos, const vec3 dd, inout uint seed) {
-    return lookup_density(ipos + (rng3(seed) - .5f));
 }
 
 // temperature brick grid stored as textures
@@ -351,10 +308,10 @@ float transmittance(const vec3 wpos, const vec3 wdir, inout uint seed, float t_m
     float t = near_far.x - log(1 - rng(seed)) * vol_inv_majorant, Tr = 1.f;
     while (t < near_far.y) {
 #ifdef USE_TRANSFERFUNC
-        const vec4 rgba = tf_lookup(lookup_density(ipos + t * idir, seed) * vol_inv_majorant);
+        const vec4 rgba = tf_lookup(lookup_density_trilinear(ipos + t * idir) * vol_inv_majorant);
         const float d = vol_majorant * rgba.a;
 #else
-        const float d = lookup_density(ipos + t * idir, seed);
+        const float d = lookup_density_stochastic(ipos + t * idir, seed);
 #endif
         // track ratio of real to null particles
         Tr *= 1 - d * vol_inv_majorant;
@@ -381,10 +338,10 @@ bool sample_volume(const vec3 wpos, const vec3 wdir, out float t, inout vec3 thr
     t = near_far.x - log(1 - rng(seed)) * vol_inv_majorant;
     while (t < near_far.y) {
 #ifdef USE_TRANSFERFUNC
-        const vec4 rgba = tf_lookup(lookup_density(ipos + t * idir, seed) * vol_inv_majorant);
+        const vec4 rgba = tf_lookup(lookup_density_trilinear(ipos + t * idir) * vol_inv_majorant);
         const float d = vol_majorant * rgba.a;
 #else
-        const float d = lookup_density(ipos + t * idir, seed);
+        const float d = lookup_density_stochastic(ipos + t * idir, seed);
 #endif
         const float P_real = d * vol_inv_majorant;
         Le += throughput * (1 - vol_albedo) * lookup_emission(ipos + t * idir, seed) * P_real;
@@ -444,10 +401,10 @@ float transmittanceDDA(const vec3 wpos, const vec3 wdir, inout uint seed) {
         t += tau / majorant; // step back to point of collision
         if (t >= near_far.y) break;
 #ifdef USE_TRANSFERFUNC
-        const vec4 rgba = tf_lookup(lookup_density(ipos + t * idir, seed) * vol_inv_majorant);
+        const vec4 rgba = tf_lookup(lookup_density_trilinear(ipos + t * idir) * vol_inv_majorant);
         const float d = vol_majorant * rgba.a;
 #else
-        const float d = lookup_density(ipos + t * idir, seed);
+        const float d = lookup_density_stochastic(ipos + t * idir, seed);
 #endif
         if (rng(seed) * majorant < d) { // check if real or null collision
             Tr *= max(0.f, 1.f - vol_majorant / majorant); // adjust by ratio of global to local majorant
@@ -491,10 +448,10 @@ bool sample_volumeDDA(const vec3 wpos, const vec3 wdir, out float t, inout vec3 
         t += tau / majorant; // step back to point of collision
         if (t >= near_far.y) break;
 #ifdef USE_TRANSFERFUNC
-        const vec4 rgba = tf_lookup(lookup_density(ipos + t * idir, seed) * vol_inv_majorant);
+        const vec4 rgba = tf_lookup(lookup_density_trilinear(ipos + t * idir) * vol_inv_majorant);
         const float d = vol_majorant * rgba.a;
 #else
-        const float d = lookup_density(ipos + t * idir, seed);
+        const float d = lookup_density_stochastic(ipos + t * idir, seed);
 #endif
         Le += throughput * (1.f - vol_albedo) * lookup_emission(ipos + t * idir, seed) * d * vol_inv_majorant;
         if (rng(seed) * majorant < d) { // check if real or null collision
@@ -528,9 +485,9 @@ float transmittance_raymarch(const vec3 wpos, const vec3 wdir, inout uint seed) 
     float tau = 0.f;
     for (int i = 0; i < RAYMARCH_STEPS; ++i) {
 #ifdef USE_TRANSFERFUNC
-        tau += tf_lookup(lookup_density(ipos + min(near_far.x + i * dt, near_far.y) * idir, seed) * vol_inv_majorant).a * vol_majorant * dt;
+        tau += tf_lookup(lookup_density_trilinear(ipos + min(near_far.x + i * dt, near_far.y) * idir) * vol_inv_majorant).a * vol_majorant * dt;
 #else
-        tau += lookup_density(ipos + min(near_far.x + i * dt, near_far.y) * idir, seed) * dt;
+        tau += lookup_density_stochastic(ipos + min(near_far.x + i * dt, near_far.y) * idir, seed) * dt;
 #endif
     }
     return exp(-tau);
@@ -551,11 +508,12 @@ bool sample_volume_raymarch(const vec3 wpos, const vec3 wdir, out float t, inout
     float tau = 0.f;
     for (int i = 0; i < RAYMARCH_STEPS; ++i) {
         t = min(near_far.x + i * dt, near_far.y);
-        const float d = lookup_density(ipos + t * idir, seed);
 #ifdef USE_TRANSFERFUNC
+        const float d = lookup_density_trilinear(ipos + t * idir);
         const vec4 rgba = tf_lookup(d * vol_inv_majorant);
         tau += rgba.a * vol_majorant * dt;
 #else
+        const float d = lookup_density_stochastic(ipos + t * idir, seed);
         tau += d * dt;
 #endif
         if (tau >= tau_target) {
@@ -590,7 +548,7 @@ vec3 direct_volume_rendering(vec3 pos, vec3 dir, inout uint seed) {
     near_far.x += rng(seed) * dt; // jitter starting position
     float Tr = 1.f;
     for (int i = 0; i < RAYMARCH_STEPS; ++i) {
-        const vec4 rgba = tf_lookup(lookup_density(ipos + min(near_far.x + i * dt, near_far.y) * idir, seed) * vol_inv_majorant);
+        const vec4 rgba = tf_lookup(lookup_density_trilinear(ipos + min(near_far.x + i * dt, near_far.y) * idir) * vol_inv_majorant);
         const float dtau = rgba.a * vol_majorant * dt;
         L += rgba.rgb * dtau * Tr;
         Tr *= exp(-dtau);

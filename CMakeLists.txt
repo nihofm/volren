@@ -1,8 +1,8 @@
 cmake_minimum_required(VERSION 3.16)
 
 PROJECT(volren
-    VERSION 0.2
-    DESCRIPTION "Volume rendering framework."
+    VERSION 0.3
+    DESCRIPTION "Simple volume rendering framework."
     LANGUAGES C CXX
 )
 
@@ -19,7 +19,7 @@ include_directories(submodules/cppgl/src)
 
 set(VOLDATA_BUILD_GLM OFF) # avoid including GLM twice
 add_subdirectory(submodules/voldata)
-include_directories(submodules/voldata/include)
+include_directories(submodules/voldata/src)
 include_directories(submodules/voldata/submodules)
 
 add_subdirectory(submodules/pybind11)
@@ -47,6 +47,8 @@ set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR})
 set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR})
 
 # ---------------------------------------------------------------------
-# traverse source tree
+# compile
 
-add_subdirectory(src)
+file(GLOB SOURCES "src/*.cpp")
+add_executable(volren ${SOURCES})
+target_link_libraries(volren stdc++ stdc++fs dl cppgl voldata pybind11::embed)

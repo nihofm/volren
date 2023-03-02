@@ -580,10 +580,6 @@ if __name__ == "__main__":
         print('-----------')
         print("colmap_trans:", renderer.colmap_view_trans())
         print("colmap_rot:", renderer.colmap_view_rot())
-        print('-----------')
-        print("colmap_test_pos:", renderer.colmap_test_pos(renderer.colmap_view_rot(), renderer.colmap_view_trans()))
-        print("colmap_test_view\n:", renderer.colmap_test_view(renderer.colmap_view_rot(), renderer.colmap_view_trans()))
-        print("colmap_text_proj:\n", renderer.colmap_test_proj(renderer.colmap_focal_length(), renderer.colmap_focal_length(), renderer.resolution().x//2, renderer.resolution().y//2, renderer.cam_near, renderer.cam_far, renderer.resolution().x, renderer.resolution().y))
 
     print('-----------')
     print('colmap write')

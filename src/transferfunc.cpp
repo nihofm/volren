@@ -38,7 +38,7 @@ void TransferFunction::set_uniforms(const Shader& shader, uint32_t& texture_unit
 std::vector<glm::vec4> TransferFunction::compute_lut_cdf(const std::vector<glm::vec4>& lut) {
     // copy
     auto lut_cdf = lut;
-    // build density CDF (requires a monotonic nondecreasing function)
+    // build density CDF (we require a monotonic nondecreasing function)
     for (uint32_t i = 1; i < lut_cdf.size(); ++i)
         lut_cdf[i].a += lut_cdf[i-1].a;
     const float integral = lut_cdf[lut_cdf.size()-1].a;
