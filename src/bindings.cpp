@@ -1,14 +1,14 @@
 #include <glm/glm.hpp>
 #include <glm/gtx/quaternion.hpp>
 
+#include <cppgl.h>
+#include <voldata.h>
+
 #include <pybind11/pybind11.h>
 #include <pybind11/stl.h>
 #include <pybind11/embed.h>
 #include <pybind11/numpy.h>
 #include <pybind11/operators.h>
-
-#include <cppgl.h>
-#include <voldata.h>
 
 #include "renderer.h"
 #include "environment.h"
@@ -60,7 +60,7 @@ pybind11::class_<MatT> register_matrix_operators(pybind11::class_<MatT>& pyclass
         .def(-pybind11::self);
 }
 
-PYBIND11_EMBEDDED_MODULE(volpy, m) {
+PYBIND11_MODULE(volpy, m) {
 
     // ------------------------------------------------------------
     // voldata::Buf3D bindings
@@ -171,6 +171,7 @@ PYBIND11_EMBEDDED_MODULE(volpy, m) {
         .def_readwrite("vol_clip_min", &RendererOpenGL::vol_clip_min)
         .def_readwrite("vol_clip_max", &RendererOpenGL::vol_clip_max)
         // camera
+        // TODO FIXME: &current_camera() opens window immediately on import
         .def_readwrite_static("cam_pos", &current_camera()->pos)
         .def_readwrite_static("cam_dir", &current_camera()->dir)
         .def_readwrite_static("cam_up", &current_camera()->up)
@@ -180,7 +181,6 @@ PYBIND11_EMBEDDED_MODULE(volpy, m) {
         .def_readwrite_static("view_matrix", &current_camera()->view)
         .def_readwrite_static("proj_matrix", &current_camera()->proj)
         .def_static("cam_aspect", &current_camera()->aspect_ratio)
-        .def_static("shutdown", []() { exit(0); })
         // colmap stuff
         .def_static("colmap_view_trans", []() {
             const glm::mat4 GL_TO_COLMAP = glm::inverse(glm::mat4(1, 0, 0, 0,   0, -1, 0, 0,    0, 0, -1, 0,    0, 0, 0, 1));

@@ -481,12 +481,15 @@ def main():
 # -------------------------------------------------------------------------------------------------
 # own stuff from here
 
+from volpy import *
+
 def uniform_sample_sphere():
+    import math
     import random
-    z = 1.0 - 2.0 * random.random();
-    r = math.sqrt(max(0.0, 1.0 - z * z));
-    phi = 2.0 * math.pi * random.random();
-    return vec3(r * math.cos(phi), r * math.sin(phi), z);
+    z = 1.0 - 2.0 * random.random()
+    r = math.sqrt(max(0.0, 1.0 - z * z))
+    phi = 2.0 * math.pi * random.random()
+    return vec3(r * math.cos(phi), r * math.sin(phi), z)
 
 if __name__ == "__main__":
     # load example data
@@ -497,38 +500,43 @@ if __name__ == "__main__":
     #print("images:", images)
     #print("points3D:", points3D)
 
-    import os
-    import math
-    from volpy import *
-
-    # settings
-    PATH = "./colmap"
-    VOLUME = "/home/niko/render-data/volumetric/bunny_cloud.vdb"
-    ENVMAP = "/home/niko/render-data/envmaps/chinese_garden_2k.hdr"
-    FOVY = 70
-    SAMPLES = 2048
-    BOUNCES = 3
-    SEED = 42
-    N_VIEWS = 256
-    BACKGROUND = False
+    args = argparse.ArgumentParser(description='Read and write COLMAP binary and text models')
+    args.add_argument('volume', type=str, help='path to volume file to render')
+    args.add_argument('envmap', type=str, help='path to environment map used for rendering')
+    args.add_argument('--n_samples', type=int, default=4096, help='number of samples per pixel')
+    args.add_argument('--n_bounces', type=int, default=100, help='maximum number of bounces per path')
+    args.add_argument('--seed', type=int, default=42, help='seed for pseudorandom number generation')
+    args.add_argument('--n_views', type=int, default=256, help='number of randomized views to render')
+    args.add_argument('--fovy', type=float, default=70.0, help='vertical field of view in degrees')
+    args.add_argument('--albedo', type=float, default=0.0, help='volume albedo in [0, 1]')
+    args.add_argument('--phase', type=float, default=0.0, help='henyey greenstein phase in [-1, 1]')
+    args.add_argument('--density_scale', type=float, default=1.0, help='scale volume density')
+    args.add_argument('--emission_scale', type=float, default=100.0, help='scale volume emission')
+    args.add_argument('--tonemapping', action='store_false', help='disable tonemapping during rendering')
+    args.add_argument('--environment', action='store_true', help='show environment in renderings')
+    args.add_argument('--env_strength', type=float, default=1.0, help='environment power')
+    args.add_argument('--output_model', type=str, default='colmap', metavar='PATH', help='path to output model folder')
+    args.add_argument('--output_format', choices=['.bin', '.txt'], default='.txt', help='outut model format')
+    args = args.parse_args()
 
     # init
     renderer = Renderer()
     renderer.init()
-    renderer.tonemapping = True
+    renderer.tonemapping = args.tonemapping
     renderer.draw()
-    os.makedirs(PATH, exist_ok=True)
+    os.makedirs(args.output_model, exist_ok=True)
 
     # setup scene
-    renderer.seed = SEED
-    renderer.bounces = BOUNCES
-    renderer.volume = Volume(VOLUME)
-    renderer.volume.albedo = vec3(1, 1, 1)
-    renderer.volume.phase = 0.0
-    renderer.volume.density_scale = 3.0
-    renderer.environment = Environment(ENVMAP)
-    renderer.environment.strength = 1.0
-    renderer.show_environment = BACKGROUND
+    renderer.seed = args.seed
+    renderer.bounces = args.n_bounces
+    renderer.volume = Volume(args.volume)
+    renderer.albedo = vec3(args.albedo)
+    renderer.phase = args.phase
+    renderer.density_scale = args.density_scale
+    renderer.emission_scale = args.emission_scale
+    renderer.environment = Environment(args.envmap)
+    renderer.environment.strength = args.env_strength
+    renderer.show_environment = args.background
     renderer.commit()
 
     cameras = {}
@@ -542,14 +550,14 @@ if __name__ == "__main__":
     cameras[0] = Camera(id=0, model="SIMPLE_PINHOLE", width=renderer.resolution().x, height=renderer.resolution().y, params=np.array([renderer.colmap_focal_length(), renderer.resolution().x//2, renderer.resolution().y//2]))
 
     # write views
-    for i in range(N_VIEWS):
+    for i in range(args.n_views):
         # setup camera
         bb_min, bb_max = renderer.volume.AABB("density")
         center = bb_min + (bb_max - bb_min) * 0.5
         radius = (bb_max - center).length()
         renderer.cam_pos = center + uniform_sample_sphere() * radius
         renderer.cam_dir = (center + uniform_sample_sphere() * radius * 0.1 - renderer.cam_pos).normalize()
-        renderer.cam_fov = FOVY
+        renderer.cam_fov = args.fovy
         # HACK: test principal axis
         if i == 0:
             renderer.cam_pos = center + radius * vec3(1, 0, 0)
@@ -564,11 +572,11 @@ if __name__ == "__main__":
             renderer.cam_dir = (center - renderer.cam_pos).normalize()
             renderer.cam_up = vec3(0, 1, 0)
         # render view
-        renderer.render(SAMPLES)
+        renderer.render(args.n_samples)
         renderer.draw()
         # store view
         filename = f"view_{i:04}.png"
-        renderer.save_with_alpha(os.path.join(PATH, filename))
+        renderer.save_with_alpha(os.path.join(args.output_model, filename))
         images[i] = Image(id=i, qvec=np.array(renderer.colmap_view_rot())[[3, 0, 1, 2]], tvec=np.array(renderer.colmap_view_trans()), camera_id=0, name=filename, xys=np.array([]), point3D_ids=np.array([]))
 
         # XXX DEBUG
@@ -587,7 +595,4 @@ if __name__ == "__main__":
     print("images:", images)
     print("points3D:", points3D)
 
-    write_model(cameras, images, points3D, path=PATH, ext=".txt")
-
-    # shutdown
-    renderer.shutdown()
+    write_model(cameras, images, points3D, path=args.output_model, ext=args.output_format)
