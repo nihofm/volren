@@ -83,12 +83,13 @@ PYBIND11_EMBEDDED_MODULE(volpy, m) {
         .def(pybind11::init<std::string>())
         .def(pybind11::init<size_t, size_t, size_t, const uint8_t*>())
         .def(pybind11::init<size_t, size_t, size_t, const float*>())
-        .def("clear", &voldata::Volume::clear)
         .def("load_grid", &voldata::Volume::load_grid)
-        .def("current_grid", &voldata::Volume::current_grid)
+        .def("clear", &voldata::Volume::clear)
+        .def("add_grid_frame", &voldata::Volume::add_grid_frame)
+        .def("update_grid_frame", &voldata::Volume::update_grid_frame)
         .def("AABB", &voldata::Volume::AABB) // TODO default argument
+        .def_readwrite("grid_frame_counter", &voldata::Volume::grid_frame_counter)
         .def("minorant_majorant", &voldata::Volume::minorant_majorant)
-        .def_readwrite("grid_frame", &voldata::Volume::grid_frame_counter)
         .def("__repr__", &voldata::Volume::to_string, pybind11::arg("indent") = "");
 
     // ------------------------------------------------------------
