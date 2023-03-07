@@ -235,6 +235,8 @@ void RendererOpenGL::scale_and_move_to_unit_cube() {
     // scale to unit cube and move to origin
     const glm::vec3 extent = bb_max - bb_min;
     const float size = fmaxf(extent.x, fmaxf(extent.y, extent.z));
-    volume->transform = glm::translate(glm::scale(glm::mat4(1), glm::vec3(1.f / size)), -bb_min - 0.5f * extent);
-    density_scale = size;
+    if (size != 1.f) {
+        volume->transform = glm::translate(glm::scale(glm::mat4(1), glm::vec3(1.f / size)), -bb_min - 0.5f * extent);
+        density_scale *= size;
+    }
 }

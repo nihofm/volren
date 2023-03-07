@@ -8,6 +8,9 @@
 #include <cppgl.h>
 #include <voldata.h>
 
+#include <pybind11/embed.h>
+#include <pybind11/eval.h>
+
 #include "renderer.h"
 
 using namespace cppgl;
@@ -78,8 +81,20 @@ void load_transferfunc(const std::string& path) {
     }
 }
 
+void run_script(const std::string& path) {
+    try {
+        pybind11::scoped_interpreter guard{};
+        pybind11::eval_file(path);
+        renderer->sample = 0;
+    } catch (pybind11::error_already_set& e) {
+        std::cerr << "Error executing python script " << path << ": " << e.what() << std::endl;
+    }
+}
+
 void handle_path(const std::string& path) {
-    if (std::filesystem::path(path).extension() == ".hdr")
+    if (std::filesystem::path(path).extension() == ".py")
+        run_script(path);
+    else if (std::filesystem::path(path).extension() == ".hdr")
         load_envmap(path);
     else if (std::filesystem::path(path).extension() == ".txt")
         load_transferfunc(path);
@@ -277,6 +292,7 @@ static void init_opengl_from_args(int argc, char** argv) {
     ContextParameters params;
     params.title = "VolRen";
     params.swap_interval = use_vsync ? 1 : 0;
+    params.gl_debug_context = GLFW_FALSE;
     for (int i = 1; i < argc; ++i) {
         const std::string arg = argv[i];
         if (arg == "-w")
@@ -299,8 +315,8 @@ static void init_opengl_from_args(int argc, char** argv) {
             params.floating = GLFW_TRUE;
         else if (arg == "--maximised")
             params.maximised = GLFW_TRUE;
-        else if (arg == "--no-debug" || arg == "--render")
-            params.gl_debug_context = GLFW_FALSE;
+        else if (arg == "---debug")
+            params.gl_debug_context = GLFW_TRUE;
         else if (arg == "--swap")
             params.swap_interval = std::stoi(argv[++i]);
         else if (arg == "--font")
@@ -466,7 +482,7 @@ int main(int argc, char** argv) {
             renderer->volume->grid_frame_counter = i;
             while (renderer->sample < renderer->sppx) {
                 renderer->trace();
-                Context::swap_buffers(); // sync (this is somehow required for >= 1024spp)
+                Context::swap_buffers(); // sync (this is required for >= 1024spp)
             }
             glMemoryBarrier(GL_ALL_BARRIER_BITS);
             // tonemap

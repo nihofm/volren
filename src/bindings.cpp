@@ -60,7 +60,7 @@ pybind11::class_<MatT> register_matrix_operators(pybind11::class_<MatT>& pyclass
         .def(-pybind11::self);
 }
 
-PYBIND11_MODULE(volpy, m) {
+PYBIND11_EMBEDDED_MODULE(volpy, m) {
 
     // ------------------------------------------------------------
     // voldata::Buf3D bindings
@@ -121,8 +121,10 @@ PYBIND11_MODULE(volpy, m) {
             current_camera()->update();
             renderer->sample = 0;
             glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-            while (renderer->sample < spp)
+            while (renderer->sample < spp) {
                 renderer->trace();
+                Context::swap_buffers(); // keep interactivity
+            }
         })
         .def("draw", [](const std::shared_ptr<RendererOpenGL>& renderer) {
             glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
@@ -141,7 +143,13 @@ PYBIND11_MODULE(volpy, m) {
             return buf;
         })
         .def("save", [](const std::shared_ptr<RendererOpenGL>& renderer, const std::string& filename = "out.png") {
-            Context::screenshot(filename);
+            const glm::ivec2 size = Context::resolution();
+            std::vector<uint8_t> pixels(size.x * size.y * 3);
+            glPixelStorei(GL_PACK_ALIGNMENT, 1);
+            glReadPixels(0, 0, size.x, size.y, GL_RGB, GL_UNSIGNED_BYTE, pixels.data());
+            const fs::path outfile = fs::path(filename);
+            image_store_ldr(outfile, pixels.data(), size.x, size.y, 3, true, true);
+            std::cout << outfile << " written." << std::endl;
         })
         .def("save_with_alpha", [](const std::shared_ptr<RendererOpenGL>& renderer, const std::string& filename = "out.png") {
             const glm::ivec2 size = Context::resolution();
@@ -149,7 +157,7 @@ PYBIND11_MODULE(volpy, m) {
             glPixelStorei(GL_PACK_ALIGNMENT, 1);
             glReadPixels(0, 0, size.x, size.y, GL_RGBA, GL_UNSIGNED_BYTE, pixels.data());
             const fs::path outfile = fs::path(filename).replace_extension(".png");
-            image_store_ldr(outfile, pixels.data(), size.x, size.y, 4);
+            image_store_ldr(outfile, pixels.data(), size.x, size.y, 4, true, true);
             std::cout << outfile << " written." << std::endl;
         })
         // members
@@ -171,7 +179,6 @@ PYBIND11_MODULE(volpy, m) {
         .def_readwrite("vol_clip_min", &RendererOpenGL::vol_clip_min)
         .def_readwrite("vol_clip_max", &RendererOpenGL::vol_clip_max)
         // camera
-        // TODO FIXME: &current_camera() opens window immediately on import
         .def_readwrite_static("cam_pos", &current_camera()->pos)
         .def_readwrite_static("cam_dir", &current_camera()->dir)
         .def_readwrite_static("cam_up", &current_camera()->up)
@@ -192,6 +199,9 @@ PYBIND11_MODULE(volpy, m) {
         })
         .def_static("colmap_focal_length", []() {
             return Context::resolution().y / (2 * tan(0.5 * glm::radians(current_camera()->fov_degree)));
+        })
+        .def_static("shutdown", []() {
+            exit(0);
         });
 
     // ------------------------------------------------------------

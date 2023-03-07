@@ -457,7 +457,6 @@ def rotmat2qvec(R):
         qvec *= -1
     return qvec
 
-
 def main():
     parser = argparse.ArgumentParser(description='Read and write COLMAP binary and text models')
     parser.add_argument('input_model', help='path to input model folder')
@@ -482,117 +481,103 @@ def main():
 # own stuff from here
 
 from volpy import *
+from scipy.stats import qmc
 
-def uniform_sample_sphere():
+def sample_unit_sphere(sample):
     import math
-    import random
-    z = 1.0 - 2.0 * random.random()
+    z = 1.0 - 2.0 * sample[0]
     r = math.sqrt(max(0.0, 1.0 - z * z))
-    phi = 2.0 * math.pi * random.random()
+    phi = 2.0 * math.pi * sample[1]
     return vec3(r * math.cos(phi), r * math.sin(phi), z)
 
 if __name__ == "__main__":
-    # load example data
-    #cameras, images, points3D = read_model(path="./colmap/example/", ext=".txt")
-    #print('-----------')
-    #print('colmap read')
-    #print("cameras:", cameras)
-    #print("images:", images)
-    #print("points3D:", points3D)
 
-    args = argparse.ArgumentParser(description='Read and write COLMAP binary and text models')
-    args.add_argument('volume', type=str, help='path to volume file to render')
-    args.add_argument('envmap', type=str, help='path to environment map used for rendering')
-    args.add_argument('--n_samples', type=int, default=4096, help='number of samples per pixel')
-    args.add_argument('--n_bounces', type=int, default=100, help='maximum number of bounces per path')
-    args.add_argument('--seed', type=int, default=42, help='seed for pseudorandom number generation')
-    args.add_argument('--n_views', type=int, default=256, help='number of randomized views to render')
-    args.add_argument('--fovy', type=float, default=70.0, help='vertical field of view in degrees')
-    args.add_argument('--albedo', type=float, default=0.0, help='volume albedo in [0, 1]')
-    args.add_argument('--phase', type=float, default=0.0, help='henyey greenstein phase in [-1, 1]')
-    args.add_argument('--density_scale', type=float, default=1.0, help='scale volume density')
-    args.add_argument('--emission_scale', type=float, default=100.0, help='scale volume emission')
-    args.add_argument('--tonemapping', action='store_false', help='disable tonemapping during rendering')
-    args.add_argument('--environment', action='store_true', help='show environment in renderings')
-    args.add_argument('--env_strength', type=float, default=1.0, help='environment power')
-    args.add_argument('--output_model', type=str, default='colmap', metavar='PATH', help='path to output model folder')
-    args.add_argument('--output_format', choices=['.bin', '.txt'], default='.txt', help='outut model format')
-    args = args.parse_args()
+    # ------------------------------------------
+    # Settings
+
+    OUT_PATH = "./colmap"
+    OUT_FORMAT = ".txt"
+    N_VIEWS = 256
+
+    # volume settings
+    VOLUME = "./data/wdas_cloud_half.vdb"
+    ALBEDO = vec3(0.95, 0.95, 0.95)
+    PHASE = 0.5
+    DENSITY_SCALE = 0.5
+    EMISSION_SCALE = 100
+
+    # envmap settings
+    ENVMAP = "./data/chinese_garden_2k.hdr"
+    ENV_STRENGTH = 1.0
+
+    # renderer setings
+    SAMPLES = 4096
+    BOUNCES = 100
+    FOVY = 70
+    SEED = 42
+    BACKGROUND = False
+    TONEMAPPING = True
+
+    # ------------------------------------------
+    # Render colmap dataset
 
     # init
     renderer = Renderer()
     renderer.init()
-    renderer.tonemapping = args.tonemapping
     renderer.draw()
-    os.makedirs(args.output_model, exist_ok=True)
+    os.makedirs(OUT_PATH, exist_ok=True)
 
     # setup scene
-    renderer.seed = args.seed
-    renderer.bounces = args.n_bounces
-    renderer.volume = Volume(args.volume)
-    renderer.albedo = vec3(args.albedo)
-    renderer.phase = args.phase
-    renderer.density_scale = args.density_scale
-    renderer.emission_scale = args.emission_scale
-    renderer.environment = Environment(args.envmap)
-    renderer.environment.strength = args.env_strength
-    renderer.show_environment = args.background
+    renderer.seed = SEED
+    renderer.bounces = BOUNCES
+    renderer.volume = Volume(VOLUME)
+    renderer.albedo = ALBEDO
+    renderer.phase = PHASE
+    renderer.density_scale = DENSITY_SCALE
+    renderer.emission_scale = EMISSION_SCALE
+    renderer.environment = Environment(ENVMAP)
+    renderer.environment.strength = ENV_STRENGTH
+    renderer.show_environment = BACKGROUND
+    renderer.tonemapping = TONEMAPPING
+    renderer.scale_and_move_to_unit_cube()
     renderer.commit()
 
     cameras = {}
     images = {}
     points3D = {}
-    
-    # HACK: write world-space AABB of volume as point3D (pos + rgb)
+
+    # HACK: write world-space AABB of volume as point3D (pos + rgb) to dataset
     points3D[0] = Point3D(id=0, xyz=np.array(renderer.volume.AABB("density")[0]), rgb=np.array(renderer.volume.AABB("density")[1]), error=0, image_ids=np.array([]), point2D_idxs=np.array([]))
 
     # write camera
     cameras[0] = Camera(id=0, model="SIMPLE_PINHOLE", width=renderer.resolution().x, height=renderer.resolution().y, params=np.array([renderer.colmap_focal_length(), renderer.resolution().x//2, renderer.resolution().y//2]))
 
+    # random sampler
+    samplerOut = qmc.Sobol(d=2)
+    samplerIn = qmc.Sobol(d=2)
+
     # write views
-    for i in range(args.n_views):
+    for i in range(N_VIEWS):
         # setup camera
         bb_min, bb_max = renderer.volume.AABB("density")
         center = bb_min + (bb_max - bb_min) * 0.5
         radius = (bb_max - center).length()
-        renderer.cam_pos = center + uniform_sample_sphere() * radius
-        renderer.cam_dir = (center + uniform_sample_sphere() * radius * 0.1 - renderer.cam_pos).normalize()
-        renderer.cam_fov = args.fovy
-        # HACK: test principal axis
-        if i == 0:
-            renderer.cam_pos = center + radius * vec3(1, 0, 0)
-            renderer.cam_dir = (center - renderer.cam_pos).normalize()
-            renderer.cam_up = vec3(0, 1, 0)
-        if i == 1:
-            renderer.cam_pos = center + radius * vec3(0, 1, 0)
-            renderer.cam_dir = (center - renderer.cam_pos).normalize()
-            renderer.cam_up = vec3(1, 0, 0)
-        if i == 2:
-            renderer.cam_pos = center + radius * vec3(0, 0, 1)
-            renderer.cam_dir = (center - renderer.cam_pos).normalize()
-            renderer.cam_up = vec3(0, 1, 0)
+        renderer.cam_pos = center + sample_unit_sphere(samplerOut.random()[0, 0:2]) * radius
+        renderer.cam_dir = (center + sample_unit_sphere(samplerIn.random()[0, 0:2]) * radius * 0.1 - renderer.cam_pos).normalize()
+        renderer.cam_fov = FOVY
         # render view
-        renderer.render(args.n_samples)
+        renderer.render(SAMPLES)
         renderer.draw()
         # store view
-        filename = f"view_{i:04}.png"
-        renderer.save_with_alpha(os.path.join(args.output_model, filename))
+        filename = f"view_{i:06}.png"
+        renderer.save_with_alpha(os.path.join(OUT_PATH, filename))
         images[i] = Image(id=i, qvec=np.array(renderer.colmap_view_rot())[[3, 0, 1, 2]], tvec=np.array(renderer.colmap_view_trans()), camera_id=0, name=filename, xys=np.array([]), point3D_ids=np.array([]))
 
-        # XXX DEBUG
-        print('-----------')
-        #print("gl_aspect:", renderer.cam_aspect())
-        print("gl_pos:", renderer.cam_pos)
-        print("gl_view:\n", renderer.view_matrix)
-        print("gl_proj:\n", renderer.proj_matrix)
-        print('-----------')
-        print("colmap_trans:", renderer.colmap_view_trans())
-        print("colmap_rot:", renderer.colmap_view_rot())
+    print('--------------------')
+    print("#cameras:", len(cameras))
+    print("#images:", len(images))
+    print("#points3D:", len(points3D))
 
-    print('-----------')
-    print('colmap write')
-    print("cameras:", cameras)
-    print("images:", images)
-    print("points3D:", points3D)
+    write_model(cameras, images, points3D, path=OUT_PATH, ext=OUT_FORMAT)
 
-    write_model(cameras, images, points3D, path=args.output_model, ext=args.output_format)
+    renderer.shutdown()

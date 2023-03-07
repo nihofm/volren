@@ -7,11 +7,6 @@ PROJECT(volren
 )
 
 # ---------------------------------------------------------------------
-# options
-
-option(WITH_PYTHON_BINDINGS "Build standalone python module?" ON)
-
-# ---------------------------------------------------------------------
 # dependencies
 
 add_subdirectory(submodules/cppgl)
@@ -22,10 +17,8 @@ add_subdirectory(submodules/voldata)
 include_directories(submodules/voldata/src)
 include_directories(submodules/voldata/submodules)
 
-if (WITH_PYTHON_BINDINGS)
-    add_subdirectory(submodules/pybind11)
-    include_directories(submodules/pybind11/include)
-endif()
+add_subdirectory(submodules/pybind11)
+include_directories(submodules/pybind11/include)
 
 # ---------------------------------------------------------------------
 # compiler setup
@@ -49,17 +42,7 @@ set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR})
 set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR})
 
 # ---------------------------------------------------------------------
-# compile C++ version
+# compile
 
-add_executable(volren src/main.cpp src/environment.cpp src/renderer.cpp src/transferfunc.cpp)
-target_link_libraries(volren stdc++ stdc++fs dl cppgl voldata)
-
-# ---------------------------------------------------------------------
-# compile python version
-
-if (WITH_PYTHON_BINDINGS)
-    find_package(Python COMPONENTS Interpreter Development)
-    add_library(volpy SHARED src/bindings.cpp src/environment.cpp src/renderer.cpp src/transferfunc.cpp)
-    target_link_libraries(volpy stdc++ stdc++fs dl cppgl voldata ${PYTHON_LIBRARIES} pybind11::module)
-	pybind11_extension(volpy)
-endif()
+add_executable(volren src/main.cpp src/environment.cpp src/renderer.cpp src/transferfunc.cpp src/bindings.cpp)
+target_link_libraries(volren stdc++ stdc++fs dl cppgl voldata pybind11::embed)
