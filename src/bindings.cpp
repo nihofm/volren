@@ -149,7 +149,7 @@ PYBIND11_EMBEDDED_MODULE(volpy, m) {
             glPixelStorei(GL_PACK_ALIGNMENT, 1);
             glReadPixels(0, 0, size.x, size.y, GL_RGB, GL_UNSIGNED_BYTE, pixels.data());
             const fs::path outfile = fs::path(filename);
-            image_store_ldr(outfile, pixels.data(), size.x, size.y, 3, true, true);
+            image_store_ldr(outfile, pixels.data(), size.x, size.y, 3);
             std::cout << outfile << " written." << std::endl;
         })
         .def("save_with_alpha", [](const std::shared_ptr<RendererOpenGL>& renderer, const std::string& filename = "out.png") {
@@ -158,7 +158,7 @@ PYBIND11_EMBEDDED_MODULE(volpy, m) {
             glPixelStorei(GL_PACK_ALIGNMENT, 1);
             glReadPixels(0, 0, size.x, size.y, GL_RGBA, GL_UNSIGNED_BYTE, pixels.data());
             const fs::path outfile = fs::path(filename).replace_extension(".png");
-            image_store_ldr(outfile, pixels.data(), size.x, size.y, 4, true, true);
+            image_store_ldr(outfile, pixels.data(), size.x, size.y, 4);
             std::cout << outfile << " written." << std::endl;
         })
         // members

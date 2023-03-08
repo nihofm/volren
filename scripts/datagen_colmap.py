@@ -477,8 +477,8 @@ def main():
     if args.output_model is not None:
         write_model(cameras, images, points3D, path=args.output_model, ext=args.output_format)
 
-# -------------------------------------------------------------------------------------------------
-# own stuff from here
+# ----------------------------------------------------------------
+# own code from here
 
 from volpy import *
 from scipy.stats import qmc
@@ -495,27 +495,26 @@ if __name__ == "__main__":
     # ------------------------------------------
     # Settings
 
-    OUT_PATH = "./colmap"
+    OUT_PATH = "./colmap_wdas_thin"
     OUT_FORMAT = ".txt"
     N_VIEWS = 256
 
     # volume settings
-    VOLUME = "./data/wdas_cloud_half.vdb"
+    VOLUME = "./data/wdas_cloud_half.vdb" # XXX: set this path to a valid volume (.vdb/.nvdb/.dcm)
     ALBEDO = vec3(0.95, 0.95, 0.95)
-    PHASE = 0.5
-    DENSITY_SCALE = 0.5
-    EMISSION_SCALE = 100
+    PHASE = 0.0
+    DENSITY_SCALE = 0.05
 
     # envmap settings
-    ENVMAP = "./data/chinese_garden_2k.hdr"
+    ENVMAP = "./data/spruit_sunrise_4k.hdr" # XXX: set this path to a valid envmap (.png/.jpg/.hdr)
     ENV_STRENGTH = 1.0
 
     # renderer setings
-    SAMPLES = 4096
+    SAMPLES = 1 << 12
     BOUNCES = 100
     FOVY = 70
     SEED = 42
-    BACKGROUND = False
+    BACKGROUND = True
     TONEMAPPING = True
 
     # ------------------------------------------
@@ -534,7 +533,6 @@ if __name__ == "__main__":
     renderer.albedo = ALBEDO
     renderer.phase = PHASE
     renderer.density_scale = DENSITY_SCALE
-    renderer.emission_scale = EMISSION_SCALE
     renderer.environment = Environment(ENVMAP)
     renderer.environment.strength = ENV_STRENGTH
     renderer.show_environment = BACKGROUND
@@ -553,8 +551,8 @@ if __name__ == "__main__":
     cameras[0] = Camera(id=0, model="SIMPLE_PINHOLE", width=renderer.resolution().x, height=renderer.resolution().y, params=np.array([renderer.colmap_focal_length(), renderer.resolution().x//2, renderer.resolution().y//2]))
 
     # random sampler
-    samplerOut = qmc.Sobol(d=2)
-    samplerIn = qmc.Sobol(d=2)
+    samplerOut = qmc.Sobol(d=2, seed=SEED+1)
+    samplerIn = qmc.Sobol(d=2, seed=SEED+2)
 
     # write views
     for i in range(N_VIEWS):

@@ -15,7 +15,7 @@ RUN apt-get install -y libglm-dev libassimp-dev libopenvdb-dev # reduce compile 
 RUN apt-get install -y python3-dev
 
 # copy code
-WORKDIR /home/volren
+WORKDIR /workspace
 COPY CMakeLists.txt ./
 COPY src/ src/
 COPY shader/ shader/

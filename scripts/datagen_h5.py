@@ -25,7 +25,7 @@ if __name__ == "__main__":
     # collect envmap and volume files recursively
     def glob_directory(root, ext='.hdr'):
         entries = []
-        for dirname, subdirs, files in os.walk(root):
+        for dirname, _, files in os.walk(root):
             for fname in files:
                 if os.path.splitext(fname)[1] == ext:
                     entries.append(os.path.join(dirname, fname))
