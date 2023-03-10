@@ -10,7 +10,6 @@ RUN apt-get update && apt-get upgrade -y
 # install deps
 RUN apt-get install -y build-essential cmake
 RUN apt-get install -y libx11-dev xorg-dev libopengl-dev freeglut3-dev
-RUN apt-get install -y libboost-iostreams-dev
 RUN apt-get install -y libglm-dev libassimp-dev libopenvdb-dev # reduce compile times
 RUN apt-get install -y python3-dev
 
