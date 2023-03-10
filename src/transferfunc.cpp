@@ -2,7 +2,11 @@
 #include <fstream>
 #include <iostream>
 
-TransferFunction::TransferFunction() : window_left(0), window_width(1) {}
+using namespace cppgl;
+
+TransferFunction::TransferFunction() : window_left(0), window_width(1) {
+    randomize();
+}
 
 TransferFunction::TransferFunction(const fs::path& path) : TransferFunction() {
     // load lut from file (format: %f, %f, %f, %f)
@@ -26,25 +30,38 @@ TransferFunction::TransferFunction(const std::vector<glm::vec4>& lut) : Transfer
 
 TransferFunction::~TransferFunction() {}
 
-void TransferFunction::set_uniforms(const Shader& shader, uint32_t& texture_unit) const {
+void TransferFunction::set_uniforms(const Shader& shader, uint32_t buffer_binding) const {
+    lut_ssbo->bind_base(buffer_binding);
+    shader->uniform("tf_size", uint32_t(lut_ssbo->size_bytes / sizeof(glm::vec4)));
     shader->uniform("tf_window_left", window_left);
     shader->uniform("tf_window_width", window_width);
-    shader->uniform("tf_texture", texture, texture_unit++);
 }
 
-void TransferFunction::upload_gpu() {
+std::vector<glm::vec4> TransferFunction::compute_lut_cdf(const std::vector<glm::vec4>& lut) {
     // copy
     auto lut_cdf = lut;
-    // build density CDF
+    // build density CDF (we require a monotonic nondecreasing function)
     for (uint32_t i = 1; i < lut_cdf.size(); ++i)
         lut_cdf[i].a += lut_cdf[i-1].a;
     const float integral = lut_cdf[lut_cdf.size()-1].a;
     for (uint32_t i = 0; i < lut_cdf.size(); ++i)
-        lut_cdf[i].a = integral == 0.f ? (i+1) / float(lut_cdf.size()) : lut_cdf[i].a / integral;
-    // setup GL texture
-    texture = Texture2D("transferfunc_lut", lut_cdf.size(), 1, GL_RGBA16F, GL_RGBA, GL_FLOAT, lut_cdf.data(), false);
-    texture->bind(0);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);//GL_CLAMP_TO_BORDER);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);//GL_CLAMP_TO_BORDER);
-    texture->unbind();
+        lut_cdf[i].a = integral <= 0.f ? (i + 1) / float(lut_cdf.size()) : lut_cdf[i].a / integral;
+    return lut_cdf;
+}
+
+void TransferFunction::upload_gpu() {
+    // prepare lut
+    const std::vector<glm::vec4> lut_cdf = compute_lut_cdf(lut);
+    // setup SSBO
+    lut_ssbo = SSBO("transferfunc_ssbo");
+    lut_ssbo->upload_data(lut_cdf.data(), lut_cdf.size() * sizeof(glm::vec4));
+}
+
+static inline float randf() { return rand() / (RAND_MAX + 1.f); }
+
+void TransferFunction::randomize(size_t n_bins) {
+    lut.clear();
+    for (int i = 0; i < n_bins; ++i)
+        lut.push_back(i == 0 ? glm::vec4(0) : glm::vec4(randf(), randf(), randf(), randf()));
+    upload_gpu();
 }

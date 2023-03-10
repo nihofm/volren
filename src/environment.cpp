@@ -1,5 +1,7 @@
 #include "environment.h"
 
+using namespace cppgl;
+
 // importance map parameters (power of two!)
 const uint32_t DIMENSION = 512;
 const uint32_t SAMPLES = 64;
@@ -7,10 +9,10 @@ const uint32_t SAMPLES = 64;
 Environment::Environment(const std::string& path) : Environment(Texture2D("environment", path)) {}
 
 Environment::Environment(const Texture2D& envmap) :
-    model(1),
+    transform(1),
     strength(1),
     envmap(envmap),
-    impmap("env_importance", DIMENSION, DIMENSION, GL_R32F, GL_RED, GL_FLOAT)
+    impmap(envmap->name + "_importance", DIMENSION, DIMENSION, GL_R32F, GL_RED, GL_FLOAT)
 {
     // build importance map
     static Shader setup_shader = Shader("env_setup", "shader/env_setup.glsl");
@@ -32,13 +34,17 @@ Environment::Environment(const Texture2D& envmap) :
 
 Environment::~Environment() {}
 
-int Environment::num_mip_levels() const {
+uint32_t Environment::num_mip_levels() const {
     return 1 + floor(log2(DIMENSION));
 }
 
+uint32_t Environment::dimension() const {
+    return DIMENSION;
+}
+
 void Environment::set_uniforms(const Shader& shader, uint32_t& texture_unit) const {
-    shader->uniform("env_model", model);
-    shader->uniform("env_inv_model", glm::inverse(model));
+    shader->uniform("env_model", transform);
+    shader->uniform("env_inv_model", glm::inverse(transform));
     shader->uniform("env_strength", strength);
     shader->uniform("env_imp_inv_dim", glm::vec2(1.f / DIMENSION));
     shader->uniform("env_imp_base_mip", int(floor(log2(DIMENSION))));

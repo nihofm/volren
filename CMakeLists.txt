@@ -1,48 +1,48 @@
-project(vol LANGUAGES C CXX)# CUDA)
-cmake_minimum_required(VERSION 3.10)
+cmake_minimum_required(VERSION 3.16)
+
+PROJECT(volren
+    VERSION 0.3
+    DESCRIPTION "Simple volume rendering framework."
+    LANGUAGES C CXX
+)
 
 # ---------------------------------------------------------------------
-# path management
-
-# output directories
-set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}")
-set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}")
-set(CMAKE_LIBRARY_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}")
-
-# install path options
-SET(CMAKE_INSTALL_RPATH_USE_LINK_PATH TRUE)
-SET(CMAKE_INSTALL_RPATH "${CMAKE_INSTALL_PREFIX}/lib")
-
-# ---------------------------------------------------------------------
-# options
-
-# ---------------------------------------------------------------------
-# compiler flags
-
-set(CMAKE_CXX_STANDARD 17)
-set(CMAKE_CXX_STANDARD_REQUIRED ON)
-
-add_compile_options(-pthread -fopenmp -march=native)
-add_compile_options(-Wall -Wno-unused-parameter -Wno-unused-variable -Wno-deprecated-declarations)
-
-# ---------------------------------------------------------------------
-# submodules
+# dependencies
 
 add_subdirectory(submodules/cppgl)
 include_directories(submodules/cppgl/src)
 
+set(VOLDATA_BUILD_GLM OFF) # avoid including GLM twice
 add_subdirectory(submodules/voldata)
 include_directories(submodules/voldata/src)
+include_directories(submodules/voldata/submodules)
 
 add_subdirectory(submodules/pybind11)
+include_directories(submodules/pybind11/include)
 
 # ---------------------------------------------------------------------
-# install shaders
+# compiler setup
 
-install(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/shader DESTINATION bin)
+if (NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
+	message(STATUS "No release type specified. Setting to 'Release'.")
+	set(CMAKE_BUILD_TYPE Release CACHE STRING "Choose the type of build." FORCE)
+	set_property(CACHE CMAKE_BUILD_TYPE PROPERTY STRINGS "Debug" "Release" "RelWithDebInfo")
+endif()
+
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 # ---------------------------------------------------------------------
-# traverse source tree
+# directory management
 
 include_directories(src)
-add_subdirectory(src)
+
+set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_SOURCE_DIR})
+set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR})
+set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR})
+
+# ---------------------------------------------------------------------
+# compile
+
+add_executable(volren src/main.cpp src/environment.cpp src/renderer.cpp src/transferfunc.cpp src/bindings.cpp)
+target_link_libraries(volren stdc++ stdc++fs dl cppgl voldata pybind11::embed)

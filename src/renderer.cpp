@@ -1,26 +1,6 @@
 #include "renderer.h"
 
-// Settings
-int Renderer::sample = 0;
-int Renderer::sppx = 1000;
-int Renderer::bounces = 3;
-int Renderer::seed = 42;
-float Renderer::tonemap_exposure = 10.f;
-float Renderer::tonemap_gamma = 2.2f;
-bool Renderer::tonemapping = true;
-bool Renderer::show_environment = true;
-
-// Scene data
-std::shared_ptr<Environment> Renderer::environment;
-std::shared_ptr<TransferFunction> Renderer::transferfunc;
-std::shared_ptr<voldata::Volume> Renderer::volume;
-glm::vec3 Renderer::vol_crop_min = glm::vec3(0);
-glm::vec3 Renderer::vol_crop_max = glm::vec3(1);
-
-// OpenGL data
-Framebuffer Renderer::fbo;
-Shader Renderer::trace_shader;
-Texture3D Renderer::vol_indirection, Renderer::vol_range, Renderer::vol_atlas;
+using namespace cppgl;
 
 // -----------------------------------------------------------
 // helper funcs
@@ -44,83 +24,157 @@ void tonemap(const Texture2D& tex, float exposure, float gamma) {
 }
 
 // -----------------------------------------------------------
-// init
+// OpenGL renderer
 
-void Renderer::init(uint32_t w, uint32_t h, bool vsync, bool pinned, bool visible) {
-    static bool is_init = false;
-    if (is_init) return;
-
-    // init GL
-    ContextParameters params;
-    params.width = w;
-    params.height = h;
-    params.title = "VolumeRenderer";
-    params.floating = pinned ? GLFW_TRUE : GLFW_FALSE;
-    params.resizable = pinned ? GLFW_FALSE : GLFW_TRUE;
-    params.swap_interval = vsync ? 1 : 0;
-    params.visible = visible ? GLFW_TRUE : GLFW_FALSE;
-    try  {
-        Context::init(params);
-    } catch (std::runtime_error& e) {
-        std::cerr << "Failed to create context: " << e.what() << std::endl;
-        std::cerr << "Retrying for offline rendering..." << std::endl;
-        params.visible = GLFW_FALSE;
-        Context::init(params);
-    }
-
-    // setup fbo
-    const glm::ivec2 res = Context::resolution();
-    fbo = Framebuffer("fbo", res.x, res.y);
-    fbo->attach_depthbuffer();
-    fbo->attach_colorbuffer(Texture2D("fbo_color", res.x, res.y, GL_RGBA32F, GL_RGBA, GL_FLOAT));
-    fbo->attach_colorbuffer(Texture2D("fbo_features1", res.x, res.y, GL_RGBA32F, GL_RGBA, GL_FLOAT));
-    fbo->attach_colorbuffer(Texture2D("fbo_features2", res.x, res.y, GL_RGBA32F, GL_RGBA, GL_FLOAT));
-    fbo->attach_colorbuffer(Texture2D("fbo_features3", res.x, res.y, GL_RGBA32F, GL_RGBA, GL_FLOAT));
-    fbo->attach_colorbuffer(Texture2D("fbo_features4", res.x, res.y, GL_RGBA32F, GL_RGBA, GL_FLOAT));
-    fbo->check();
-
-    // compile trace shader
-    trace_shader = Shader("trace", "shader/pathtracer.glsl");
-
-    // load default envmap
-    glm::vec3 color(.5f);
-    environment = std::make_shared<Environment>(Texture2D("background", 1, 1, GL_RGB32F, GL_RGB, GL_FLOAT, &color.x));
-
-    // load default transfer function
-    transferfunc = std::make_shared<TransferFunction>(std::vector<glm::vec4>({ glm::vec4(1) }));
-
+void RendererOpenGL::init() {
     // load default volume
-    volume = std::make_shared<voldata::Volume>();
+    if (!volume)
+        volume = std::make_shared<voldata::Volume>();
 
-    // run initialization only once
-    is_init = true;
+    // load default environment map
+    if (!environment) {
+        glm::vec3 color(1.f);
+        environment = std::make_shared<Environment>(Texture2D("background", 1, 1, GL_RGB32F, GL_RGB, GL_FLOAT, &color.x));
+    }
+    // compile shaders
+    if (!trace_shader)
+        trace_shader = Shader("trace", "shader/pathtracer_brick.glsl");
+    if (!trace_shader_tf)
+        trace_shader_tf = Shader("trace_tf", "shader/pathtracer_brick_tf.glsl");
+
+    // setup color texture
+    if (!color) {
+        const glm::ivec2 res = Context::resolution();
+        color = Texture2D("color", res.x, res.y, GL_RGBA32F, GL_RGBA, GL_FLOAT);
+    }
 }
 
-// -----------------------------------------------------------
-// upload volume grid data to OpenGL textures
+void RendererOpenGL::resize(uint32_t w, uint32_t h) {
+    if (color) color->resize(w, h);
+}
 
-void Renderer::commit() {
-    // load brick volume textures
-    std::shared_ptr<voldata::BrickGrid> bricks = std::dynamic_pointer_cast<voldata::BrickGrid>(volume->current_grid()); // check type
-    if (!bricks) bricks = std::make_shared<voldata::BrickGrid>(volume->current_grid()); // type not matching, convert grid
-    // indirection texture
-    vol_indirection = Texture3D("brick indirection",
+void RendererOpenGL::commit() {
+    density_grids.clear();
+    emission_grids.clear();
+    majorant_emission = 0.f;
+    std::cout << "Preparing brick grids for OpenGL..." << std::endl;
+    for (const auto& frame : volume->grids) {
+        voldata::Volume::GridPtr density_grid = frame.at("density");
+        density_grids.push_back(brick_grid_to_textures(voldata::Volume::to_brick_grid(density_grid)));
+        voldata::Volume::GridPtr emission_grid;
+        for (const auto& name : { "flame", "flames", "temperature" }) {
+            if (frame.find(name) != frame.end()) {
+                emission_grid = frame.at(name);
+                break;
+            }
+        }
+        if (emission_grid) {
+            emission_grids.push_back(brick_grid_to_textures(voldata::Volume::to_brick_grid(emission_grid)));
+            majorant_emission = std::max(majorant_emission, emission_grid->minorant_majorant().second);
+        }
+    }
+}
+
+void RendererOpenGL::trace() {
+    // select shader
+    Shader& shader = transferfunc ? trace_shader_tf : trace_shader;
+
+    // bind
+    shader->bind();
+    color->bind_image(0, GL_READ_WRITE, GL_RGBA32F);
+
+    // uniforms
+    uint32_t tex_unit = 0;
+    shader->uniform("bounces", bounces);
+    shader->uniform("seed", seed);
+    shader->uniform("show_environment", show_environment ? 1 : 0);
+    shader->uniform("optimization", 0);
+    // camera
+    shader->uniform("cam_pos", current_camera()->pos);
+    shader->uniform("cam_fov", current_camera()->fov_degree);
+    shader->uniform("cam_transform", glm::inverse(glm::mat3(current_camera()->view)));
+    // volume
+    const auto [bb_min, bb_max] = volume->AABB();
+    const auto [min, maj] = volume->minorant_majorant();
+    shader->uniform("vol_bb_min", bb_min + vol_clip_min * (bb_max - bb_min));
+    shader->uniform("vol_bb_max", bb_min + vol_clip_max * (bb_max - bb_min));
+    shader->uniform("vol_minorant", min * density_scale);
+    shader->uniform("vol_majorant", maj * density_scale);
+    shader->uniform("vol_inv_majorant", 1.f / (maj * density_scale));
+    shader->uniform("vol_albedo", albedo);
+    shader->uniform("vol_phase_g", phase);
+    shader->uniform("vol_density_scale", density_scale);
+    shader->uniform("vol_emission_scale", emission_scale);
+    shader->uniform("vol_emission_norm", majorant_emission > 0.f ? 1.f / majorant_emission : 1.f);
+    // density brick grid data
+    const BrickGridGL density = density_grids[volume->grid_frame_counter];
+    shader->uniform("vol_density_transform", volume->transform * density.transform);
+    shader->uniform("vol_density_inv_transform", glm::inverse(volume->transform * density.transform));
+    shader->uniform("vol_density_indirection", density.indirection, tex_unit++);
+    shader->uniform("vol_density_range", density.range, tex_unit++);
+    shader->uniform("vol_density_atlas", density.atlas, tex_unit++);
+    // emission brick grid data
+    if (volume->grid_frame_counter < emission_grids.size()) {
+        const BrickGridGL emission = emission_grids[volume->grid_frame_counter];
+        shader->uniform("vol_emission_transform", volume->transform * emission.transform);
+        shader->uniform("vol_emission_inv_transform", glm::inverse(volume->transform * emission.transform));
+        shader->uniform("vol_emission_indirection", emission.indirection, tex_unit++);
+        shader->uniform("vol_emission_range", emission.range, tex_unit++);
+        shader->uniform("vol_emission_atlas", emission.atlas, tex_unit++);
+    }
+    // transfer function
+    if (transferfunc) transferfunc->set_uniforms(shader, 4);
+    // environment
+    shader->uniform("env_transform", environment->transform);
+    shader->uniform("env_inv_transform", glm::inverse(environment->transform));
+    shader->uniform("env_strength", environment->strength);
+    shader->uniform("env_imp_inv_dim", glm::vec2(1.f / environment->dimension()));
+    shader->uniform("env_imp_base_mip", int(floor(log2(environment->dimension()))));
+    shader->uniform("env_envmap", environment->envmap, tex_unit++);
+    shader->uniform("env_impmap", environment->impmap, tex_unit++);
+
+    // trace
+    const glm::ivec2 resolution = Context::resolution();
+    shader->uniform("current_sample", ++sample);
+    shader->uniform("resolution", resolution);
+    shader->dispatch_compute(resolution.x, resolution.y);
+
+    // unbind
+    color->unbind_image(0);
+    shader->unbind();
+}
+
+void RendererOpenGL::draw() {
+    if (!color) return;
+    if (tonemapping)
+        tonemap(color, tonemap_exposure, tonemap_gamma);
+    else
+        blit(color);
+}
+
+void RendererOpenGL::reset() {
+    sample = 0;
+}
+
+BrickGridGL RendererOpenGL::brick_grid_to_textures(const std::shared_ptr<voldata::BrickGrid>& bricks) {
+    // create indirection texture
+    Texture3D indirection = Texture3D("brick indirection",
             bricks->indirection.stride.x,
             bricks->indirection.stride.y,
             bricks->indirection.stride.z,
             GL_RGB10_A2UI,
             GL_RGBA_INTEGER,
-            GL_UNSIGNED_INT_2_10_10_10_REV,
+            GL_UNSIGNED_INT_10_10_10_2,
             bricks->indirection.data.data());
-    vol_indirection->bind(0);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_R, GL_CLAMP_TO_EDGE);
+    indirection->bind(0);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_BORDER);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_BORDER);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_R, GL_CLAMP_TO_BORDER);
     glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
     glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-    vol_indirection->unbind();
-    // range texture
-    vol_range = Texture3D("brick range",
+    indirection->unbind();
+    // create range texture
+    Texture3D range = Texture3D("brick range",
             bricks->range.stride.x,
             bricks->range.stride.y,
             bricks->range.stride.z,
@@ -128,13 +182,13 @@ void Renderer::commit() {
             GL_RG,
             GL_HALF_FLOAT,
             bricks->range.data.data());
-    vol_range->bind(0);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_R, GL_CLAMP_TO_EDGE);
+    range->bind(0);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_BORDER);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_BORDER);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_R, GL_CLAMP_TO_BORDER);
     glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
     glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-    // upload min/max mipmaps
+    // create min/max mipmaps
     glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_BASE_LEVEL, 0);
     glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MAX_LEVEL, bricks->range_mipmaps.size());
     for (uint32_t i = 0; i < bricks->range_mipmaps.size(); ++i) {
@@ -149,83 +203,40 @@ void Renderer::commit() {
                 GL_HALF_FLOAT,
                 bricks->range_mipmaps[i].data.data());
     }
-    vol_range->unbind();
-    // atlas texture
-    vol_atlas = Texture3D("brick atlas",
+    range->unbind();
+    // create atlas texture
+    Texture3D atlas = Texture3D("brick atlas",
             bricks->atlas.stride.x,
             bricks->atlas.stride.y,
             bricks->atlas.stride.z,
-            //GL_RED,
             GL_COMPRESSED_RED,
             GL_RED,
             GL_UNSIGNED_BYTE,
             bricks->atlas.data.data());
-    vol_atlas->bind(0);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_R, GL_CLAMP_TO_EDGE);
+    atlas->bind(0);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_BORDER);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_BORDER);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_R, GL_CLAMP_TO_BORDER);
     glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
     glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-    vol_atlas->unbind();
+    atlas->unbind();
+    // return BrickGridGL
+    return BrickGridGL{ indirection, range, atlas, bricks->transform };
 }
 
-// ------------------------------------------
-// trace one sample per pixel
-
-void Renderer::trace() {
-    // bind
-    uint32_t tex_unit = 0;
-    trace_shader->bind();
-    for (auto tex : fbo->color_textures)
-        tex->bind_image(tex_unit++, GL_READ_WRITE, GL_RGBA32F);
-
-    // uniforms
-    trace_shader->uniform("current_sample", ++sample);
-    trace_shader->uniform("bounces", bounces);
-    trace_shader->uniform("seed", seed);
-    trace_shader->uniform("show_environment", show_environment ? 0 : 1);
-    // camera
-    trace_shader->uniform("cam_pos", current_camera()->pos);
-    trace_shader->uniform("cam_fov", current_camera()->fov_degree);
-    trace_shader->uniform("cam_transform", glm::inverse(glm::mat3(current_camera()->view)));
-    // volume
-    const auto [bb_min, bb_max] = volume->AABB();
-    const auto [min, maj] = volume->minorant_majorant();
-    trace_shader->uniform("vol_model", volume->get_transform());
-    trace_shader->uniform("vol_inv_model", glm::inverse(volume->get_transform()));
-    trace_shader->uniform("vol_bb_min", bb_min + vol_crop_min * (bb_max - bb_min));
-    trace_shader->uniform("vol_bb_max", bb_min + vol_crop_max * (bb_max - bb_min));
-    trace_shader->uniform("vol_majorant", maj * volume->density_scale);
-    trace_shader->uniform("vol_inv_majorant", 1.f / (maj * volume->density_scale));
-    trace_shader->uniform("vol_albedo", volume->albedo);
-    trace_shader->uniform("vol_phase_g", volume->phase);
-    trace_shader->uniform("vol_density_scale", volume->density_scale);
-    // brick grid data
-    if (vol_indirection) trace_shader->uniform("vol_indirection", vol_indirection, tex_unit++);
-    if (vol_range) trace_shader->uniform("vol_range", vol_range, tex_unit++);
-    if (vol_atlas) trace_shader->uniform("vol_atlas", vol_atlas, tex_unit++);
-    // transfer function
-    transferfunc->set_uniforms(trace_shader, tex_unit);
-    // environment
-    environment->set_uniforms(trace_shader, tex_unit);
-
-    // trace
-    const glm::ivec2 size = Context::resolution();
-    trace_shader->dispatch_compute(size.x, size.y);
-
-    // unbind
-    for (uint32_t i = 0; i < fbo->color_textures.size(); ++i)
-        fbo->color_textures[i]->unbind_image(i);
-    trace_shader->unbind();
-}
-
-// ------------------------------------------
-// draw results on screen
-
-void Renderer::draw(uint32_t buffer_idx) {
-    const auto tex = fbo->color_textures[buffer_idx % fbo->color_textures.size()];
-    if (tonemapping)
-        tonemap(tex, tonemap_exposure, tonemap_gamma);
-    else
-        blit(tex);
+void RendererOpenGL::scale_and_move_to_unit_cube() {
+    // compute max AABB over whole volume (animation)
+    glm::vec3 bb_min = glm::vec3(FLT_MAX), bb_max = glm::vec3(FLT_MIN);
+    for (const auto frame : volume->grids) {
+        const auto grid = frame.at("density");
+        bb_min = glm::min(bb_min, glm::vec3(grid->transform * glm::vec4(0, 0, 0, 1)));
+        bb_max = glm::max(bb_max, glm::vec3(grid->transform * glm::vec4(glm::vec3(grid->index_extent()), 1)));
+    }
+    // scale to unit cube and move to origin
+    const glm::vec3 extent = bb_max - bb_min;
+    const float size = fmaxf(extent.x, fmaxf(extent.y, extent.z));
+    if (size != 1.f) {
+        volume->transform = glm::translate(glm::scale(glm::mat4(1), glm::vec3(1.f / size)), -bb_min - 0.5f * extent);
+        density_scale *= size;
+    }
 }

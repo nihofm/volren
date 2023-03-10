@@ -1,8 +1,9 @@
 #pragma once
 
 #include <vector>
-#include <cppgl.h>
+#include <memory>
 #include <glm/glm.hpp>
+#include <cppgl.h>
 
 class TransferFunction {
 public:
@@ -11,13 +12,20 @@ public:
     TransferFunction(const std::vector<glm::vec4>& lut);
     virtual ~TransferFunction();
 
-    void set_uniforms(const Shader& shader, uint32_t& texture_unit) const;
+    // bind uniforms to given shader
+    void set_uniforms(const cppgl::Shader& shader, uint32_t buffer_binding) const;
 
-    // push cpu LUT data to GPU texture
+    // compute density-CDF lut from given lut
+    static std::vector<glm::vec4> compute_lut_cdf(const std::vector<glm::vec4>& lut);
+
+    // push cdf lut data to GPU texture
     void upload_gpu();
+
+    // randomize contents
+    void randomize(size_t n_bins = 8);
 
     // data
     float window_left, window_width;
     std::vector<glm::vec4> lut;
-    Texture2D texture;
+    cppgl::SSBO lut_ssbo;
 };
