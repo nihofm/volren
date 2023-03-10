@@ -3,21 +3,24 @@ import h5py
 import math
 import random
 import numpy as np
-from volpy import *
+# import renderer module
+import volpy
 
 if __name__ == "__main__":
 
+    ROOT_DIR = os.path.dirname(os.path.dirname(__file__))
+
     # settings
-    N_IMAGES = 128
-    N_SAMPLES_TARGET = 1 << 13
+    N_IMAGES = 256
+    N_SAMPLES_TARGET = 1 << 12
     SEED = 42
     H5_NAME = 'dataset'
-    VOLPATH = './volumes'
-    ENVPATH = './envmaps'
-    LUTPATH = './data'
+    VOLPATH = os.path.join(ROOT_DIR, './data')
+    ENVPATH = os.path.join(ROOT_DIR, './data')
+    ENABLE_RANDOM_TRANSFERFUNC = False
 
     # init renderer
-    renderer = Renderer()
+    renderer = volpy.Renderer()
     renderer.init()
     renderer.draw()
     random.seed(SEED)
@@ -33,7 +36,9 @@ if __name__ == "__main__":
 
     volumes = glob_directory(VOLPATH, '.vdb')
     envmaps = glob_directory(ENVPATH, '.hdr')
-    transferfuncs = glob_directory(LUTPATH, '.txt')
+
+    print('#volumes:', len(volumes))
+    print('#envmaps:', len(envmaps))
 
     # init h5 datasets
     SIZE = renderer.resolution()
@@ -50,7 +55,7 @@ if __name__ == "__main__":
         z = 1.0 - 2.0 * random.random()
         r = math.sqrt(max(0.0, 1.0 - z * z))
         phi = 2.0 * math.pi * random.random()
-        return vec3(r * math.cos(phi), r * math.sin(phi), z)
+        return volpy.vec3(r * math.cos(phi), r * math.sin(phi), z)
 
     def randomize_parameters():
         params = {}
@@ -62,13 +67,13 @@ if __name__ == "__main__":
         params['env_path'] = random.choice(envmaps)
         params['env_strength'] = 0.5 + random.random() * 10
         params['env_show'] = random.random() < 0.1
-        params['lut_path'] = random.choice(transferfuncs) if len(transferfuncs) else None
-        params['lut_window_left'] = -0.1 + random.random() * 0.6
+        params['lut_n_bins'] = random.randint(2, 32+1)
+        params['lut_window_left'] = random.random() * 0.25
         params['lut_window_width'] = random.random()
         params['vol_path'] = random.choice(volumes)
-        params['vol_albedo'] = vec3(random.random(), random.random(), random.random())
+        params['vol_albedo'] = volpy.vec3(random.random(), random.random(), random.random())
         params['vol_phase'] = -0.9 + (random.random() * 1.8)
-        params['vol_density_scale'] = 0.1 + random.random() * 5
+        params['vol_density_scale'] = 0.01 + random.random() * 5
         params['cam_pos_sample'] = uniform_sample_sphere()
         params['cam_dir_sample'] = uniform_sample_sphere()
         params['cam_fov'] = 25 + (random.random() * 70)
@@ -77,18 +82,19 @@ if __name__ == "__main__":
     for i, params in enumerate([randomize_parameters() for i in range(N_IMAGES)]):
         print(f'rendering {i+1}/{N_IMAGES}..')
         # load volume
-        renderer.volume = Volume(params['vol_path'])
+        renderer.volume = volpy.Volume(params['vol_path'])
         renderer.commit()
         renderer.albedo = params['vol_albedo']
         renderer.phase = params['vol_phase']
         renderer.density_scale = params['vol_density_scale']
         # load envmap
-        renderer.environment = Environment(params['env_path'])
+        renderer.environment = volpy.Environment(params['env_path'])
         renderer.environment.strength = params['env_strength']
         renderer.show_environment = params['env_show']
-        # load transferfunc
-        if (len(transferfuncs) and random.random() < 0.5):
-            renderer.transferfunc = TransferFunction(params['lut_path'])
+        # randomze transferfunc?
+        if (ENABLE_RANDOM_TRANSFERFUNC):
+            renderer.transferfunc = volpy.TransferFunction()
+            renderer.transferfunc.randomize(params['lut_n_bins'])
             renderer.transferfunc.window_left = params['lut_window_left']
             renderer.transferfunc.window_width = params['lut_window_width']
         else:

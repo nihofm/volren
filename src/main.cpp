@@ -201,23 +201,18 @@ void gui_callback(void) {
             renderer->transferfunc.reset();
             renderer->reset();
         }
+        if (ImGui::Button("Random TF")) {
+            renderer->transferfunc = std::make_shared<TransferFunction>();
+            renderer->reset();
+        }
         ImGui::SameLine();
         if (ImGui::Button("Gradient TF")) {
             renderer->transferfunc = std::make_shared<TransferFunction>(std::vector<glm::vec4>({ glm::vec4(0), glm::vec4(1) }));
-            renderer->transferfunc->upload_gpu();
-            renderer->reset();
-        }
-        if (ImGui::Button("RGB TF")) {
-            renderer->transferfunc = std::make_shared<TransferFunction>(std::vector<glm::vec4>({ glm::vec4(0), glm::vec4(1,0,0,0.25), glm::vec4(0,1,0,0.5), glm::vec4(0,0,1,0.75), glm::vec4(1) }));
-            renderer->transferfunc->upload_gpu();
             renderer->reset();
         }
         ImGui::SameLine();
-        if (ImGui::Button("Random TF")) {
-            renderer->transferfunc = std::make_shared<TransferFunction>();
-            for (int i = 0; i < 8; ++i)
-                renderer->transferfunc->lut.push_back(i == 0 ? glm::vec4(0) : glm::vec4(randf(), randf(), randf(), randf()));
-            renderer->transferfunc->upload_gpu();
+        if (ImGui::Button("RGB TF")) {
+            renderer->transferfunc = std::make_shared<TransferFunction>(std::vector<glm::vec4>({ glm::vec4(0), glm::vec4(1,0,0,0.25), glm::vec4(0,1,0,0.5), glm::vec4(0,0,1,0.75), glm::vec4(1) }));
             renderer->reset();
         }
         if (renderer->transferfunc) {
@@ -379,7 +374,7 @@ static void parse_cmd(int argc, char** argv) {
             renderer->volume->transform = glm::mat3(glm::rotate(glm::mat4(renderer->volume->transform), glm::radians(std::stof(argv[++i])), glm::vec3(0, 1, 0)));
         else if (arg == "--vol_rot_z")
             renderer->volume->transform = glm::mat3(glm::rotate(glm::mat4(renderer->volume->transform), glm::radians(std::stof(argv[++i])), glm::vec3(0, 0, 1)));
-        else
+        else if (fs::is_regular_file(argv[i]) || fs::is_directory(argv[i]))
             handle_path(argv[i]);
     }
 }
@@ -460,7 +455,7 @@ int main(int argc, char** argv) {
                 renderer->trace();
                 timer_trace->end();
                 if (renderer->sample == renderer->sppx)
-                    renderer->color->save_ldr(out_filename, true, true); // TODO: apply tonemapping
+                    renderer->color->save_ldr(out_filename, true, true); // TODO: apply tonemapping?
             } else
                 glfwWaitEventsTimeout(1.f / 10); // 10fps idle
 

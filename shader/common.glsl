@@ -85,7 +85,6 @@ vec3 view_dir(const ivec2 xy, const ivec2 wh, const vec2 pixel_sample) {
 uniform mat3 env_transform;
 uniform mat3 env_inv_transform;
 uniform float env_strength;
-// uniform float env_integral; // TODO precompute?
 uniform vec2 env_imp_inv_dim;
 uniform int env_imp_base_mip;
 uniform sampler2D env_envmap;
@@ -141,13 +140,13 @@ vec4 sample_environment(const vec2 rng, out vec3 w_i) {
     w_i = env_transform * vec3(sin_t * cos(phi), cos(theta), sin_t * sin(phi));
     // sample envmap and compute pdf
     const vec3 Le = env_strength * texture(env_envmap, uv).rgb;
-    const float avg_w = texelFetch(env_impmap, ivec2(0, 0), env_imp_base_mip).r; // TODO precompute (uniform)
+    const float avg_w = texelFetch(env_impmap, ivec2(0, 0), env_imp_base_mip).r;
     const float pdf = texelFetch(env_impmap, pos, 0).r / avg_w;
     return vec4(Le, pdf * inv_4PI);
 }
 
 float pdf_environment(const vec3 dir) {
-    const float avg_w = texelFetch(env_impmap, ivec2(0, 0), env_imp_base_mip).r; // TODO precompute (uniform)
+    const float avg_w = texelFetch(env_impmap, ivec2(0, 0), env_imp_base_mip).r;
     const float pdf = luma(lookup_environment(dir)) / avg_w;
     return pdf * inv_4PI;
 }
@@ -517,7 +516,7 @@ bool sample_volume_raymarch(const vec3 wpos, const vec3 wdir, out float t, inout
         tau += d * dt;
 #endif
         if (tau >= tau_target) {
-            // TODO revert to hit
+            // TODO revert to exact hit pos
 #ifdef USE_TRANSFERFUNC
             const vec3 albedo = rgba.rgb * vol_albedo;
 #else

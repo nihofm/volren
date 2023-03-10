@@ -4,7 +4,9 @@
 
 using namespace cppgl;
 
-TransferFunction::TransferFunction() : window_left(0), window_width(1) {}
+TransferFunction::TransferFunction() : window_left(0), window_width(1) {
+    randomize();
+}
 
 TransferFunction::TransferFunction(const fs::path& path) : TransferFunction() {
     // load lut from file (format: %f, %f, %f, %f)
@@ -28,7 +30,7 @@ TransferFunction::TransferFunction(const std::vector<glm::vec4>& lut) : Transfer
 
 TransferFunction::~TransferFunction() {}
 
-void TransferFunction::set_uniforms(const Shader& shader, uint32_t& texture_unit, uint32_t buffer_binding) const {
+void TransferFunction::set_uniforms(const Shader& shader, uint32_t buffer_binding) const {
     lut_ssbo->bind_base(buffer_binding);
     shader->uniform("tf_size", uint32_t(lut_ssbo->size_bytes / sizeof(glm::vec4)));
     shader->uniform("tf_window_left", window_left);
@@ -53,4 +55,13 @@ void TransferFunction::upload_gpu() {
     // setup SSBO
     lut_ssbo = SSBO("transferfunc_ssbo");
     lut_ssbo->upload_data(lut_cdf.data(), lut_cdf.size() * sizeof(glm::vec4));
+}
+
+static inline float randf() { return rand() / (RAND_MAX + 1.f); }
+
+void TransferFunction::randomize(size_t n_bins) {
+    lut.clear();
+    for (int i = 0; i < n_bins; ++i)
+        lut.push_back(i == 0 ? glm::vec4(0) : glm::vec4(randf(), randf(), randf(), randf()));
+    upload_gpu();
 }

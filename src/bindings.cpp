@@ -103,8 +103,10 @@ PYBIND11_EMBEDDED_MODULE(volpy, m) {
     // transferfunc bindings
 
     pybind11::class_<TransferFunction, std::shared_ptr<TransferFunction>>(m, "TransferFunction")
+        .def(pybind11::init<>())
         .def(pybind11::init<const std::string&>())
         .def(pybind11::init<const std::vector<glm::vec4>&>())
+        .def("randomize", &TransferFunction::randomize)
         .def_readwrite("window_left", &TransferFunction::window_left)
         .def_readwrite("window_width", &TransferFunction::window_width);
 

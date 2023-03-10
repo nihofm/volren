@@ -123,7 +123,7 @@ void RendererOpenGL::trace() {
         shader->uniform("vol_emission_atlas", emission.atlas, tex_unit++);
     }
     // transfer function
-    if (transferfunc) transferfunc->set_uniforms(shader, tex_unit, 4);
+    if (transferfunc) transferfunc->set_uniforms(shader, 4);
     // environment
     shader->uniform("env_transform", environment->transform);
     shader->uniform("env_inv_transform", glm::inverse(environment->transform));
