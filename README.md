@@ -59,13 +59,14 @@ Note that due to executing python scripts in embedded mode, there is no direct p
 
 ### COLMAP data generation
 
-Modify `scripts/datagen_colmap.py` to change rendered volume and settings.
+Modify `scripts/datagen_colmap.py` to change path to volume data and settings.
 
     ./volren scripts/datagen_colmap.py --render -w 1024 -h 1024
 
-### DL denoising data generation (using h5)
+### DL denoising data generation (using hdf5 in fp16 layout)
 
-Modify `scripts/datagen_denoise.py` to point to your dataset. Glob for `*.vdb` and `*.hdr` files per default.
+Modify `scripts/datagen_denoise.py` to point to your dataset of volume and envmap files.
+Creates a randomized HDF5 dataset of noisy and clean image data in fp16 layout. Only color data is exported, but it can easily be extended for auxiliary feature data as well.
 
     ./volren scripts/datagen_denoise.py --render -w 1024 -h 1024
 
