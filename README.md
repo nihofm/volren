@@ -26,7 +26,7 @@ For command line arguments see the function `init_opengl_from_args()` in `main.c
 
 In interactive mode, move the camera using the `WASD` and `RFEQ` keys, click and drag the mouse to move the camera and scroll the mousewheel to increase or decrease camera movement speed.
 The `F1` key toggles the GUI, where all parameters can also be interactively edited during rendering.
-Press `Space` to restart rendering and `Esc` to terminate the program.
+Press `Space` to toggle an animation and `Esc` to terminate the program.
 
 ## Interactive mode
 
@@ -36,7 +36,7 @@ Start an interactive viewer using the provided volume data and envmap without tr
 
 Start an interactive viewer using the provided volume data and envmap with transfer function:
 
-    ./volren data/smoke.brick data/table_mountain_2_puresky_1k.hdr data/lut.txt # TODO
+    ./volren data/smoke.brick data/table_mountain_2_puresky_1k.hdr data/lut.txt # TODO provide example LUT
 
 ## Offline rendering
 

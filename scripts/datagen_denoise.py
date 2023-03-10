@@ -34,7 +34,7 @@ if __name__ == "__main__":
                     entries.append(os.path.join(dirname, fname))
         return sorted(entries)
 
-    volumes = glob_directory(VOLPATH, '.vdb')
+    volumes = glob_directory(VOLPATH, '.brick')
     envmaps = glob_directory(ENVPATH, '.hdr')
 
     print('#volumes:', len(volumes))
