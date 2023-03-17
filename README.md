@@ -104,9 +104,10 @@ Creates a randomized HDF5 dataset of noisy and clean image data in fp16 layout. 
 
 See `scripts/styletransfer.py` for command line arguments. Basic usage is:
 
-    python scripts/styletransfer.py data/cat.jpg data/style.jpg
+    python scripts/styletransfer.py <content_image> <style_image>
 
-Possible result from the above command:
+Example result using stock photos from [Pexels](https://www.pexels.com/) `python scripts/styletransfer.py data/cat.jpg data/style.jpg`:
+
 <img src="data/p_style.jpg" width="500"/>
 
 # Licence
