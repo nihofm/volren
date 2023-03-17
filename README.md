@@ -9,7 +9,7 @@ Example rendering of the [Disney cloud](https://www.disneyanimation.com/resource
 
 # Submodules
 
-Either clone the repository using `--recursive` flag, or run `git submodule update --init` in the root folder to pull the submodules after cloning.
+Either clone the repository using `--recursive` flag, or run `git submodule update --init --recursive` in the root folder to pull the submodules after cloning.
 
 # Dependencies (Ubuntu)
 
