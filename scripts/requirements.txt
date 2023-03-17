@@ -2,3 +2,5 @@ numpy
 argparse
 scipy
 h5py
+torch
+torchvision

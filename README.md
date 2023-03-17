@@ -81,6 +81,12 @@ Example public domain volume animation data can be downloaded from [JangxFX](htt
 For more complex tasks like generating data for ML, see `bindings.cpp` for Python bindings or `scripts/*.py` for some examples.
 Note that due to executing python scripts in embedded mode, there is no direct possibility to use arguments for the python scripts, and thus paths and settings need to the provided in the scripts directly. Feel free to add or hack the bindings to your liking.
 
+To setup a python environment using virtualenv:
+
+    virtualenv -p python3 env
+    source env/bin/activate
+    pip3 install -r scripts/requirements.txt
+
 ### COLMAP data generation
 
 Modify `scripts/datagen_colmap.py` to change path to volume data and settings.
@@ -96,7 +102,12 @@ Creates a randomized HDF5 dataset of noisy and clean image data in fp16 layout. 
 
 ### Style transfer
 
-TODO!
+See `scripts/styletransfer.py` for command line arguments. Basic usage is:
+
+    python scripts/styletransfer.py data/cat.jpg data/style.jpg
+
+Possible result from the above command:
+<img src="data/p_style.jpg" width="500"/>
 
 # Licence
 
