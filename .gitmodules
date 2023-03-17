@@ -1,12 +1,9 @@
-[submodule "submodules/cppgl"]
-	path = submodules/cppgl
-	url = git@git9.cs.fau.de:renderingframeworks/cppgl.git
-	branch = deps
 [submodule "submodules/pybind11"]
 	path = submodules/pybind11
 	url = https://github.com/pybind/pybind11
-	branch = master
+[submodule "submodules/cppgl"]
+	path = submodules/cppgl
+	url = https://github.com/nihofm/cppgl
 [submodule "submodules/voldata"]
 	path = submodules/voldata
-	url = git@git9.cs.fau.de:ul40ovyj/voldata.git
-	branch = dev
+	url = https://github.com/nihofm/voldata
