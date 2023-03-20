@@ -51,7 +51,7 @@ Start an interactive viewer using the provided volume data and envmap without tr
 
 Start an interactive viewer using the provided volume data and envmap with transfer function:
 
-    ./volren data/smoke.brick data/table_mountain_2_puresky_1k.hdr data/lut.txt # TODO provide example LUT
+    ./volren data/smoke.brick data/table_mountain_2_puresky_1k.hdr data/lut.txt
 
 Example screenshot of an interactive session rendering a explosion cloud from [JangaFX](https://jangafx.com/software/embergen/download/free-vdb-animations/):
 
