@@ -5,7 +5,7 @@ Volumes may be animated and read from OpenVDB, NanoVDB, DICOM or serialized dens
 
 Example rendering of the [Disney cloud](https://www.disneyanimation.com/resources/clouds/) dataset:
 
-<img src="data/wdas_cloud.jpg" width="500"/>
+<img src="imgs/wdas_cloud.jpg" width="500"/>
 
 # Submodules
 
@@ -41,7 +41,7 @@ Simple rgba-based transfer functions, as often used in medical rendering context
 
 Example rendering of a fullbody CT scan using a transfer function:
 
-<img src="data/fullbody_spline.jpg" width="500"/>
+<img src="imgs/fullbody_spline.jpg" width="500"/>
 
 ## Interactive mode
 
@@ -55,7 +55,7 @@ Start an interactive viewer using the provided volume data and envmap with trans
 
 Example screenshot of an interactive session rendering a explosion cloud from [JangaFX](https://jangafx.com/software/embergen/download/free-vdb-animations/):
 
-<img src="data/interactive.jpg" width="500"/>
+<img src="imgs/interactive.jpg" width="500"/>
 
 ## Offline rendering
 
@@ -70,7 +70,7 @@ Offline render a volume using some additional command line arguments:
 
 Expected result of the above command (without alpha channel):
 
-<img src="data/example.jpg" width="281"/>
+<img src="imgs/example.jpg" width="281"/>
 
 Note that resulting images are saved including alpha to enable blending or masking. Just drop the alpha channel if background color is desired.
 If a provided path is a directory, it is assumed to contain discretized grids of a volume animation and all contained volume data will be loaded and rendered in alphanumerical order.
@@ -106,9 +106,9 @@ There is a basic styletransfer script using gradient descent on a VGG-based styl
 
     python scripts/styletransfer.py <content_image> <style_image>
 
-Example result using stock photos from [Pexels](https://www.pexels.com/) `python scripts/styletransfer.py data/cat.jpg data/style.jpg`:
+Example result using stock photos from [Pexels](https://www.pexels.com/) `python scripts/styletransfer.py imgs/cat.jpg imgs/style.jpg`:
 
-<img src="data/p_style.jpg" width="500"/>
+<img src="imgs/p_style.jpg" width="500"/>
 
 # Licence
 
