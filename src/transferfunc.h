@@ -24,6 +24,9 @@ public:
     // randomize contents
     void randomize(size_t n_bins = 8);
 
+    // write current LUT to (text-)file
+    void write_to_file(const std::string& filename);
+
     // data
     float window_left, window_width;
     std::vector<glm::vec4> lut;

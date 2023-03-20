@@ -1,6 +1,8 @@
 #include "transferfunc.h"
 #include <fstream>
+#include <sstream>
 #include <iostream>
+#include <filesystem>
 
 using namespace cppgl;
 
@@ -64,4 +66,17 @@ void TransferFunction::randomize(size_t n_bins) {
     for (int i = 0; i < n_bins; ++i)
         lut.push_back(i == 0 ? glm::vec4(0) : glm::vec4(randf(), randf(), randf(), randf()));
     upload_gpu();
+}
+
+void TransferFunction::write_to_file(const std::string& filename) {
+    std::filesystem::path filepath = filename;
+    filepath.replace_extension(".txt"); // ensure text-based file
+    std::ofstream file(filepath);
+    if (file.is_open()) {
+        char tmp[256];
+        for (const auto& rgba : lut) {
+            snprintf(tmp, 256, "%f, %f, %f, %f", rgba.x, rgba.y, rgba.z, rgba.a);
+            file << tmp << std::endl;
+        }
+    }
 }
