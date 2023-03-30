@@ -215,10 +215,9 @@ void gui_callback(void) {
             renderer->transferfunc = std::make_shared<TransferFunction>(std::vector<glm::vec4>({ glm::vec4(0), glm::vec4(1,0,0,0.25), glm::vec4(0,1,0,0.5), glm::vec4(0,0,1,0.75), glm::vec4(1) }));
             renderer->reset();
         }
-        if (ImGui::Button("Write TF")) {
-            renderer->transferfunc->write_to_file("tf_lut.txt");
-        }
         if (renderer->transferfunc) {
+            if (ImGui::Button("Write TF"))
+                    renderer->transferfunc->write_to_file("tf_lut.txt");
             if (ImGui::DragFloat("Window left", &renderer->transferfunc->window_left, 0.01f, -1.f, 1.f)) renderer->reset();
             if (ImGui::DragFloat("Window width", &renderer->transferfunc->window_width, 0.01f, 0.f, 1.f)) renderer->reset();
         }
