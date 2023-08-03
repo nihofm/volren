@@ -52,6 +52,7 @@ void load_volume(const std::string& path) {
                 }
             }
         }
+        renderer->density_scale = 1.f;
         renderer->scale_and_move_to_unit_cube();
         renderer->commit();
         renderer->sample = 0;
@@ -213,6 +214,18 @@ void gui_callback(void) {
         ImGui::SameLine();
         if (ImGui::Button("RGB TF")) {
             renderer->transferfunc = std::make_shared<TransferFunction>(std::vector<glm::vec4>({ glm::vec4(0), glm::vec4(1,0,0,0.25), glm::vec4(0,1,0,0.5), glm::vec4(0,0,1,0.75), glm::vec4(1) }));
+            renderer->reset();
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Jet TF")) {
+            static const uint N = 32;
+            glm::vec3 bias(3, 2, 1);
+            std::vector<glm::vec4> values;
+            for (int i = 0; i < N; ++i) {
+                const float f = float(i) / N;
+                values.push_back(glm::vec4(glm::clamp(glm::vec3(1.5) - glm::abs(glm::vec3(4.f * f) - bias), glm::vec3(0), glm::vec3(1)), f));
+            }
+            renderer->transferfunc = std::make_shared<TransferFunction>(values);
             renderer->reset();
         }
         if (renderer->transferfunc) {
