@@ -219,7 +219,7 @@ void gui_callback(void) {
         ImGui::SameLine();
         if (ImGui::Button("Jet TF")) {
             static const uint N = 32;
-            glm::vec3 bias(3, 2, 1);
+            static const glm::vec3 bias(3, 2, 1);
             std::vector<glm::vec4> values;
             for (int i = 0; i < N; ++i) {
                 const float f = float(i) / N;
