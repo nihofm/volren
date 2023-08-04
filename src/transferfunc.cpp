@@ -68,6 +68,16 @@ void TransferFunction::randomize(size_t n_bins) {
     upload_gpu();
 }
 
+void TransferFunction::colormap(tinycolormap::ColormapType type, size_t n_bins) {
+    lut.clear();
+    for (int i = 0; i < n_bins; ++i) {
+        const float f = float(i) / n_bins;
+        const tinycolormap::Color color = tinycolormap::GetColor(f, type);
+        lut.push_back(glm::vec4(color.r(), color.g(), color.b(), f));
+    }
+    upload_gpu();
+}
+
 void TransferFunction::write_to_file(const std::string& filename) {
     std::filesystem::path filepath = filename;
     filepath.replace_extension(".txt"); // ensure text-based file

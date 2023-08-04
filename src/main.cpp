@@ -11,6 +11,7 @@
 #include <pybind11/embed.h>
 #include <pybind11/eval.h>
 
+
 #include "renderer.h"
 
 using namespace cppgl;
@@ -216,16 +217,33 @@ void gui_callback(void) {
             renderer->transferfunc = std::make_shared<TransferFunction>(std::vector<glm::vec4>({ glm::vec4(0), glm::vec4(1,0,0,0.25), glm::vec4(0,1,0,0.5), glm::vec4(0,0,1,0.75), glm::vec4(1) }));
             renderer->reset();
         }
+        if (ImGui::Button("Turbo")) {
+            renderer->transferfunc = std::make_shared<TransferFunction>();
+            renderer->transferfunc->colormap(tinycolormap::ColormapType::Turbo);
+            renderer->reset();
+        }
         ImGui::SameLine();
-        if (ImGui::Button("Jet TF")) {
-            static const uint N = 32;
-            static const glm::vec3 bias(3, 2, 1);
-            std::vector<glm::vec4> values;
-            for (int i = 0; i < N; ++i) {
-                const float f = float(i) / N;
-                values.push_back(glm::vec4(glm::clamp(glm::vec3(1.5) - glm::abs(glm::vec3(4.f * f) - bias), glm::vec3(0), glm::vec3(1)), f));
-            }
-            renderer->transferfunc = std::make_shared<TransferFunction>(values);
+        if (ImGui::Button("Viridis")) {
+            renderer->transferfunc = std::make_shared<TransferFunction>();
+            renderer->transferfunc->colormap(tinycolormap::ColormapType::Viridis);
+            renderer->reset();
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Cividis")) {
+            renderer->transferfunc = std::make_shared<TransferFunction>();
+            renderer->transferfunc->colormap(tinycolormap::ColormapType::Cividis);
+            renderer->reset();
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Magma")) {
+            renderer->transferfunc = std::make_shared<TransferFunction>();
+            renderer->transferfunc->colormap(tinycolormap::ColormapType::Magma);
+            renderer->reset();
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Cubehelix")) {
+            renderer->transferfunc = std::make_shared<TransferFunction>();
+            renderer->transferfunc->colormap(tinycolormap::ColormapType::Cubehelix);
             renderer->reset();
         }
         if (renderer->transferfunc) {

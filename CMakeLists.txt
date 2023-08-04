@@ -20,6 +20,8 @@ include_directories(submodules/voldata/submodules)
 add_subdirectory(submodules/pybind11)
 include_directories(submodules/pybind11/include)
 
+include_directories(submodules/tinycolormap/include)
+
 # ---------------------------------------------------------------------
 # compiler setup
 
