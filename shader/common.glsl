@@ -207,7 +207,8 @@ float tf_window(float d) {
 vec4 tf_lookup(float d) {
     const float tc = tf_window(d);
     const int idx = int(floor(tc * tf_size));
-    return tf_lut[idx];
+    const float f = fract(tc * tf_size);
+    return mix(tf_lut[idx], tf_lut[min(idx + 1, tf_size - 1)], f);
 }
 
 // --------------------------------------------------------------
