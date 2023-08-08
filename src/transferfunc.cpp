@@ -30,6 +30,10 @@ TransferFunction::TransferFunction(const std::vector<glm::vec4>& lut) : Transfer
     upload_gpu();
 }
 
+TransferFunction::TransferFunction(tinycolormap::ColormapType type) : TransferFunction() {
+    colormap(type);
+}
+
 TransferFunction::~TransferFunction() {}
 
 void TransferFunction::set_uniforms(const Shader& shader, uint32_t buffer_binding) const {

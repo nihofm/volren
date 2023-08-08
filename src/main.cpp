@@ -387,6 +387,8 @@ static void parse_cmd(int argc, char** argv) {
             renderer->environment->transform = glm::mat3(glm::rotate(glm::mat4(renderer->environment->transform), glm::radians(std::stof(argv[++i])), glm::vec3(0, 1, 0)));
         else if (arg == "--env_hide")
             renderer->show_environment = false;
+        else if (arg == "--heatmap")
+            renderer->transferfunc = std::make_shared<TransferFunction>(tinycolormap::ColormapType::Turbo);
         else if (arg == "--cam_pos") {
             current_camera()->pos.x = std::stof(argv[++i]);
             current_camera()->pos.y = std::stof(argv[++i]);

@@ -11,6 +11,7 @@ public:
     TransferFunction();
     TransferFunction(const fs::path& path);
     TransferFunction(const std::vector<glm::vec4>& lut);
+    TransferFunction(tinycolormap::ColormapType type);
     virtual ~TransferFunction();
 
     // bind uniforms to given shader
