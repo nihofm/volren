@@ -133,7 +133,7 @@ void keyboard_callback(int key, int scancode, int action, int mods) {
     if (key == GLFW_KEY_ENTER && action == GLFW_PRESS)
         Context::screenshot("screenshot.png");
     // --------------------------------------------------------------
-    // LNdW 2023 demo scenes
+    // LNdW 2023 demo scenes TODO: cleanup
     // std::filesystem::path base_dir = "/media/ul40ovyj/T7 Touch/";
     std::filesystem::path base_dir = "/media/niko/T7 Touch/";
     // head demo
@@ -352,6 +352,11 @@ void gui_callback(void) {
             renderer->transferfunc = std::make_shared<TransferFunction>(std::vector<glm::vec4>({ glm::vec4(0), glm::vec4(1,0,0,0.25), glm::vec4(0,1,0,0.5), glm::vec4(0,0,1,0.75), glm::vec4(1) }));
             renderer->reset();
         }
+        ImGui::SameLine();
+        if (ImGui::Button("FAU TF")) {
+            renderer->transferfunc = std::make_shared<TransferFunction>(std::vector<glm::vec4>({ glm::vec4(0), glm::vec4(4/255.f, 49/255.f, 106/255.f, 0.33), glm::vec4(38/255.f, 97/255.f, 65/255.f, 0.66), glm::vec4(151/255.f, 27/255.f, 47/255.f, 1) }));
+            renderer->reset();
+        }
         if (ImGui::Button("Turbo")) {
             renderer->transferfunc = std::make_shared<TransferFunction>();
             renderer->transferfunc->colormap(tinycolormap::ColormapType::Turbo);
@@ -502,29 +507,41 @@ static void init_opengl_from_args(int argc, char** argv) {
 static void parse_cmd(int argc, char** argv) {
     for (int i = 1; i < argc; ++i) {
         const std::string arg = argv[i];
-        if (arg == "--render")
+        if (arg == "--render") {
             interactive = false;
-        else if (arg == "--samples" || arg == "--spp" || arg == "--sppx")
+        } else if (arg == "--samples" || arg == "--spp" || arg == "--sppx") {
             renderer->sppx = std::stoi(argv[++i]);
-        else if (arg == "--bounces")
+        } else if (arg == "--bounces") {
             renderer->bounces = std::stoi(argv[++i]);
-        else if (arg == "--albedo")
+        } else if (arg == "--albedo") {
             renderer->albedo = glm::vec3(std::stof(argv[++i]));
-        else if (arg == "--density")
+        } else if (arg == "--density") {
             renderer->density_scale = std::stof(argv[++i]);
-        else if (arg == "--emission")
+        } else if (arg == "--emission") {
             renderer->emission_scale = std::stof(argv[++i]);
-        else if (arg == "--phase")
+        } else if (arg == "--phase") {
             renderer->phase = std::stof(argv[++i]);
-        else if (arg == "--env_strength")
+        } else if (arg == "--env_strength") {
             renderer->environment->strength = std::stof(argv[++i]);
-        else if (arg == "--env_rot")
+        } else if (arg == "--env_rot") {
             renderer->environment->transform = glm::mat3(glm::rotate(glm::mat4(renderer->environment->transform), glm::radians(std::stof(argv[++i])), glm::vec3(0, 1, 0)));
-        else if (arg == "--env_hide")
+        } else if (arg == "--env_hide") {
             renderer->show_environment = false;
-        else if (arg == "--heatmap")
-            renderer->transferfunc = std::make_shared<TransferFunction>(tinycolormap::ColormapType::Turbo);
-        else if (arg == "--cam_pos") {
+        } else if (arg == "--turbo") {
+            if (!renderer->transferfunc)
+                renderer->transferfunc = std::make_shared<TransferFunction>();
+            renderer->transferfunc->colormap(tinycolormap::ColormapType::Turbo);
+        } else if (arg == "--viridis") {
+            if (!renderer->transferfunc)
+                renderer->transferfunc = std::make_shared<TransferFunction>();
+            renderer->transferfunc->colormap(tinycolormap::ColormapType::Viridis);
+        } else if (arg == "--tf_left") {
+            if (renderer->transferfunc)
+                renderer->transferfunc->window_left = std::stof(argv[++i]);
+        } else if (arg == "--tf_width") {
+            if (renderer->transferfunc)
+                renderer->transferfunc->window_width = std::stof(argv[++i]);
+        } else if (arg == "--cam_pos") {
             current_camera()->pos.x = std::stof(argv[++i]);
             current_camera()->pos.y = std::stof(argv[++i]);
             current_camera()->pos.z = std::stof(argv[++i]);
@@ -534,18 +551,27 @@ static void parse_cmd(int argc, char** argv) {
             current_camera()->dir.z = std::stof(argv[++i]);
         } else if (arg == "--cam_fov")
             current_camera()->fov_degree = std::stof(argv[++i]);
-        else if (arg == "--exposure")
+        else if (arg == "--exposure") {
             renderer->tonemap_exposure = std::stof(argv[++i]);
-        else if (arg == "--gamma")
+        } else if (arg == "--gamma") {
             renderer->tonemap_gamma = std::stof(argv[++i]);
-        else if (arg == "--vol_rot_x")
+        } else if (arg == "--vol_rot_x") {
             renderer->volume->transform = glm::mat3(glm::rotate(glm::mat4(renderer->volume->transform), glm::radians(std::stof(argv[++i])), glm::vec3(1, 0, 0)));
-        else if (arg == "--vol_rot_y")
+        } else if (arg == "--vol_rot_y") {
             renderer->volume->transform = glm::mat3(glm::rotate(glm::mat4(renderer->volume->transform), glm::radians(std::stof(argv[++i])), glm::vec3(0, 1, 0)));
-        else if (arg == "--vol_rot_z")
+        } else if (arg == "--vol_rot_z") {
             renderer->volume->transform = glm::mat3(glm::rotate(glm::mat4(renderer->volume->transform), glm::radians(std::stof(argv[++i])), glm::vec3(0, 0, 1)));
-        else if (fs::is_regular_file(argv[i]) || fs::is_directory(argv[i]))
+        } else if (arg == "--vol_crop_min") {
+            renderer->vol_clip_min.x = std::stof(argv[++i]);
+            renderer->vol_clip_min.y = std::stof(argv[++i]);
+            renderer->vol_clip_min.z = std::stof(argv[++i]);
+        } else if (arg == "--vol_crop_max") {
+            renderer->vol_clip_max.x = std::stof(argv[++i]);
+            renderer->vol_clip_max.y = std::stof(argv[++i]);
+            renderer->vol_clip_max.z = std::stof(argv[++i]);
+        } else if (fs::is_regular_file(argv[i]) || fs::is_directory(argv[i])) {
             handle_path(argv[i]);
+        }
     }
 }
 
