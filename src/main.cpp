@@ -428,19 +428,9 @@ void gui_callback(void) {
             renderer->reset();
         }
         ImGui::Separator();
-        ImGui::Text("Rotate ENVMAP");
-        if (ImGui::Button("90° X##E")) {
-            renderer->environment->transform = glm::mat3(glm::rotate(glm::mat4(renderer->environment->transform), .5f * float(M_PI), glm::vec3(1, 0, 0)));
-            renderer->reset();
-        }
-        ImGui::SameLine();
-        if (ImGui::Button("90° Y##E")) {
-            renderer->environment->transform = glm::mat3(glm::rotate(glm::mat4(renderer->environment->transform), .5f * float(M_PI), glm::vec3(0, 1, 0)));
-            renderer->reset();
-        }
-        ImGui::SameLine();
-        if (ImGui::Button("90° Z##E")) {
-            renderer->environment->transform = glm::mat3(glm::rotate(glm::mat4(renderer->environment->transform), .5f * float(M_PI), glm::vec3(0, 0, 1)));
+        static float env_rot_y_deg = 0.f;
+        if (ImGui::SliderFloat("ENVMAP rotation", &env_rot_y_deg, 0.f, 359.9f)) {
+            renderer->environment->transform = glm::mat3(glm::rotate(glm::mat4(1), glm::radians(env_rot_y_deg), glm::vec3(0, 1, 0)));
             renderer->reset();
         }
         ImGui::Separator();
@@ -509,6 +499,8 @@ static void parse_cmd(int argc, char** argv) {
         const std::string arg = argv[i];
         if (arg == "--render") {
             interactive = false;
+        } else if (arg == "--output") {
+            out_filename = argv[++i];
         } else if (arg == "--samples" || arg == "--spp" || arg == "--sppx") {
             renderer->sppx = std::stoi(argv[++i]);
         } else if (arg == "--bounces") {
@@ -524,7 +516,7 @@ static void parse_cmd(int argc, char** argv) {
         } else if (arg == "--env_strength") {
             renderer->environment->strength = std::stof(argv[++i]);
         } else if (arg == "--env_rot") {
-            renderer->environment->transform = glm::mat3(glm::rotate(glm::mat4(renderer->environment->transform), glm::radians(std::stof(argv[++i])), glm::vec3(0, 1, 0)));
+            renderer->environment->transform = glm::mat3(glm::rotate(glm::mat4(1), glm::radians(std::stof(argv[++i])), glm::vec3(0, 1, 0)));
         } else if (arg == "--env_hide") {
             renderer->show_environment = false;
         } else if (arg == "--turbo") {
@@ -535,6 +527,10 @@ static void parse_cmd(int argc, char** argv) {
             if (!renderer->transferfunc)
                 renderer->transferfunc = std::make_shared<TransferFunction>();
             renderer->transferfunc->colormap(tinycolormap::ColormapType::Viridis);
+        } else if (arg == "--fau") {
+            if (!renderer->transferfunc)
+                renderer->transferfunc = std::make_shared<TransferFunction>();
+            renderer->transferfunc = std::make_shared<TransferFunction>(std::vector<glm::vec4>({ glm::vec4(0), glm::vec4(4/255.f, 49/255.f, 106/255.f, 0.33), glm::vec4(38/255.f, 97/255.f, 65/255.f, 0.66), glm::vec4(151/255.f, 27/255.f, 47/255.f, 1) }));
         } else if (arg == "--tf_left") {
             if (renderer->transferfunc)
                 renderer->transferfunc->window_left = std::stof(argv[++i]);
