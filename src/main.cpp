@@ -669,6 +669,7 @@ int main(int argc, char** argv) {
             renderer->volume->grid_frame_counter = i;
             while (renderer->sample < renderer->sppx) {
                 renderer->trace();
+                std::cout << renderer->sample << " / " << renderer->sppx << "\r" << std::flush;
                 Context::swap_buffers(); // sync (this is required for >= 1024spp)
             }
             glMemoryBarrier(GL_ALL_BARRIER_BITS);
