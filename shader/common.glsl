@@ -342,7 +342,7 @@ float transmittance(const vec3 wpos, const vec3 wdir, inout uint seed, float t_m
     float t = near_far.x - log(1 - rng(seed)) * vol_inv_majorant, Tr = 1.f;
     while (t < near_far.y) {
 #ifdef USE_TRANSFERFUNC
-        const vec4 rgba = tf_lookup(lookup_density_stochastic(ipos + t * idir, seed) * vol_inv_majorant);
+        const vec4 rgba = tf_lookup(lookup_density_trilinear(ipos + t * idir) * vol_inv_majorant);
         const float d = vol_majorant * rgba.a;
 #else
         const float d = lookup_density_stochastic(ipos + t * idir, seed);
@@ -372,7 +372,7 @@ bool sample_volume(const vec3 wpos, const vec3 wdir, out float t, inout vec3 thr
     t = near_far.x - log(1 - rng(seed)) * vol_inv_majorant;
     while (t < near_far.y) {
 #ifdef USE_TRANSFERFUNC
-        const vec4 rgba = tf_lookup(lookup_density_stochastic(ipos + t * idir, seed) * vol_inv_majorant);
+        const vec4 rgba = tf_lookup(lookup_density_trilinear(ipos + t * idir) * vol_inv_majorant);
         const float d = vol_majorant * rgba.a;
 #else
         const float d = lookup_density_stochastic(ipos + t * idir, seed);
@@ -435,7 +435,7 @@ float transmittanceDDA(const vec3 wpos, const vec3 wdir, inout uint seed) {
         t += tau / majorant; // step back to point of collision
         if (t >= near_far.y) break;
 #ifdef USE_TRANSFERFUNC
-        const vec4 rgba = tf_lookup(lookup_density_stochastic(ipos + t * idir, seed) * vol_inv_majorant);
+        const vec4 rgba = tf_lookup(lookup_density_trilinear(ipos + t * idir) * vol_inv_majorant);
         const float d = vol_majorant * rgba.a;
 #else
         const float d = lookup_density_stochastic(ipos + t * idir, seed);
@@ -482,7 +482,7 @@ bool sample_volumeDDA(const vec3 wpos, const vec3 wdir, out float t, inout vec3 
         t += tau / majorant; // step back to point of collision
         if (t >= near_far.y) break;
 #ifdef USE_TRANSFERFUNC
-        const vec4 rgba = tf_lookup(lookup_density_stochastic(ipos + t * idir, seed) * vol_inv_majorant);
+        const vec4 rgba = tf_lookup(lookup_density_trilinear(ipos + t * idir) * vol_inv_majorant);
         const float d = vol_majorant * rgba.a;
 #else
         const float d = lookup_density_stochastic(ipos + t * idir, seed);
