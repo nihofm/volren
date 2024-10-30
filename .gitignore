@@ -92,3 +92,20 @@ tags
 .vim
 
 # End of https://www.gitignore.io/api/vim,c++,linux,cmake
+
+*.png
+*.jpg
+*.jpeg
+*.hdr
+*.mp4
+*.vdb
+*.nvdb
+*.dense
+*.brick
+*.dat
+*.img
+*.zip
+*.txt
+.vscode
+imgui.ini
+
