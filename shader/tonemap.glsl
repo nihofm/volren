@@ -24,11 +24,13 @@ vec3 hable_tonemap(in vec3 rgb, in float exposure) {
     return hable(exposure * rgb) / hable(vec3(W));
 }
 
+vec4 sanitize(const vec4 x) { return mix(x, vec4(0), isnan(x) || isinf(x)); }
+
 void main() {
 	const ivec2 pixel = ivec2(gl_GlobalInvocationID.xy);
 	if (any(greaterThanEqual(pixel, resolution))) return;
     // tonemap
     vec4 out_col = imageLoad(color, pixel);
     out_col.rgb = pow(hable_tonemap(out_col.rgb, exposure), vec3(1.f / gamma));
-    imageStore(color, pixel, out_col);
+    imageStore(color, pixel, sanitize(out_col));
 }

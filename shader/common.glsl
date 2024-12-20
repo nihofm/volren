@@ -207,7 +207,40 @@ float tf_window(float d) {
 vec4 tf_lookup(float d) {
     const float tc = tf_window(d);
     const int idx = int(floor(tc * tf_size));
-    return tf_lut[idx];
+    const float f = fract(tc * tf_size);
+    return mix(tf_lut[idx], tf_lut[min(idx + 1, tf_size - 1)], f);
+}
+
+// --------------------------------------------------------------
+// stochastic filter helpers
+
+ivec3 stochastic_trilinear_filter(const vec3 ipos, inout uint seed) {
+    return ivec3(ipos - 0.5 + rng3(seed));
+}
+
+ivec3 stochastic_tricubic_filter(const vec3 ipos, inout uint seed) {
+    // from "Stochastic Texture Filtering": https://arxiv.org/pdf/2305.05810.pdf
+    const ivec3 iipos = ivec3(floor(ipos - 0.5));
+    const vec3 t = (ipos - 0.5) - iipos;
+    const vec3 t2 = t * t;
+    // weighted reservoir sampling, first tap always accepted
+    vec3 w = (1.f / 6.f) * (-t * t2 + 3 * t2 - 3 * t + 1);
+    vec3 sumWt = w;
+    ivec3 idx = ivec3(0);
+    // sample second tap
+    w = (1.f / 6.f) * (3 * t * t2 - 6 * t2 + 4);
+    sumWt = w + sumWt;
+    idx = mix(idx, ivec3(1), lessThan(rng3(seed), w / max(vec3(1e-3), sumWt)));
+    // sample third tap
+    w = (1.f / 6.f) * (-3 * t * t2 + 3 * t2 + 3 * t + 1);
+    sumWt = w + sumWt;
+    idx = mix(idx, ivec3(2), lessThan(rng3(seed), w / max(vec3(1e-3), sumWt)));
+    // sample fourth tap
+    w = (1.f / 6.f) * t * t2;
+    sumWt = w + sumWt;
+    idx = mix(idx, ivec3(3), lessThan(rng3(seed), w / max(vec3(1e-3), sumWt)));
+    // return tap location
+    return iipos + idx - 1;
 }
 
 // --------------------------------------------------------------
@@ -263,9 +296,11 @@ float lookup_density_trilinear(const vec3 ipos) {
     return vol_density_scale * mix(mix(lx0, lx1, f.y), mix(hx0, hx1, f.y), f.z);
 }
 
-// density lookup (stochastic filter)
+// density lookup (stochastic tricubic filter)
 float lookup_density_stochastic(const vec3 ipos, inout uint seed) {
-    return lookup_density(ipos + rng3(seed) - .5f);
+    // return lookup_density(ivec3(ipos));
+    // return lookup_density(stochastic_trilinear_filter(ipos, seed));
+    return lookup_density(stochastic_tricubic_filter(ipos, seed));
 }
 
 // temperature brick grid stored as textures
@@ -285,10 +320,10 @@ float lookup_temperature_brick(const vec3 ipos) {
     return range.x + value_unorm * (range.y - range.x);
 }
 
-// emission lookup (stochastic trilinear filter)
+// emission lookup (stochastic tricubic filter)
 vec3 lookup_emission(const vec3 ipos, inout uint seed) {
     const vec3 ipos_emission = vec3(vol_emission_inv_transform * vol_density_transform * vec4(ipos, 1));
-    const float t = lookup_temperature_brick(ipos_emission + rng3(seed) - .5f) * vol_emission_norm;
+    const float t = lookup_temperature_brick(stochastic_tricubic_filter(ipos_emission, seed)) * vol_emission_norm;
     return vol_emission_scale * sqr(vec3(t, sqr(t), sqr(sqr(t))));
 }
 
@@ -484,7 +519,7 @@ float transmittance_raymarch(const vec3 wpos, const vec3 wdir, inout uint seed) 
     float tau = 0.f;
     for (int i = 0; i < RAYMARCH_STEPS; ++i) {
 #ifdef USE_TRANSFERFUNC
-        tau += tf_lookup(lookup_density_trilinear(ipos + min(near_far.x + i * dt, near_far.y) * idir) * vol_inv_majorant).a * vol_majorant * dt;
+        tau += tf_lookup(lookup_density_stochastic(ipos + min(near_far.x + i * dt, near_far.y) * idir, seed) * vol_inv_majorant).a * vol_majorant * dt;
 #else
         tau += lookup_density_stochastic(ipos + min(near_far.x + i * dt, near_far.y) * idir, seed) * dt;
 #endif
@@ -508,7 +543,7 @@ bool sample_volume_raymarch(const vec3 wpos, const vec3 wdir, out float t, inout
     for (int i = 0; i < RAYMARCH_STEPS; ++i) {
         t = min(near_far.x + i * dt, near_far.y);
 #ifdef USE_TRANSFERFUNC
-        const float d = lookup_density_trilinear(ipos + t * idir);
+        const float d = lookup_density_stochastic(ipos + t * idir, seed);
         const vec4 rgba = tf_lookup(d * vol_inv_majorant);
         tau += rgba.a * vol_majorant * dt;
 #else

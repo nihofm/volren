@@ -39,7 +39,7 @@ Press `Space` to toggle an animation and `Esc` to terminate the program.
 While there is basic support to load DICOM volumes via the [Imebra](https://imebra.com/) library, it is impossible to support all of the DICOM standard and you may need to hack the `voldata::DICOMGrid` to fit your needs.
 Simple rgba-based transfer functions, as often used in medical rendering contexts, are also supported and can be read from a simple text-based lookup table in the format `%f, %f, %f, %f` per line/entry.
 
-Example rendering of a fullbody CT scan using a transfer function:
+Example rendering of a fullbody CT scan with a transfer function:
 
 <img src="imgs/fullbody_spline.jpg" width="500"/>
 
@@ -56,6 +56,10 @@ Start an interactive viewer using the provided volume data and envmap with trans
 Example screenshot of an interactive session rendering a explosion cloud from [JangaFX](https://jangafx.com/software/embergen/download/free-vdb-animations/):
 
 <img src="imgs/interactive.jpg" width="500"/>
+
+Example rendering of an industrial CT scan with a transfer function:
+
+<img src="imgs/power_supply.jpg" width="500"/>
 
 ## Offline rendering
 

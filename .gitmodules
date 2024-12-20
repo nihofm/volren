@@ -7,3 +7,6 @@
 [submodule "submodules/voldata"]
 	path = submodules/voldata
 	url = https://github.com/nihofm/voldata
+[submodule "submodules/tinycolormap"]
+	path = submodules/tinycolormap
+	url = https://github.com/yuki-koyama/tinycolormap

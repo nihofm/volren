@@ -105,7 +105,7 @@ void RendererOpenGL::trace() {
     shader->uniform("vol_phase_g", phase);
     shader->uniform("vol_density_scale", density_scale);
     shader->uniform("vol_emission_scale", emission_scale);
-    shader->uniform("vol_emission_norm", majorant_emission > 0.f ? 1.f / majorant_emission : 1.f);
+    shader->uniform("vol_emission_norm", majorant_emission > 0.f ? 1.f / fmaxf(majorant_emission, 1e-4f) : 1.f);
     // density brick grid data
     const BrickGridGL density = density_grids[volume->grid_frame_counter];
     shader->uniform("vol_density_transform", volume->transform * density.transform);

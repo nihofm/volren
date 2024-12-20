@@ -3,6 +3,7 @@
 #include <vector>
 #include <memory>
 #include <glm/glm.hpp>
+#include <tinycolormap.hpp>
 #include <cppgl.h>
 
 class TransferFunction {
@@ -10,6 +11,7 @@ public:
     TransferFunction();
     TransferFunction(const fs::path& path);
     TransferFunction(const std::vector<glm::vec4>& lut);
+    TransferFunction(tinycolormap::ColormapType type);
     virtual ~TransferFunction();
 
     // bind uniforms to given shader
@@ -23,6 +25,8 @@ public:
 
     // randomize contents
     void randomize(size_t n_bins = 8);
+    // set to colormap: Parula, Heat, Jet, Turbo, Hot, Gray, Magma, Inferno, Plasma, Viridis, Cividis, Github, Cubehelix, HSV
+    void colormap(tinycolormap::ColormapType type, size_t n_bins = 256);
 
     // write current LUT to (text-)file
     void write_to_file(const std::string& filename);

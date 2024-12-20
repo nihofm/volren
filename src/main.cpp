@@ -11,6 +11,7 @@
 #include <pybind11/embed.h>
 #include <pybind11/eval.h>
 
+
 #include "renderer.h"
 
 using namespace cppgl;
@@ -52,6 +53,7 @@ void load_volume(const std::string& path) {
                 }
             }
         }
+        renderer->density_scale = 1.f;
         renderer->scale_and_move_to_unit_cube();
         renderer->commit();
         renderer->sample = 0;
@@ -130,6 +132,139 @@ void keyboard_callback(int key, int scancode, int action, int mods) {
     }
     if (key == GLFW_KEY_ENTER && action == GLFW_PRESS)
         Context::screenshot("screenshot.png");
+    // --------------------------------------------------------------
+    // LNdW 2023 demo scenes TODO: cleanup
+    // std::filesystem::path base_dir = "/media/ul40ovyj/T7 Touch/";
+    std::filesystem::path base_dir = "/media/niko/T7 Touch/";
+    // head demo
+    if (key == GLFW_KEY_1 && action == GLFW_PRESS) {
+        load_volume(base_dir / "data/head_8bit.dat");
+        load_envmap(base_dir / "envmaps/chapmans_drive_2k.hdr");
+        renderer->show_environment = false;
+        renderer->environment->strength = 10.f;
+        renderer->albedo = glm::vec3(0.9);
+        renderer->density_scale = 500.f;
+        renderer->emission_scale = 0.f;
+        renderer->phase = 0.f;
+        renderer->transferfunc = std::make_shared<TransferFunction>();
+        renderer->transferfunc->colormap(tinycolormap::ColormapType::Cubehelix);
+        renderer->transferfunc->window_left = 0.235f;
+        renderer->transferfunc->window_width = 0.145f;
+        renderer->vol_clip_min = glm::vec3(0.38, 0.0, 0.0);
+        renderer->vol_clip_max = glm::vec3(1.0, 1.0, 1.0);
+        current_camera()->pos = glm::vec3(-0.8, 0.1, -0.32);
+        current_camera()->dir = normalize(glm::vec3(0.99, -0.1, -0.05));
+        current_camera()->up = glm::vec3(0, 1, 0);
+        animate = false;
+        renderer->reset();
+    }
+    // fullbody demo
+    if (key == GLFW_KEY_2 && action == GLFW_PRESS) {
+        load_volume(base_dir / "data/fullbody.brick");
+        renderer->volume->transform = glm::rotate(renderer->volume->transform, 1.f * float(M_PI), glm::vec3(0, 0, 1));
+        load_envmap(base_dir / "envmaps/kiara_8_sunset_2k.hdr");
+        renderer->show_environment = false;
+        renderer->environment->strength = 3.f;
+        renderer->albedo = glm::vec3(0.5);
+        renderer->density_scale = 750.f;
+        renderer->emission_scale = 0.f;
+        renderer->phase = 0.f;
+        renderer->transferfunc = std::make_shared<TransferFunction>();
+        renderer->transferfunc->colormap(tinycolormap::ColormapType::Cubehelix);
+        renderer->transferfunc->window_left = 0.242f;
+        renderer->transferfunc->window_width = 0.081f;
+        // load_transferfunc(base_dir / "data/SplineShaded.txt");
+        // renderer->transferfunc->window_left = 0.150f;
+        // renderer->transferfunc->window_width = 0.290f;
+        renderer->vol_clip_min = glm::vec3(0.0, 0.5, 0.0);
+        renderer->vol_clip_max = glm::vec3(1.0, 1.0, 1.0);
+        current_camera()->pos = glm::vec3(-0.075, 0.42, -0.12);
+        current_camera()->dir = normalize(glm::vec3(0.25, -0.95, -0.22));
+        current_camera()->up = glm::vec3(0, 1, 0);
+        animate = false;
+        renderer->reset();
+    }
+    //  demo objektiv
+    if (key == GLFW_KEY_3 && action == GLFW_PRESS) {
+        load_volume(base_dir / "volumes/objektiv.brick");
+        load_envmap(base_dir / "envmaps/forest_slope_2k.hdr");
+        renderer->show_environment = false;
+        renderer->environment->strength = 3.f;
+        renderer->albedo = glm::vec3(1.0);
+        renderer->density_scale = 200.f;
+        renderer->emission_scale = 0.f;
+        renderer->phase = 0.f;
+        renderer->transferfunc = std::make_shared<TransferFunction>();
+        renderer->transferfunc->colormap(tinycolormap::ColormapType::Cividis);
+        renderer->transferfunc->window_left = 0.146f;
+        renderer->transferfunc->window_width = 0.479f;
+        renderer->vol_clip_min = glm::vec3(0.0, 0.0, 0.5);
+        renderer->vol_clip_max = glm::vec3(1.0, 1.0, 1.0);
+        current_camera()->pos = glm::vec3(0.27, 0.04, -0.58);
+        current_camera()->dir = normalize(glm::vec3(-0.30, -0.02, 0.95));
+        current_camera()->up = glm::vec3(0, 1, 0);
+        animate = false;
+        renderer->reset();
+    }
+    // cloud demo
+    if (key == GLFW_KEY_4 && action == GLFW_PRESS) {
+        load_volume(base_dir / "volumes/wdas_cloud/wdas_cloud_half.brick");
+        load_envmap(base_dir / "envmaps/syferfontein_1d_clear_4k.hdr");
+        renderer->show_environment = true;
+        renderer->environment->strength = 1.f;
+        renderer->albedo = glm::vec3(1.0);
+        renderer->density_scale = 200.f;
+        renderer->emission_scale = 0.f;
+        renderer->phase = 0.f;
+        renderer->transferfunc.reset();
+        renderer->vol_clip_min = glm::vec3(0.0, 0.0, 0.0);
+        renderer->vol_clip_max = glm::vec3(1.0, 1.0, 1.0);
+        current_camera()->pos = glm::vec3(0.560, -0.249, -0.271);
+        current_camera()->dir = normalize(glm::vec3(-0.81, 0.40, 0.42));
+        current_camera()->up = glm::vec3(0, 1, 0);
+        animate = false;
+        renderer->reset();
+    }
+    // tornado demo
+    if (key == GLFW_KEY_5 && action == GLFW_PRESS) {
+        load_volume(base_dir / "volumes/tornado_brick");
+        renderer->volume->transform = glm::rotate(renderer->volume->transform, 1.5f * float(M_PI), glm::vec3(1, 0, 0));
+        load_envmap(base_dir / "envmaps/lilienstein_2k.hdr");
+        renderer->show_environment = true;
+        renderer->environment->strength = 1.f;
+        renderer->albedo = glm::vec3(0.53, 0.37, 0.16);
+        renderer->density_scale = 500.f;
+        renderer->emission_scale = 0.f;
+        renderer->phase = 0.f;
+        renderer->transferfunc.reset();
+        renderer->vol_clip_min = glm::vec3(0.0, 0.0, 0.0);
+        renderer->vol_clip_max = glm::vec3(1.0, 1.0, 1.0);
+        current_camera()->pos = glm::vec3(-0.89, -0.52, 0.37);
+        current_camera()->dir = normalize(glm::vec3(0.91, 0.31, -0.26));
+        current_camera()->up = glm::vec3(0, 1, 0);
+        animate = true;
+        renderer->reset();
+    }
+    // explosion demo
+    if (key == GLFW_KEY_6 && action == GLFW_PRESS) {
+        load_volume(base_dir / "volumes/air_explosion_brick");
+        renderer->volume->transform = glm::rotate(renderer->volume->transform, 1.5f * float(M_PI), glm::vec3(1, 0, 0));
+        load_envmap(base_dir / "envmaps/mpumalanga_veld_2k.hdr");
+        renderer->show_environment = true;
+        renderer->environment->strength = 1.f;
+        renderer->albedo = glm::vec3(0.5);
+        renderer->density_scale = 500.f;
+        renderer->emission_scale = 200.f;
+        renderer->phase = 0.f;
+        renderer->transferfunc.reset();
+        renderer->vol_clip_min = glm::vec3(0.0, 0.0, 0.0);
+        renderer->vol_clip_max = glm::vec3(1.0, 1.0, 1.0);
+        current_camera()->pos = glm::vec3(0.056, 0.675, 0.114);
+        current_camera()->dir = normalize(glm::vec3(-0.08, -0.99, -0.06));
+        current_camera()->up = glm::vec3(0, 1, 0);
+        animate = true;
+        renderer->reset();
+    }
 }
 
 void mouse_button_callback(int button, int action, int mods) {
@@ -147,8 +282,10 @@ void mouse_callback(double xpos, double ypos) {
             const auto [min, maj] = renderer->volume->current_grid()->minorant_majorant();
             if (Context::key_pressed(GLFW_KEY_LEFT_SHIFT))
                 renderer->transferfunc->window_width = glm::clamp(renderer->transferfunc->window_width + (xpos - old_xpos) * (maj - min) * 0.001, 0.0, 1.0);
-            else
+            else {
                 renderer->transferfunc->window_left = glm::clamp(renderer->transferfunc->window_left + (xpos - old_xpos) * (maj - min) * 0.001, -1.0, 1.0);
+                // renderer->transferfunc->window_width = 1.0 - renderer->transferfunc->window_left;
+            }
             renderer->sample = 0;
         }
     }
@@ -215,10 +352,43 @@ void gui_callback(void) {
             renderer->transferfunc = std::make_shared<TransferFunction>(std::vector<glm::vec4>({ glm::vec4(0), glm::vec4(1,0,0,0.25), glm::vec4(0,1,0,0.5), glm::vec4(0,0,1,0.75), glm::vec4(1) }));
             renderer->reset();
         }
-        if (ImGui::Button("Write TF")) {
-            renderer->transferfunc->write_to_file("tf_lut.txt");
+        ImGui::SameLine();
+        if (ImGui::Button("FAU TF")) {
+            renderer->transferfunc = std::make_shared<TransferFunction>(std::vector<glm::vec4>({ glm::vec4(0), glm::vec4(4/255.f, 49/255.f, 106/255.f, 0.33), glm::vec4(38/255.f, 97/255.f, 65/255.f, 0.66), glm::vec4(151/255.f, 27/255.f, 47/255.f, 1) }));
+            renderer->reset();
+        }
+        if (ImGui::Button("Turbo")) {
+            renderer->transferfunc = std::make_shared<TransferFunction>();
+            renderer->transferfunc->colormap(tinycolormap::ColormapType::Turbo);
+            renderer->reset();
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Viridis")) {
+            renderer->transferfunc = std::make_shared<TransferFunction>();
+            renderer->transferfunc->colormap(tinycolormap::ColormapType::Viridis);
+            renderer->reset();
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Cividis")) {
+            renderer->transferfunc = std::make_shared<TransferFunction>();
+            renderer->transferfunc->colormap(tinycolormap::ColormapType::Cividis);
+            renderer->reset();
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Magma")) {
+            renderer->transferfunc = std::make_shared<TransferFunction>();
+            renderer->transferfunc->colormap(tinycolormap::ColormapType::Magma);
+            renderer->reset();
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Cubehelix")) {
+            renderer->transferfunc = std::make_shared<TransferFunction>();
+            renderer->transferfunc->colormap(tinycolormap::ColormapType::Cubehelix);
+            renderer->reset();
         }
         if (renderer->transferfunc) {
+            if (ImGui::Button("Write TF"))
+                    renderer->transferfunc->write_to_file("tf_lut.txt");
             if (ImGui::DragFloat("Window left", &renderer->transferfunc->window_left, 0.01f, -1.f, 1.f)) renderer->reset();
             if (ImGui::DragFloat("Window width", &renderer->transferfunc->window_width, 0.01f, 0.f, 1.f)) renderer->reset();
         }
@@ -258,19 +428,9 @@ void gui_callback(void) {
             renderer->reset();
         }
         ImGui::Separator();
-        ImGui::Text("Rotate ENVMAP");
-        if (ImGui::Button("90° X##E")) {
-            renderer->environment->transform = glm::mat3(glm::rotate(glm::mat4(renderer->environment->transform), .5f * float(M_PI), glm::vec3(1, 0, 0)));
-            renderer->reset();
-        }
-        ImGui::SameLine();
-        if (ImGui::Button("90° Y##E")) {
-            renderer->environment->transform = glm::mat3(glm::rotate(glm::mat4(renderer->environment->transform), .5f * float(M_PI), glm::vec3(0, 1, 0)));
-            renderer->reset();
-        }
-        ImGui::SameLine();
-        if (ImGui::Button("90° Z##E")) {
-            renderer->environment->transform = glm::mat3(glm::rotate(glm::mat4(renderer->environment->transform), .5f * float(M_PI), glm::vec3(0, 0, 1)));
+        static float env_rot_y_deg = 0.f;
+        if (ImGui::SliderFloat("ENVMAP rotation", &env_rot_y_deg, 0.f, 359.9f)) {
+            renderer->environment->transform = glm::mat3(glm::rotate(glm::mat4(1), glm::radians(env_rot_y_deg), glm::vec3(0, 1, 0)));
             renderer->reset();
         }
         ImGui::Separator();
@@ -337,27 +497,47 @@ static void init_opengl_from_args(int argc, char** argv) {
 static void parse_cmd(int argc, char** argv) {
     for (int i = 1; i < argc; ++i) {
         const std::string arg = argv[i];
-        if (arg == "--render")
+        if (arg == "--render") {
             interactive = false;
-        else if (arg == "--samples" || arg == "--spp" || arg == "--sppx")
+        } else if (arg == "--output") {
+            out_filename = argv[++i];
+        } else if (arg == "--samples" || arg == "--spp" || arg == "--sppx") {
             renderer->sppx = std::stoi(argv[++i]);
-        else if (arg == "--bounces")
+        } else if (arg == "--bounces") {
             renderer->bounces = std::stoi(argv[++i]);
-        else if (arg == "--albedo")
+        } else if (arg == "--albedo") {
             renderer->albedo = glm::vec3(std::stof(argv[++i]));
-        else if (arg == "--density")
+        } else if (arg == "--density") {
             renderer->density_scale = std::stof(argv[++i]);
-        else if (arg == "--emission")
+        } else if (arg == "--emission") {
             renderer->emission_scale = std::stof(argv[++i]);
-        else if (arg == "--phase")
+        } else if (arg == "--phase") {
             renderer->phase = std::stof(argv[++i]);
-        else if (arg == "--env_strength")
+        } else if (arg == "--env_strength") {
             renderer->environment->strength = std::stof(argv[++i]);
-        else if (arg == "--env_rot")
-            renderer->environment->transform = glm::mat3(glm::rotate(glm::mat4(renderer->environment->transform), glm::radians(std::stof(argv[++i])), glm::vec3(0, 1, 0)));
-        else if (arg == "--env_hide")
+        } else if (arg == "--env_rot") {
+            renderer->environment->transform = glm::mat3(glm::rotate(glm::mat4(1), glm::radians(std::stof(argv[++i])), glm::vec3(0, 1, 0)));
+        } else if (arg == "--env_hide") {
             renderer->show_environment = false;
-        else if (arg == "--cam_pos") {
+        } else if (arg == "--turbo") {
+            if (!renderer->transferfunc)
+                renderer->transferfunc = std::make_shared<TransferFunction>();
+            renderer->transferfunc->colormap(tinycolormap::ColormapType::Turbo);
+        } else if (arg == "--viridis") {
+            if (!renderer->transferfunc)
+                renderer->transferfunc = std::make_shared<TransferFunction>();
+            renderer->transferfunc->colormap(tinycolormap::ColormapType::Viridis);
+        } else if (arg == "--fau") {
+            if (!renderer->transferfunc)
+                renderer->transferfunc = std::make_shared<TransferFunction>();
+            renderer->transferfunc = std::make_shared<TransferFunction>(std::vector<glm::vec4>({ glm::vec4(0), glm::vec4(4/255.f, 49/255.f, 106/255.f, 0.33), glm::vec4(38/255.f, 97/255.f, 65/255.f, 0.66), glm::vec4(151/255.f, 27/255.f, 47/255.f, 1) }));
+        } else if (arg == "--tf_left") {
+            if (renderer->transferfunc)
+                renderer->transferfunc->window_left = std::stof(argv[++i]);
+        } else if (arg == "--tf_width") {
+            if (renderer->transferfunc)
+                renderer->transferfunc->window_width = std::stof(argv[++i]);
+        } else if (arg == "--cam_pos") {
             current_camera()->pos.x = std::stof(argv[++i]);
             current_camera()->pos.y = std::stof(argv[++i]);
             current_camera()->pos.z = std::stof(argv[++i]);
@@ -367,18 +547,27 @@ static void parse_cmd(int argc, char** argv) {
             current_camera()->dir.z = std::stof(argv[++i]);
         } else if (arg == "--cam_fov")
             current_camera()->fov_degree = std::stof(argv[++i]);
-        else if (arg == "--exposure")
+        else if (arg == "--exposure") {
             renderer->tonemap_exposure = std::stof(argv[++i]);
-        else if (arg == "--gamma")
+        } else if (arg == "--gamma") {
             renderer->tonemap_gamma = std::stof(argv[++i]);
-        else if (arg == "--vol_rot_x")
+        } else if (arg == "--vol_rot_x") {
             renderer->volume->transform = glm::mat3(glm::rotate(glm::mat4(renderer->volume->transform), glm::radians(std::stof(argv[++i])), glm::vec3(1, 0, 0)));
-        else if (arg == "--vol_rot_y")
+        } else if (arg == "--vol_rot_y") {
             renderer->volume->transform = glm::mat3(glm::rotate(glm::mat4(renderer->volume->transform), glm::radians(std::stof(argv[++i])), glm::vec3(0, 1, 0)));
-        else if (arg == "--vol_rot_z")
+        } else if (arg == "--vol_rot_z") {
             renderer->volume->transform = glm::mat3(glm::rotate(glm::mat4(renderer->volume->transform), glm::radians(std::stof(argv[++i])), glm::vec3(0, 0, 1)));
-        else if (fs::is_regular_file(argv[i]) || fs::is_directory(argv[i]))
+        } else if (arg == "--vol_crop_min") {
+            renderer->vol_clip_min.x = std::stof(argv[++i]);
+            renderer->vol_clip_min.y = std::stof(argv[++i]);
+            renderer->vol_clip_min.z = std::stof(argv[++i]);
+        } else if (arg == "--vol_crop_max") {
+            renderer->vol_clip_max.x = std::stof(argv[++i]);
+            renderer->vol_clip_max.y = std::stof(argv[++i]);
+            renderer->vol_clip_max.z = std::stof(argv[++i]);
+        } else if (fs::is_regular_file(argv[i]) || fs::is_directory(argv[i])) {
             handle_path(argv[i]);
+        }
     }
 }
 
@@ -480,6 +669,7 @@ int main(int argc, char** argv) {
             renderer->volume->grid_frame_counter = i;
             while (renderer->sample < renderer->sppx) {
                 renderer->trace();
+                std::cout << renderer->sample << " / " << renderer->sppx << "\r" << std::flush;
                 Context::swap_buffers(); // sync (this is required for >= 1024spp)
             }
             glMemoryBarrier(GL_ALL_BARRIER_BITS);
