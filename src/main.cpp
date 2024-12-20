@@ -11,7 +11,6 @@
 #include <pybind11/embed.h>
 #include <pybind11/eval.h>
 
-
 #include "renderer.h"
 
 using namespace cppgl;
@@ -132,139 +131,6 @@ void keyboard_callback(int key, int scancode, int action, int mods) {
     }
     if (key == GLFW_KEY_ENTER && action == GLFW_PRESS)
         Context::screenshot("screenshot.png");
-    // --------------------------------------------------------------
-    // LNdW 2023 demo scenes TODO: cleanup
-    // std::filesystem::path base_dir = "/media/ul40ovyj/T7 Touch/";
-    std::filesystem::path base_dir = "/media/niko/T7 Touch/";
-    // head demo
-    if (key == GLFW_KEY_1 && action == GLFW_PRESS) {
-        load_volume(base_dir / "data/head_8bit.dat");
-        load_envmap(base_dir / "envmaps/chapmans_drive_2k.hdr");
-        renderer->show_environment = false;
-        renderer->environment->strength = 10.f;
-        renderer->albedo = glm::vec3(0.9);
-        renderer->density_scale = 500.f;
-        renderer->emission_scale = 0.f;
-        renderer->phase = 0.f;
-        renderer->transferfunc = std::make_shared<TransferFunction>();
-        renderer->transferfunc->colormap(tinycolormap::ColormapType::Cubehelix);
-        renderer->transferfunc->window_left = 0.235f;
-        renderer->transferfunc->window_width = 0.145f;
-        renderer->vol_clip_min = glm::vec3(0.38, 0.0, 0.0);
-        renderer->vol_clip_max = glm::vec3(1.0, 1.0, 1.0);
-        current_camera()->pos = glm::vec3(-0.8, 0.1, -0.32);
-        current_camera()->dir = normalize(glm::vec3(0.99, -0.1, -0.05));
-        current_camera()->up = glm::vec3(0, 1, 0);
-        animate = false;
-        renderer->reset();
-    }
-    // fullbody demo
-    if (key == GLFW_KEY_2 && action == GLFW_PRESS) {
-        load_volume(base_dir / "data/fullbody.brick");
-        renderer->volume->transform = glm::rotate(renderer->volume->transform, 1.f * float(M_PI), glm::vec3(0, 0, 1));
-        load_envmap(base_dir / "envmaps/kiara_8_sunset_2k.hdr");
-        renderer->show_environment = false;
-        renderer->environment->strength = 3.f;
-        renderer->albedo = glm::vec3(0.5);
-        renderer->density_scale = 750.f;
-        renderer->emission_scale = 0.f;
-        renderer->phase = 0.f;
-        renderer->transferfunc = std::make_shared<TransferFunction>();
-        renderer->transferfunc->colormap(tinycolormap::ColormapType::Cubehelix);
-        renderer->transferfunc->window_left = 0.242f;
-        renderer->transferfunc->window_width = 0.081f;
-        // load_transferfunc(base_dir / "data/SplineShaded.txt");
-        // renderer->transferfunc->window_left = 0.150f;
-        // renderer->transferfunc->window_width = 0.290f;
-        renderer->vol_clip_min = glm::vec3(0.0, 0.5, 0.0);
-        renderer->vol_clip_max = glm::vec3(1.0, 1.0, 1.0);
-        current_camera()->pos = glm::vec3(-0.075, 0.42, -0.12);
-        current_camera()->dir = normalize(glm::vec3(0.25, -0.95, -0.22));
-        current_camera()->up = glm::vec3(0, 1, 0);
-        animate = false;
-        renderer->reset();
-    }
-    //  demo objektiv
-    if (key == GLFW_KEY_3 && action == GLFW_PRESS) {
-        load_volume(base_dir / "volumes/objektiv.brick");
-        load_envmap(base_dir / "envmaps/forest_slope_2k.hdr");
-        renderer->show_environment = false;
-        renderer->environment->strength = 3.f;
-        renderer->albedo = glm::vec3(1.0);
-        renderer->density_scale = 200.f;
-        renderer->emission_scale = 0.f;
-        renderer->phase = 0.f;
-        renderer->transferfunc = std::make_shared<TransferFunction>();
-        renderer->transferfunc->colormap(tinycolormap::ColormapType::Cividis);
-        renderer->transferfunc->window_left = 0.146f;
-        renderer->transferfunc->window_width = 0.479f;
-        renderer->vol_clip_min = glm::vec3(0.0, 0.0, 0.5);
-        renderer->vol_clip_max = glm::vec3(1.0, 1.0, 1.0);
-        current_camera()->pos = glm::vec3(0.27, 0.04, -0.58);
-        current_camera()->dir = normalize(glm::vec3(-0.30, -0.02, 0.95));
-        current_camera()->up = glm::vec3(0, 1, 0);
-        animate = false;
-        renderer->reset();
-    }
-    // cloud demo
-    if (key == GLFW_KEY_4 && action == GLFW_PRESS) {
-        load_volume(base_dir / "volumes/wdas_cloud/wdas_cloud_half.brick");
-        load_envmap(base_dir / "envmaps/syferfontein_1d_clear_4k.hdr");
-        renderer->show_environment = true;
-        renderer->environment->strength = 1.f;
-        renderer->albedo = glm::vec3(1.0);
-        renderer->density_scale = 200.f;
-        renderer->emission_scale = 0.f;
-        renderer->phase = 0.f;
-        renderer->transferfunc.reset();
-        renderer->vol_clip_min = glm::vec3(0.0, 0.0, 0.0);
-        renderer->vol_clip_max = glm::vec3(1.0, 1.0, 1.0);
-        current_camera()->pos = glm::vec3(0.560, -0.249, -0.271);
-        current_camera()->dir = normalize(glm::vec3(-0.81, 0.40, 0.42));
-        current_camera()->up = glm::vec3(0, 1, 0);
-        animate = false;
-        renderer->reset();
-    }
-    // tornado demo
-    if (key == GLFW_KEY_5 && action == GLFW_PRESS) {
-        load_volume(base_dir / "volumes/tornado_brick");
-        renderer->volume->transform = glm::rotate(renderer->volume->transform, 1.5f * float(M_PI), glm::vec3(1, 0, 0));
-        load_envmap(base_dir / "envmaps/lilienstein_2k.hdr");
-        renderer->show_environment = true;
-        renderer->environment->strength = 1.f;
-        renderer->albedo = glm::vec3(0.53, 0.37, 0.16);
-        renderer->density_scale = 500.f;
-        renderer->emission_scale = 0.f;
-        renderer->phase = 0.f;
-        renderer->transferfunc.reset();
-        renderer->vol_clip_min = glm::vec3(0.0, 0.0, 0.0);
-        renderer->vol_clip_max = glm::vec3(1.0, 1.0, 1.0);
-        current_camera()->pos = glm::vec3(-0.89, -0.52, 0.37);
-        current_camera()->dir = normalize(glm::vec3(0.91, 0.31, -0.26));
-        current_camera()->up = glm::vec3(0, 1, 0);
-        animate = true;
-        renderer->reset();
-    }
-    // explosion demo
-    if (key == GLFW_KEY_6 && action == GLFW_PRESS) {
-        load_volume(base_dir / "volumes/air_explosion_brick");
-        renderer->volume->transform = glm::rotate(renderer->volume->transform, 1.5f * float(M_PI), glm::vec3(1, 0, 0));
-        load_envmap(base_dir / "envmaps/mpumalanga_veld_2k.hdr");
-        renderer->show_environment = true;
-        renderer->environment->strength = 1.f;
-        renderer->albedo = glm::vec3(0.5);
-        renderer->density_scale = 500.f;
-        renderer->emission_scale = 200.f;
-        renderer->phase = 0.f;
-        renderer->transferfunc.reset();
-        renderer->vol_clip_min = glm::vec3(0.0, 0.0, 0.0);
-        renderer->vol_clip_max = glm::vec3(1.0, 1.0, 1.0);
-        current_camera()->pos = glm::vec3(0.056, 0.675, 0.114);
-        current_camera()->dir = normalize(glm::vec3(-0.08, -0.99, -0.06));
-        current_camera()->up = glm::vec3(0, 1, 0);
-        animate = true;
-        renderer->reset();
-    }
 }
 
 void mouse_button_callback(int button, int action, int mods) {
@@ -280,11 +146,10 @@ void mouse_callback(double xpos, double ypos) {
     if (!ImGui::GetIO().WantCaptureMouse && renderer->transferfunc) {
         if (Context::mouse_button_pressed(GLFW_MOUSE_BUTTON_RIGHT)) {
             const auto [min, maj] = renderer->volume->current_grid()->minorant_majorant();
-            if (Context::key_pressed(GLFW_KEY_LEFT_SHIFT))
+            if (Context::key_pressed(GLFW_KEY_LEFT_SHIFT)) {
                 renderer->transferfunc->window_width = glm::clamp(renderer->transferfunc->window_width + (xpos - old_xpos) * (maj - min) * 0.001, 0.0, 1.0);
-            else {
+            } else {
                 renderer->transferfunc->window_left = glm::clamp(renderer->transferfunc->window_left + (xpos - old_xpos) * (maj - min) * 0.001, -1.0, 1.0);
-                // renderer->transferfunc->window_width = 1.0 - renderer->transferfunc->window_left;
             }
             renderer->sample = 0;
         }
