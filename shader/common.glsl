@@ -330,11 +330,10 @@ vec3 lookup_emission(const vec3 ipos, inout uint seed) {
 // --------------------------------------------------------------
 // null-collision methods
 
-float transmittance(const vec3 wpos, const vec3 wdir, inout uint seed, float t_max = FLT_MAX) {
+float transmittance(const vec3 wpos, const vec3 wdir, inout uint seed) {
     // clip volume
     vec2 near_far;
     if (!intersect_box(wpos, wdir, vol_bb_min, vol_bb_max, near_far)) return 1.f;
-    near_far.y = min(t_max, near_far.y);
     // to index-space
     const vec3 ipos = vec3(vol_density_inv_transform * vec4(wpos, 1));
     const vec3 idir = vec3(vol_density_inv_transform * vec4(wdir, 0)); // non-normalized!
