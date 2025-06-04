@@ -73,8 +73,6 @@ void load_envmap(const std::string& path) {
 void load_transferfunc(const std::string& path) {
     try {
         renderer->transferfunc = std::make_shared<TransferFunction>(path);
-        renderer->transferfunc->upload_gpu();
-        renderer->trace_shader = Shader("trace_tf", "shader/pathtracer_brick_tf.glsl");
         renderer->show_environment = false;
         renderer->sample = 0;
     } catch (std::runtime_error& e) {
